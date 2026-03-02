@@ -147,6 +147,10 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=<optional-fallback-anon-key>
 SUPABASE_SERVICE_ROLE_KEY=<supabase-service-role-key>
 SUPABASE_STORAGE_ARTIFACT_BUCKET=aip-artifacts
 SUPABASE_STORAGE_PROJECT_MEDIA_BUCKET=project-media
+AIP_UPLOAD_MAX_BYTES=15728640
+AIP_UPLOAD_FAILURE_THRESHOLD=5
+AIP_UPLOAD_FAILURE_WINDOW_MINUTES=60
+AIP_UPLOAD_FAILURE_COOLDOWN_MINUTES=15
 
 BASE_URL=http://localhost:3000
 NEXT_PUBLIC_APP_ENV=dev
@@ -174,6 +178,15 @@ PIPELINE_WORKER_POLL_SECONDS=3
 PIPELINE_WORKER_RUN_ONCE=false
 PIPELINE_PROGRESS_HEARTBEAT_SECONDS=5
 PIPELINE_SUMMARIZE_EXPECTED_SECONDS=60
+PIPELINE_EXTRACT_MAX_PAGES=200
+PIPELINE_PARSE_TIMEOUT_SECONDS=20
+PIPELINE_EXTRACT_TIMEOUT_SECONDS=1800
+PIPELINE_EMBED_TIMEOUT_SECONDS=300
+PIPELINE_RETRY_FAILURE_THRESHOLD=5
+PIPELINE_RETRY_FAILURE_WINDOW_SECONDS=21600
+PIPELINE_SUPABASE_HTTP_TIMEOUT_SECONDS=120
+PIPELINE_SUPABASE_DOWNLOAD_TIMEOUT_SECONDS=120
+PIPELINE_SOURCE_PDF_MAX_BYTES=15728640
 PIPELINE_ARTIFACT_INLINE_MAX_BYTES=32768
 PIPELINE_ENABLE_RAG=false
 PIPELINE_RAG_TRACE_QUERY=
@@ -208,6 +221,10 @@ Website env reference:
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Server-only | Elevated server actions (uploads/admin ops) |
 | `SUPABASE_STORAGE_ARTIFACT_BUCKET` | No | Server-only | Artifact bucket used for strict draft delete cleanup (default `aip-artifacts`) |
 | `SUPABASE_STORAGE_PROJECT_MEDIA_BUCKET` | No | Server-only | Private bucket used for project cover images and update photos (default `project-media`) |
+| `AIP_UPLOAD_MAX_BYTES` | No | Server-only | Maximum upload size in bytes for AIP PDF routes (default `15728640`) |
+| `AIP_UPLOAD_FAILURE_THRESHOLD` | No | Server-only | Number of recent failed runs before uploader cooldown starts (default `5`) |
+| `AIP_UPLOAD_FAILURE_WINDOW_MINUTES` | No | Server-only | Lookback window for failed runs used by upload throttle (default `60`) |
+| `AIP_UPLOAD_FAILURE_COOLDOWN_MINUTES` | No | Server-only | Cooldown duration after repeated failed runs (default `15`) |
 | `BASE_URL` | Yes | Server-only | Absolute app origin for auth page helpers |
 | `NEXT_PUBLIC_APP_ENV` | No | Client-exposed | `dev`/`staging`/`prod`; controls mock selection |
 | `NEXT_PUBLIC_USE_MOCKS` | No | Client-exposed | Force mock repos when `true` |
@@ -234,6 +251,15 @@ Pipeline env reference:
 | `PIPELINE_WORKER_RUN_ONCE` | No | Server-only | Exit after one polling cycle |
 | `PIPELINE_PROGRESS_HEARTBEAT_SECONDS` | No | Server-only | Progress heartbeat interval |
 | `PIPELINE_SUMMARIZE_EXPECTED_SECONDS` | No | Server-only | Summarization progress estimate |
+| `PIPELINE_EXTRACT_MAX_PAGES` | No | Server-only | Hard page cap per source PDF; fails with `PDF_PAGE_LIMIT_EXCEEDED` (default `200`) |
+| `PIPELINE_PARSE_TIMEOUT_SECONDS` | No | Server-only | Timeout budget for initial PDF parse/read (default `20`) |
+| `PIPELINE_EXTRACT_TIMEOUT_SECONDS` | No | Server-only | Timeout budget for extraction stage page loop (default `1800`) |
+| `PIPELINE_EMBED_TIMEOUT_SECONDS` | No | Server-only | Timeout budget for embedding stage (default `300`) |
+| `PIPELINE_RETRY_FAILURE_THRESHOLD` | No | Server-only | Failed-run threshold for worker retry block on same uploader+file (default `5`) |
+| `PIPELINE_RETRY_FAILURE_WINDOW_SECONDS` | No | Server-only | Lookback window for retry block evaluation (default `21600`) |
+| `PIPELINE_SUPABASE_HTTP_TIMEOUT_SECONDS` | No | Server-only | Timeout for Supabase REST requests made by pipeline adapters (default `120`) |
+| `PIPELINE_SUPABASE_DOWNLOAD_TIMEOUT_SECONDS` | No | Server-only | Timeout for signed source-PDF downloads (default `120`) |
+| `PIPELINE_SOURCE_PDF_MAX_BYTES` | No | Server-only | Hard byte cap for downloaded source PDFs; fails with `SOURCE_PDF_TOO_LARGE` (default `15728640`) |
 | `PIPELINE_ARTIFACT_INLINE_MAX_BYTES` | No | Server-only | Inline vs storage threshold |
 | `PIPELINE_ENABLE_RAG` | No | Server-only | Enable optional RAG trace stage |
 | `PIPELINE_RAG_TRACE_QUERY` | No | Server-only | Query text used when RAG trace is enabled |
@@ -455,10 +481,14 @@ Related docs:
 - Row-level security policies are defined in `website/docs/sql/database-v2.sql` for major tables (`aips`, `projects`, `feedback`, `aip_reviews`, `chat_*`, `activity_log`, `extraction_*`).
 
 ## Storage / File Handling
-- Upload route handlers accept PDF only, max 10 MB.
+- Upload route handlers accept PDF only and enforce:
+  - MIME/extension checks plus `%PDF-` magic-byte header validation.
+  - `AIP_UPLOAD_MAX_BYTES` (default 15 MB).
+  - per-uploader cooldown after repeated failed runs (`AIP_UPLOAD_FAILURE_*`), returning HTTP `429` with `Retry-After`.
 - Source files are uploaded to bucket `aip-pdfs` and metadata is written to `public.uploaded_files`.
 - Extraction runs are queued in `public.extraction_runs`.
-- Worker downloads source PDFs using signed URLs and writes stage outputs to `public.extraction_artifacts`.
+- Worker downloads source PDFs using signed URLs with configured timeout and size bounds (`PIPELINE_SUPABASE_DOWNLOAD_TIMEOUT_SECONDS`, `PIPELINE_SOURCE_PDF_MAX_BYTES`).
+- Worker enforces extraction page/parse/elapsed bounds and embedding timeout, and persists explicit failure reason codes in `public.extraction_runs.error_code`.
 - Artifact payloads are stored directly in `artifact_json` using the stage contract (`aip_artifact_v1.x.x`).
 - Web repo generates short-lived signed URLs when serving PDF references (10-minute TTL in current implementation).
 
@@ -509,8 +539,8 @@ docker build -f Dockerfile.worker -t openaip-pipeline-worker .
 ```
 
 Production runtime requirements:
-- Website envs: `NEXT_PUBLIC_SUPABASE_URL`, publishable/anon key, `SUPABASE_SERVICE_ROLE_KEY`, `BASE_URL` (optional: `SUPABASE_STORAGE_ARTIFACT_BUCKET`, `SUPABASE_STORAGE_PROJECT_MEDIA_BUCKET`)
-- Pipeline envs: `OPENAI_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`
+- Website envs: `NEXT_PUBLIC_SUPABASE_URL`, publishable/anon key, `SUPABASE_SERVICE_ROLE_KEY`, `BASE_URL` (optional: `SUPABASE_STORAGE_ARTIFACT_BUCKET`, `SUPABASE_STORAGE_PROJECT_MEDIA_BUCKET`, `AIP_UPLOAD_MAX_BYTES`, `AIP_UPLOAD_FAILURE_THRESHOLD`, `AIP_UPLOAD_FAILURE_WINDOW_MINUTES`, `AIP_UPLOAD_FAILURE_COOLDOWN_MINUTES`)
+- Pipeline envs: `OPENAI_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` (recommended guardrails: `PIPELINE_EXTRACT_MAX_PAGES`, `PIPELINE_PARSE_TIMEOUT_SECONDS`, `PIPELINE_EXTRACT_TIMEOUT_SECONDS`, `PIPELINE_EMBED_TIMEOUT_SECONDS`, `PIPELINE_RETRY_FAILURE_THRESHOLD`, `PIPELINE_RETRY_FAILURE_WINDOW_SECONDS`, `PIPELINE_SUPABASE_HTTP_TIMEOUT_SECONDS`, `PIPELINE_SUPABASE_DOWNLOAD_TIMEOUT_SECONDS`, `PIPELINE_SOURCE_PDF_MAX_BYTES`)
 - Supabase project with DB schema and storage buckets in place
 - Outbound network access from pipeline runtime to Supabase + OpenAI
 
@@ -550,12 +580,19 @@ Common hosting options for this codebase:
 | `Missing NEXT_PUBLIC_SUPABASE_URL...` at runtime | Supabase public env vars not set in `website/.env.local` | Set `NEXT_PUBLIC_SUPABASE_URL` and one of `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`/`NEXT_PUBLIC_SUPABASE_ANON_KEY`, then restart `npm run dev` |
 | `BASE_URL environment variable is not configured` on auth pages | `BASE_URL` missing | Set `BASE_URL=http://localhost:3000` for local dev |
 | Upload endpoint returns `Unauthorized` or `You cannot upload for this AIP right now.` | Role/scope mismatch or DB function/policies not applied | Ensure user profile role/scope is correct and SQL from `website/docs/sql/database-v2.sql` is applied |
+| Upload fails with `Invalid PDF file header. Expected %PDF- magic bytes.` | Uploaded file is not a real PDF payload | Re-export/upload a valid PDF file; do not rely on extension only |
+| Upload fails with `File too large...` | File exceeded `AIP_UPLOAD_MAX_BYTES` | Increase `AIP_UPLOAD_MAX_BYTES` carefully or upload a smaller PDF |
+| Upload fails with HTTP `429` and `upload_throttled` | Uploader hit repeated failed-run cooldown window | Wait for `Retry-After` or adjust `AIP_UPLOAD_FAILURE_*` thresholds |
 | Upload fails with storage error (`bucket not found` / permissions) | Missing `aip-pdfs` bucket or storage misconfiguration | Create `aip-pdfs` bucket in Supabase Storage; verify service role key is valid |
 | Draft delete fails with `Failed to delete one or more AIP files from storage. Draft was not deleted.` | Strict delete gate blocked DB delete because one or more storage objects could not be removed | Verify `aip-pdfs`/artifact bucket objects still exist, service role key has storage delete permission, and `SUPABASE_STORAGE_ARTIFACT_BUCKET` matches your artifact bucket |
 | Worker exits/fails with progress-column error | DB missing run progress columns | Apply `website/docs/sql/2026-02-19_extraction_run_progress.sql` (or full `database-v2.sql`) |
 | UI does not receive live progress updates | Realtime publication not configured | Apply `website/docs/sql/2026-02-21_extraction_runs_realtime.sql` |
 | Runs stay `queued` forever | Worker not running or cannot claim runs | Start `openaip-worker`; verify pipeline `SUPABASE_URL` + `SUPABASE_SERVICE_KEY` |
 | Worker fails with `OPENAI_API_KEY not found` | Missing OpenAI secret in pipeline env | Set `OPENAI_API_KEY` in `aip-intelligence-pipeline/.env` |
+| Run fails with `error_code=PDF_PAGE_LIMIT_EXCEEDED` | PDF page count exceeded `PIPELINE_EXTRACT_MAX_PAGES` | Increase cap if acceptable or upload smaller PDFs |
+| Run fails with `error_code=PARSE_TIMEOUT` / `EXTRACT_TIMEOUT` / `EMBED_TIMEOUT` | Stage exceeded configured timeout budget | Tune relevant `PIPELINE_*_TIMEOUT_SECONDS` values and inspect problematic PDF complexity |
+| Run fails with `error_code=SOURCE_PDF_TOO_LARGE` | Downloaded source PDF exceeded `PIPELINE_SOURCE_PDF_MAX_BYTES` | Increase cap carefully or reject/replace oversized source file |
+| Run fails with `error_code=RUN_RETRY_BLOCKED` | Same uploader+file exceeded retry-failure threshold in lookback window | Wait for `PIPELINE_RETRY_FAILURE_WINDOW_SECONDS` or adjust retry guardrail envs |
 | `POST /v1/runs/dev/local` returns 403 | Dev routes disabled | Set `PIPELINE_DEV_ROUTES=true` in pipeline env |
 | `POST /v1/runs/*` returns 401 | Missing/invalid `aud`/`ts`/`nonce`/`sig`, stale `ts`, replayed nonce, or audience not allowlisted | Set `PIPELINE_RUNS_HMAC_SECRET` and `PIPELINE_RUNS_ALLOWED_AUDIENCES`; sign request body/path/method correctly and keep clock skew within ±60s |
 | `POST /v1/chat/*` returns 401 | Missing/invalid `x-pipeline-aud`/`x-pipeline-ts`/`x-pipeline-nonce`/`x-pipeline-sig`, stale `ts`, invalid `aud`, bad signature, or replayed `(aud,nonce,ts,body)` | Set matching `PIPELINE_HMAC_SECRET` on website + pipeline; sign `aud|ts|nonce|rawBody`, keep clock skew within ±60s, and send unique nonce per request |

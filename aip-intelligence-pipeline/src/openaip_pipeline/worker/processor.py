@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 import os
 import tempfile
+import time
 import traceback
 from typing import Any
 
@@ -16,6 +18,91 @@ from openaip_pipeline.services.summarization.summarize import summarize_aip_over
 from openaip_pipeline.services.validation.barangay import validate_projects_json_str as validate_barangay
 from openaip_pipeline.services.validation.city import validate_projects_json_str as validate_city
 from openaip_pipeline.worker.progress import clamp_pct, read_positive_float_env, run_with_heartbeat
+
+
+class PipelineGuardrailError(RuntimeError):
+    def __init__(self, reason_code: str, message: str):
+        super().__init__(message)
+        self.reason_code = reason_code
+
+
+def _read_positive_int_env(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        parsed = int(raw.strip())
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _normalize_optional_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text if text else None
+
+
+def _extract_reason_code(error: Exception) -> str:
+    reason_code = getattr(error, "reason_code", None)
+    if isinstance(reason_code, str) and reason_code.strip():
+        return reason_code.strip().upper()
+    return "PIPELINE_ERROR"
+
+
+def _set_run_error_code(*, repo: PipelineRepository, run_id: str, reason_code: str) -> None:
+    repo.client.update(
+        "extraction_runs",
+        {"error_code": reason_code},
+        filters={"id": f"eq.{run_id}"},
+    )
+
+
+def _enforce_retry_guardrail(*, repo: PipelineRepository, run_id: str, aip_id: str, fallback_uploaded_file_id: str | None) -> None:
+    retry_window_seconds = _read_positive_int_env("PIPELINE_RETRY_FAILURE_WINDOW_SECONDS", 6 * 60 * 60)
+    retry_threshold = _read_positive_int_env("PIPELINE_RETRY_FAILURE_THRESHOLD", 5)
+
+    run_rows = repo.client.select(
+        "extraction_runs",
+        select="created_by,uploaded_file_id",
+        filters={"id": f"eq.{run_id}"},
+        limit=1,
+    )
+    run_row = run_rows[0] if run_rows else {}
+    created_by = _normalize_optional_text(run_row.get("created_by"))
+    uploaded_file_id = _normalize_optional_text(run_row.get("uploaded_file_id")) or fallback_uploaded_file_id
+
+    if not created_by or not uploaded_file_id:
+        return
+
+    window_start = datetime.now(timezone.utc) - timedelta(seconds=retry_window_seconds)
+    failed_rows = repo.client.select(
+        "extraction_runs",
+        select="id",
+        filters={
+            "created_by": f"eq.{created_by}",
+            "uploaded_file_id": f"eq.{uploaded_file_id}",
+            "aip_id": f"eq.{aip_id}",
+            "status": "eq.failed",
+            "created_at": f"gte.{window_start.isoformat()}",
+        },
+        limit=retry_threshold,
+    )
+    if len(failed_rows) >= retry_threshold:
+        raise PipelineGuardrailError(
+            "RUN_RETRY_BLOCKED",
+            (
+                "Retry blocked after repeated failed processing attempts for the same "
+                f"uploader/file within {retry_window_seconds} seconds."
+            ),
+        )
+
+
+# Security proof:
+# - PIPELINE_RETRY_FAILURE_THRESHOLD (default 5) + PIPELINE_RETRY_FAILURE_WINDOW_SECONDS (default 21600) block endless retries.
+# - PIPELINE_EMBED_TIMEOUT_SECONDS (default 300) bounds embedding duration with EMBED_TIMEOUT.
+# - Failed runs persist extraction_runs.error_code (for example RUN_RETRY_BLOCKED, EMBED_TIMEOUT, PARSE_TIMEOUT).
 
 
 def _sanitize_error(message: str, settings: Settings) -> str:
@@ -49,10 +136,18 @@ def _embed_line_items(*, settings: Settings, line_items: list[dict[str, Any]]) -
         return []
 
     batch_size = max(1, min(128, int(os.getenv("PIPELINE_LINE_ITEM_EMBED_BATCH_SIZE", "64") or "64")))
+    embed_timeout_seconds = read_positive_float_env("PIPELINE_EMBED_TIMEOUT_SECONDS", 300.0)
+    embed_started = time.perf_counter()
     client = build_openai_client(settings.openai_api_key)
     embedded: list[dict[str, Any]] = []
 
     for start in range(0, len(line_items), batch_size):
+        if time.perf_counter() - embed_started > embed_timeout_seconds:
+            raise PipelineGuardrailError(
+                "EMBED_TIMEOUT",
+                f"Embedding exceeded timeout ({embed_timeout_seconds:.2f}s).",
+            )
+
         batch = line_items[start : start + batch_size]
         texts = [str(item.get("embedding_text") or "").strip() for item in batch]
         if not all(texts):
@@ -85,6 +180,13 @@ def process_run(*, repo: PipelineRepository, settings: Settings, run: dict[str, 
     current_stage = "extract"
     tmp_pdf_path: str | None = None
     try:
+        _enforce_retry_guardrail(
+            repo=repo,
+            run_id=run_id,
+            aip_id=aip_id,
+            fallback_uploaded_file_id=_normalize_optional_text(run.get("uploaded_file_id")),
+        )
+
         aip_scope = repo.get_aip_scope(aip_id)
         extraction_fn = run_city_extraction if aip_scope == "city" else run_barangay_extraction
         validation_fn = validate_city if aip_scope == "city" else validate_barangay
@@ -264,6 +366,7 @@ def process_run(*, repo: PipelineRepository, settings: Settings, run: dict[str, 
         repo.set_run_succeeded(run_id=run_id)
         print(f"[WORKER] run {run_id} succeeded")
     except Exception as error:
+        reason_code = _extract_reason_code(error)
         trace_summary = "".join(traceback.format_exception(type(error), error, error.__traceback__))
         sanitized_trace = _sanitize_error(trace_summary, settings)
         sanitized_message = _sanitize_error(str(error), settings)
@@ -275,6 +378,7 @@ def process_run(*, repo: PipelineRepository, settings: Settings, run: dict[str, 
                 stage=current_stage if current_stage in {"extract", "validate", "summarize", "categorize", "embed"} else "extract",
                 payload={
                     "error": sanitized_message,
+                    "reason_code": reason_code,
                     "trace_summary": sanitized_trace[:8000],
                 },
                 text=None,
@@ -282,7 +386,11 @@ def process_run(*, repo: PipelineRepository, settings: Settings, run: dict[str, 
         except Exception:
             pass
         repo.set_run_failed(run_id=run_id, stage=current_stage, error_message=sanitized_message)
-        print(f"[WORKER] run {run_id} failed: {sanitized_message}")
+        try:
+            _set_run_error_code(repo=repo, run_id=run_id, reason_code=reason_code)
+        except Exception:
+            pass
+        print(f"[WORKER] run {run_id} failed: {reason_code} {sanitized_message}")
     finally:
         if tmp_pdf_path and os.path.exists(tmp_pdf_path):
             try:

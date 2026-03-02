@@ -32,6 +32,18 @@ npm run dev
 - `NEXT_PUBLIC_USE_MOCKS`
   - `true` forces mock repositories
   - If unset, mock mode is enabled when `NEXT_PUBLIC_APP_ENV=dev`
+- `AIP_UPLOAD_MAX_BYTES`
+  - Default: `15728640` (15MB)
+  - Max upload size for barangay/city AIP PDF upload routes
+- `AIP_UPLOAD_FAILURE_THRESHOLD`
+  - Default: `5`
+  - Number of recent failed extraction runs before uploader cooldown applies
+- `AIP_UPLOAD_FAILURE_WINDOW_MINUTES`
+  - Default: `60`
+  - Lookback window used to count failed runs for upload throttling
+- `AIP_UPLOAD_FAILURE_COOLDOWN_MINUTES`
+  - Default: `15`
+  - Cooldown period returned as HTTP `429` + `Retry-After` after repeated failures
 
 Repository selection is centralized in:
 - `lib/config/appEnv.ts`
