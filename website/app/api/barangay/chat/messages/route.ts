@@ -48,6 +48,11 @@ import type { ActorContext } from "@/lib/domain/actor-context";
 import { getActorContext } from "@/lib/domain/get-actor-context";
 import { getChatRepo } from "@/lib/repos/chat/repo.server";
 import { enforceCsrfProtection } from "@/lib/security/csrf";
+import {
+  assertActorPresent,
+  assertPrivilegedWriteAccess,
+  isInvariantError,
+} from "@/lib/security/invariants";
 import { getTypedAppSetting, isUserBlocked } from "@/lib/settings/app-settings";
 import type {
   AggregationIntentType,
@@ -67,6 +72,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   consumeChatQuota,
   insertAssistantChatMessage,
+  type PrivilegedActorContext,
   toPrivilegedActorContext,
 } from "@/lib/supabase/privileged-ops";
 import { supabaseServer } from "@/lib/supabase/server";
@@ -1727,16 +1733,15 @@ function makeTotalsLogPayload(
 }
 
 async function appendAssistantMessage(params: {
+  actor: PrivilegedActorContext | null;
   sessionId: string;
   content: string;
   citations: ChatCitation[];
   retrievalMeta: ChatRetrievalMeta;
 }): Promise<ChatMessage> {
-  const actor = await getActorContext();
-  const privilegedActor = toPrivilegedActorContext(actor);
   const normalizedMeta = normalizeRetrievalMetaStatus(params.retrievalMeta);
   const inserted = await insertAssistantChatMessage({
-    actor: privilegedActor,
+    actor: params.actor,
     sessionId: params.sessionId,
     content: params.content,
     citations: params.citations as unknown as Json,
@@ -1785,14 +1790,13 @@ async function getLatestPendingClarification(
 }
 
 async function consumeQuota(
+  actor: PrivilegedActorContext | null,
   userId: string,
   route: "barangay_chat_message" | "city_chat_message"
 ): Promise<{ allowed: boolean; reason: string }> {
-  const actor = await getActorContext();
-  const privilegedActor = toPrivilegedActorContext(actor);
   const rateLimit = await getTypedAppSetting("controls.chatbot_rate_limit");
   const payload = await consumeChatQuota({
-    actor: privilegedActor,
+    actor,
     userId,
     maxRequests: rateLimit.maxRequests,
     timeWindow: rateLimit.timeWindow,
@@ -2712,12 +2716,18 @@ export async function POST(request: Request) {
     }
 
     const actor = await getActorContext();
-    if (
-      !actor ||
-      (actor.role !== "barangay_official" && actor.role !== "city_official")
-    ) {
-      return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
-    }
+    assertActorPresent(actor, "Unauthorized.");
+    assertPrivilegedWriteAccess({
+      actor,
+      allowlistedRoles: ["barangay_official", "city_official"],
+      scopeByRole: {
+        barangay_official: "barangay",
+        city_official: "city",
+      },
+      requireScopeId: true,
+      message: "Unauthorized.",
+    });
+    const privilegedActor = toPrivilegedActorContext(actor);
     if (await isUserBlocked(actor.userId)) {
       return NextResponse.json(
         { message: "Your account is currently blocked from chatbot usage." },
@@ -2746,6 +2756,7 @@ export async function POST(request: Request) {
     }
 
     const quota = await consumeQuota(
+      privilegedActor,
       actor.userId,
       actor.role === "city_official" ? "city_chat_message" : "barangay_chat_message"
     );
@@ -2785,6 +2796,7 @@ export async function POST(request: Request) {
         ambiguousScopes: [],
       };
       const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
         sessionId: session.id,
         content: refusal.message,
         citations: [
@@ -2855,6 +2867,7 @@ export async function POST(request: Request) {
         scopeResolved,
       });
       const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
         sessionId: session.id,
         content: refusal.message,
         citations: [makeSystemCitation("Scope clarification required before retrieval.", scope.scopeResolution)],
@@ -2935,6 +2948,7 @@ export async function POST(request: Request) {
       }
 
       const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
         sessionId: session.id,
         content: totalsPayload.content,
         citations: totalsPayload.citations,
@@ -2999,6 +3013,7 @@ export async function POST(request: Request) {
 
         if (isClarificationCancelMessage(content) || selectedCityOption?.action === "cancel") {
           const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
             sessionId: session.id,
             content: "Okay. Please specify a barangay or remove the city scope.",
             citations: [
@@ -3042,6 +3057,7 @@ export async function POST(request: Request) {
 
           if (cityBarangayIds.length === 0) {
             const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
               sessionId: session.id,
               content: `No active barangays were found for ${cityLabel}.`,
               citations: [
@@ -3139,6 +3155,7 @@ export async function POST(request: Request) {
           if (normalizedOriginalIntent === "total_investment_program") {
             if (fiscalYearParsed === null) {
               const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
                 sessionId: session.id,
                 content:
                   `To compute the totals fallback for ${cityLabel}, please specify a fiscal year (for example, FY 2026).`,
@@ -3183,6 +3200,7 @@ export async function POST(request: Request) {
 
             if (selectedAipIds.length === 0) {
               const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
                 sessionId: session.id,
                 content:
                   `No published City AIP and no published Barangay AIPs found for ${cityLabel} (FY ${fiscalYearParsed}). ` +
@@ -3280,6 +3298,7 @@ export async function POST(request: Request) {
             ];
 
             const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
               sessionId: session.id,
               content: answerLines.join("\n"),
               citations: [
@@ -3415,6 +3434,7 @@ export async function POST(request: Request) {
                     return `${index + 1}. ${row.program_project_title} - ${total} - ${fund} - ${fyLabel} - ${refLabel}`;
                   });
             const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
               sessionId: session.id,
               content:
                 `Top ${Math.max(rows.length, 0)} projects by total (All barangays in ${cityLabel}; ${fiscalLabel}):\n` +
@@ -3485,6 +3505,7 @@ export async function POST(request: Request) {
                     return `${index + 1}. ${label}: ${formatPhpAmount(toNumberOrNull(row.sector_total))} (${parseInteger(row.count_items) ?? 0} items)`;
                   });
             const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
               sessionId: session.id,
               content:
                 `Budget totals by sector (All barangays in ${cityLabel}; ${fiscalLabel}):\n` +
@@ -3563,6 +3584,7 @@ export async function POST(request: Request) {
                       return `${index + 1}. ${label}: ${formatPhpAmount(toNumberOrNull(row.fund_total))} (${parseInteger(row.count_items) ?? 0} items)`;
                     });
             const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
               sessionId: session.id,
               content:
                 (listOnly
@@ -3647,6 +3669,7 @@ export async function POST(request: Request) {
           const contributingYearASample = formatIdSample(yearAResult.contributingAipIds);
           const contributingYearBSample = formatIdSample(yearBResult.contributingAipIds);
           const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
             sessionId: session.id,
             content: compareVerbose.content,
             citations: [
@@ -3718,6 +3741,7 @@ export async function POST(request: Request) {
             options: pendingClarification.payload.options,
           };
           const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
             sessionId: session.id,
             content: buildClarificationPromptContent(reminderPayload),
             citations: [
@@ -3809,6 +3833,7 @@ export async function POST(request: Request) {
           });
 
           const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
             sessionId: session.id,
             content: assistantContent,
             citations: [
@@ -3885,6 +3910,7 @@ export async function POST(request: Request) {
 
         if (!selectedOption && isClarificationCancelMessage(content)) {
           const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
             sessionId: session.id,
             content: "Okay - please restate the project title or provide the Ref code.",
             citations: [
@@ -3932,6 +3958,7 @@ export async function POST(request: Request) {
           };
 
           const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
             sessionId: session.id,
             content: buildClarificationPromptContent(reminderPayload),
             citations: [
@@ -4022,6 +4049,7 @@ export async function POST(request: Request) {
               fiscalYearParsed: null,
             });
             const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
               sessionId: session.id,
               content: buildClarificationPromptContent(clarificationPayload),
               citations: [
@@ -4089,6 +4117,7 @@ export async function POST(request: Request) {
             yearBResult,
           });
           const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
             sessionId: session.id,
             content: compareVerbose.content,
             citations: [
@@ -4163,6 +4192,7 @@ export async function POST(request: Request) {
             fiscalYearParsed: fiscalYearForAggregation,
           });
           const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
             sessionId: session.id,
             content: buildClarificationPromptContent(clarificationPayload),
             citations: [
@@ -4290,6 +4320,7 @@ export async function POST(request: Request) {
           }));
 
           const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
             sessionId: session.id,
             content: `Top ${rows.length} projects by total (${cityScopeLabel}; ${cityFiscalLabel}):\n${listLines.join("\n")}`,
             citations:
@@ -4377,6 +4408,7 @@ export async function POST(request: Request) {
                   return `${index + 1}. ${label}: ${formatPhpAmount(row.total)} (${row.count} items)`;
                 });
           const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
             sessionId: session.id,
             content: `Budget totals by sector (${cityScopeLabel}; ${cityFiscalLabel}):\n${contentLines.join("\n")}`,
             citations: [
@@ -4442,6 +4474,7 @@ export async function POST(request: Request) {
                       `${index + 1}. ${row.label}: ${formatPhpAmount(row.total)} (${row.count} items)`
                   );
           const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
             sessionId: session.id,
             content: listOnly
               ? `Fund sources (${cityScopeLabel}; ${cityFiscalLabel}):\n${contentLines.join("\n")}`
@@ -4493,6 +4526,7 @@ export async function POST(request: Request) {
 
       if (aggregationScope.clarificationMessage) {
         const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
           sessionId: session.id,
           content: aggregationScope.clarificationMessage,
           citations: [
@@ -4535,6 +4569,7 @@ export async function POST(request: Request) {
 
       if (aggregationScope.unsupportedScopeType === "municipality") {
         const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
           sessionId: session.id,
           content:
             "I can aggregate by one barangay or across all barangays. Please specify a barangay or say 'across all barangays'.",
@@ -4596,6 +4631,7 @@ export async function POST(request: Request) {
           const rows = toTopProjectRows(data);
           if (rows.length === 0) {
             const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
               sessionId: session.id,
               content: "No published AIP line items matched the selected filters.",
               citations: [
@@ -4713,6 +4749,7 @@ export async function POST(request: Request) {
           });
 
           const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
             sessionId: session.id,
             content: assistantContent,
             citations,
@@ -4767,6 +4804,7 @@ export async function POST(request: Request) {
                 });
 
           const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
             sessionId: session.id,
             content: `Budget totals by sector (${scopeLabel}; ${fiscalLabel}):\n${contentLines.join("\n")}`,
             citations: [
@@ -4838,6 +4876,7 @@ export async function POST(request: Request) {
                   });
 
           const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
             sessionId: session.id,
             content: listOnly
               ? `Fund sources (${scopeLabel}; ${fiscalLabel}):\n${contentLines.join("\n")}`
@@ -4916,6 +4955,7 @@ export async function POST(request: Request) {
           yearBResult,
         });
         const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
           sessionId: session.id,
           content: compareVerbose.content,
           citations: [
@@ -4977,6 +5017,7 @@ export async function POST(request: Request) {
         const message =
           error instanceof Error ? error.message : "Aggregation query failed.";
         const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
           sessionId: session.id,
           content:
             "I couldn't complete the aggregate SQL query due to a temporary system issue. Please try again shortly.",
@@ -5026,6 +5067,7 @@ export async function POST(request: Request) {
         docLimitField: detectDocLimitFieldFromQuery(parsedLineItemQuestion.normalizedQuestion),
       });
       const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
         sessionId: session.id,
         content: refusal.message,
         citations: [
@@ -5151,6 +5193,7 @@ export async function POST(request: Request) {
             });
 
             const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
               sessionId: session.id,
               content: refusal.message,
               citations: [
@@ -5218,6 +5261,7 @@ export async function POST(request: Request) {
             });
 
             const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
               sessionId: session.id,
               content: assistantContent,
               citations: [
@@ -5308,6 +5352,7 @@ export async function POST(request: Request) {
           };
 
           const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
             sessionId: session.id,
             content: buildClarificationPromptContent(clarificationPayload),
             citations: [
@@ -5398,6 +5443,7 @@ export async function POST(request: Request) {
             scopeResolved: true,
           });
           const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
             sessionId: session.id,
             content: refusal.message,
             citations: [
@@ -5493,6 +5539,7 @@ export async function POST(request: Request) {
             scopeReason: lineItemScope.scopeReason,
           });
           const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
             sessionId: session.id,
             content:
               structuredOptions.length > 0
@@ -5560,6 +5607,7 @@ export async function POST(request: Request) {
 
         if (selectedRows.length === 0) {
           const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
             sessionId: session.id,
             content:
               "I found relevant line-item references, but I couldn't load the structured row details. Please try again.",
@@ -5645,6 +5693,7 @@ export async function POST(request: Request) {
         });
 
         const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
           sessionId: session.id,
           content: assistantContent,
           citations,
@@ -5683,6 +5732,7 @@ export async function POST(request: Request) {
         const message =
           error instanceof Error ? error.message : "Structured line-item retrieval request failed.";
         const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
           sessionId: session.id,
           content:
             "I couldn't complete the structured line-item retrieval due to a temporary system issue. Please try again shortly.",
@@ -5725,6 +5775,7 @@ export async function POST(request: Request) {
         queryText: content,
       });
       const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
         sessionId: session.id,
         content: refusal.message,
         citations: [
@@ -5823,6 +5874,7 @@ export async function POST(request: Request) {
     }
 
     const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
       sessionId: session.id,
       content: assistantContent,
       citations: assistantCitations,
@@ -5851,7 +5903,11 @@ export async function POST(request: Request) {
       { status: 200 }
     );
   } catch (error) {
+    if (isInvariantError(error)) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
+    }
     const message = error instanceof Error ? error.message : "Unexpected chatbot error.";
     return NextResponse.json({ message }, { status: 500 });
   }
 }
+

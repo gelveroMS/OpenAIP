@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { toImageResponse } from "@/app/api/projects/_shared/image-response";
 import { getActorContext } from "@/lib/domain/get-actor-context";
+import { isInvariantError } from "@/lib/security/invariants";
 import {
   readProjectMediaBlob,
   toPrivilegedActorContext,
@@ -31,6 +32,9 @@ export async function GET(
 
     return toImageResponse(media.imageData, media.objectName);
   } catch (error) {
+    if (isInvariantError(error)) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
+    }
     const message = error instanceof Error ? error.message : "Unexpected media error.";
     return NextResponse.json({ message }, { status: 500 });
   }

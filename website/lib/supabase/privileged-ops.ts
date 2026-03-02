@@ -9,7 +9,10 @@ import {
   assertActorRole,
   assertNonEmptyString,
   assertPositiveInteger,
+  assertPublishedOnlyUnlessScopedStaffAdmin,
+  assertScopedStaffOrAdminAccess,
   assertInvariant,
+  type InvariantScopeKind,
 } from "@/lib/security/invariants";
 import { supabaseAdmin, type SupabaseAdminClient } from "@/lib/supabase/admin";
 
@@ -47,6 +50,9 @@ type ProjectLookupRow = {
 type AipCoverLookupRow = {
   id: string;
   status: "draft" | "pending_review" | "under_review" | "for_revision" | "published";
+  city_id: string | null;
+  municipality_id: string | null;
+  barangay_id: string | null;
 };
 
 type ExtractionRunStatusRow = {
@@ -201,24 +207,21 @@ async function writePrivilegedAudit(input: {
   }
 }
 
-function canReadHiddenMedia(
-  actor: PrivilegedActorContext | null,
-  aip: AipMediaLookupRow
-): boolean {
-  if (!actor) return false;
-  if (actor.role === "admin") return true;
-  if (!actor.lgu_id) return false;
-
-  if (actor.role === "city_official" && actor.lgu_scope === "city") {
-    return aip.city_id === actor.lgu_id;
+function resolveAipScope(input: {
+  cityId: string | null;
+  municipalityId: string | null;
+  barangayId: string | null;
+}): { scopeKind: InvariantScopeKind; scopeId: string | null } {
+  if (input.barangayId) {
+    return { scopeKind: "barangay", scopeId: input.barangayId };
   }
-  if (actor.role === "municipal_official" && actor.lgu_scope === "municipality") {
-    return aip.municipality_id === actor.lgu_id;
+  if (input.cityId) {
+    return { scopeKind: "city", scopeId: input.cityId };
   }
-  if (actor.role === "barangay_official" && actor.lgu_scope === "barangay") {
-    return aip.barangay_id === actor.lgu_id;
+  if (input.municipalityId) {
+    return { scopeKind: "municipality", scopeId: input.municipalityId };
   }
-  return false;
+  return { scopeKind: "none", scopeId: null };
 }
 
 function toPerHourAndPerDay(
@@ -354,12 +357,28 @@ export async function readProjectMediaBlob(input: {
     return null;
   }
   const aip = aipData as AipMediaLookupRow;
+  const aipScope = resolveAipScope({
+    cityId: aip.city_id,
+    municipalityId: aip.municipality_id,
+    barangayId: aip.barangay_id,
+  });
 
-  if (update.status === "active" && aip.status !== "published") {
-    return null;
+  if (update.status === "active") {
+    assertPublishedOnlyUnlessScopedStaffAdmin({
+      actor: input.actor,
+      isPublished: aip.status === "published",
+      resourceScopeKind: aipScope.scopeKind,
+      resourceScopeId: aipScope.scopeId,
+      message: "Unauthorized.",
+    });
   }
-  if (update.status === "hidden" && !canReadHiddenMedia(input.actor, aip)) {
-    return null;
+  if (update.status === "hidden") {
+    assertScopedStaffOrAdminAccess({
+      actor: input.actor,
+      resourceScopeKind: aipScope.scopeKind,
+      resourceScopeId: aipScope.scopeId,
+      message: "Unauthorized.",
+    });
   }
 
   const { data: imageData, error: downloadError } = await admin.storage
@@ -413,16 +432,25 @@ export async function readProjectCoverBlob(input: {
 
   const { data: aipData, error: aipError } = await admin
     .from("aips")
-    .select("id,status")
+    .select("id,status,city_id,municipality_id,barangay_id")
     .eq("id", project.aip_id)
     .maybeSingle();
   if (aipError || !aipData) {
     return null;
   }
   const aip = aipData as AipCoverLookupRow;
-  if (aip.status !== "published") {
-    return null;
-  }
+  const aipScope = resolveAipScope({
+    cityId: aip.city_id,
+    municipalityId: aip.municipality_id,
+    barangayId: aip.barangay_id,
+  });
+  assertPublishedOnlyUnlessScopedStaffAdmin({
+    actor: input.actor,
+    isPublished: aip.status === "published",
+    resourceScopeKind: aipScope.scopeKind,
+    resourceScopeId: aipScope.scopeId,
+    message: "Unauthorized.",
+  });
 
   const bucketId = getProjectMediaBucketName();
   const { data: imageData, error: downloadError } = await admin.storage

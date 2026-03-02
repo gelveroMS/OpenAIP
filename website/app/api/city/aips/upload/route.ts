@@ -3,6 +3,11 @@ import { NextResponse } from "next/server";
 import { getActorContext } from "@/lib/domain/get-actor-context";
 import { enforceCsrfProtection } from "@/lib/security/csrf";
 import {
+  assertActorPresent,
+  assertPrivilegedWriteAccess,
+  isInvariantError,
+} from "@/lib/security/invariants";
+import {
   insertExtractionRun,
   removeAipPdfObject,
   toPrivilegedActorContext,
@@ -60,14 +65,14 @@ export async function POST(request: Request) {
     }
 
     const actor = await getActorContext();
-    if (
-      !actor ||
-      actor.role !== "city_official" ||
-      actor.scope.kind !== "city" ||
-      !actor.scope.id
-    ) {
-      return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
-    }
+    assertActorPresent(actor, "Unauthorized.");
+    assertPrivilegedWriteAccess({
+      actor,
+      allowlistedRoles: ["city_official"],
+      scopeByRole: { city_official: "city" },
+      requireScopeId: true,
+      message: "Unauthorized.",
+    });
 
     const form = await request.formData();
     const file = form.get("file");
@@ -277,6 +282,9 @@ export async function POST(request: Request) {
       { status: 200 }
     );
   } catch (error) {
+    if (isInvariantError(error)) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
+    }
     const message = error instanceof Error ? error.message : "Unexpected upload error.";
     return NextResponse.json({ message }, { status: 500 });
   }

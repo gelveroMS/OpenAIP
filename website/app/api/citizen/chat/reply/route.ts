@@ -3,6 +3,7 @@ import type { RetrievalScopePayload, RetrievalScopeTarget } from "@/lib/chat/typ
 import { requestPipelineChatAnswer } from "@/lib/chat/pipeline-client";
 import { getTypedAppSetting, isUserBlocked } from "@/lib/settings/app-settings";
 import { enforceCsrfProtection } from "@/lib/security/csrf";
+import { assertPrivilegedWriteAccess, isInvariantError } from "@/lib/security/invariants";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   consumeChatQuota,
@@ -291,6 +292,13 @@ export async function POST(request: Request) {
     if (!privilegedActor) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    assertPrivilegedWriteAccess({
+      actor: privilegedActor,
+      allowlistedRoles: ["citizen"],
+      scopeByRole: { citizen: "barangay" },
+      requireScopeId: true,
+      message: "Unauthorized",
+    });
 
     const rateLimitPolicy = await getTypedAppSetting("controls.chatbot_rate_limit");
     const quota = await consumeCitizenQuota({
@@ -357,6 +365,9 @@ export async function POST(request: Request) {
       suggestedFollowUps,
     });
   } catch (error) {
+    if (isInvariantError(error)) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     const message = error instanceof Error ? error.message : "Unexpected error";
     return NextResponse.json({ error: message }, { status: 500 });
   }

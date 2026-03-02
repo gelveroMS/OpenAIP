@@ -3,6 +3,11 @@ import { NextResponse } from "next/server";
 import { getActorContext } from "@/lib/domain/get-actor-context";
 import { writeWorkflowActivityLog } from "@/lib/audit/activity-log";
 import { enforceCsrfProtection } from "@/lib/security/csrf";
+import {
+  assertActorPresent,
+  assertPrivilegedWriteAccess,
+  isInvariantError,
+} from "@/lib/security/invariants";
 import { assertActorCanManageBarangayAipWorkflow } from "@/lib/repos/aip/workflow-permissions.server";
 import {
   insertExtractionRun,
@@ -62,9 +67,14 @@ export async function POST(request: Request) {
     }
 
     const actor = await getActorContext();
-    if (!actor || actor.role !== "barangay_official" || actor.scope.kind !== "barangay" || !actor.scope.id) {
-      return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
-    }
+    assertActorPresent(actor, "Unauthorized.");
+    assertPrivilegedWriteAccess({
+      actor,
+      allowlistedRoles: ["barangay_official"],
+      scopeByRole: { barangay_official: "barangay" },
+      requireScopeId: true,
+      message: "Unauthorized.",
+    });
 
     const form = await request.formData();
     const file = form.get("file");
@@ -318,6 +328,9 @@ export async function POST(request: Request) {
       { status: 200 }
     );
   } catch (error) {
+    if (isInvariantError(error)) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
+    }
     const message = error instanceof Error ? error.message : "Unexpected upload error.";
     return NextResponse.json({ message }, { status: 500 });
   }
