@@ -3,6 +3,7 @@ import {
   assertFeedbackUsageAllowed,
   isFeedbackUsageError,
 } from "@/lib/feedback/usage-guards";
+import { enforceCsrfProtection } from "@/lib/security/csrf";
 import { supabaseServer } from "@/lib/supabase/server";
 import {
   assertPublishedAipStatus,
@@ -48,6 +49,11 @@ export async function POST(
   context: { params: Promise<{ aipId: string }> }
 ) {
   try {
+    const csrf = enforceCsrfProtection(request);
+    if (!csrf.ok) {
+      return csrf.response;
+    }
+
     const payload = (await request.json().catch(() => null)) as
       | CreateFeedbackRequestBody
       | null;

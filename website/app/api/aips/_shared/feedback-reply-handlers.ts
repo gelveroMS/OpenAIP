@@ -4,6 +4,7 @@ import {
   assertFeedbackUsageAllowed,
   isFeedbackUsageError,
 } from "@/lib/feedback/usage-guards";
+import { enforceCsrfProtection } from "@/lib/security/csrf";
 import { supabaseServer } from "@/lib/supabase/server";
 import {
   CitizenAipFeedbackApiError,
@@ -102,6 +103,11 @@ export async function handleScopedAipFeedbackReplyRequest(input: {
   aipId: string;
 }) {
   try {
+    const csrf = enforceCsrfProtection(input.request);
+    if (!csrf.ok) {
+      return csrf.response;
+    }
+
     const payload = (await input.request.json().catch(() => null)) as
       | ReplyFeedbackRequestBody
       | null;

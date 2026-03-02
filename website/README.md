@@ -32,6 +32,12 @@ npm run dev
 - `NEXT_PUBLIC_USE_MOCKS`
   - `true` forces mock repositories
   - If unset, mock mode is enabled when `NEXT_PUBLIC_APP_ENV=dev`
+- `NEXT_PUBLIC_SITE_URL`
+  - Canonical site origin used by CSRF Origin/Referer checks for state-changing API routes
+  - Example: `https://openaip.example.gov`
+- `NEXT_PUBLIC_STAGING_URL`
+  - Optional staging origin allowed by CSRF Origin/Referer checks
+  - Leave blank when no staging domain is deployed
 - `AIP_UPLOAD_MAX_BYTES`
   - Default: `15728640` (15MB)
   - Max upload size for barangay/city AIP PDF upload routes

@@ -2,6 +2,7 @@ import type { Json, RoleType } from "@/lib/contracts/databasev2";
 import type { RetrievalScopePayload, RetrievalScopeTarget } from "@/lib/chat/types";
 import { requestPipelineChatAnswer } from "@/lib/chat/pipeline-client";
 import { getTypedAppSetting, isUserBlocked } from "@/lib/settings/app-settings";
+import { enforceCsrfProtection } from "@/lib/security/csrf";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   consumeChatQuota,
@@ -201,6 +202,11 @@ async function consumeCitizenQuota(input: {
 
 export async function POST(request: Request) {
   try {
+    const csrf = enforceCsrfProtection(request);
+    if (!csrf.ok) {
+      return csrf.response;
+    }
+
     const body = (await request.json().catch(() => null)) as ReplyRequestBody | null;
     const sessionId = body?.session_id?.trim();
     const userMessage = body?.user_message?.trim();

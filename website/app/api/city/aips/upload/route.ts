@@ -1,6 +1,7 @@
 import { randomUUID, createHash } from "crypto";
 import { NextResponse } from "next/server";
 import { getActorContext } from "@/lib/domain/get-actor-context";
+import { enforceCsrfProtection } from "@/lib/security/csrf";
 import {
   insertExtractionRun,
   removeAipPdfObject,
@@ -53,6 +54,11 @@ function hasPdfMagicBytes(fileBuffer: Buffer): boolean {
 
 export async function POST(request: Request) {
   try {
+    const csrf = enforceCsrfProtection(request, { requireToken: true });
+    if (!csrf.ok) {
+      return csrf.response;
+    }
+
     const actor = await getActorContext();
     if (
       !actor ||

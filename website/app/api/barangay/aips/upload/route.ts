@@ -2,6 +2,7 @@ import { randomUUID, createHash } from "crypto";
 import { NextResponse } from "next/server";
 import { getActorContext } from "@/lib/domain/get-actor-context";
 import { writeWorkflowActivityLog } from "@/lib/audit/activity-log";
+import { enforceCsrfProtection } from "@/lib/security/csrf";
 import { assertActorCanManageBarangayAipWorkflow } from "@/lib/repos/aip/workflow-permissions.server";
 import {
   insertExtractionRun,
@@ -55,6 +56,11 @@ function hasPdfMagicBytes(fileBuffer: Buffer): boolean {
 
 export async function POST(request: Request) {
   try {
+    const csrf = enforceCsrfProtection(request, { requireToken: true });
+    if (!csrf.ok) {
+      return csrf.response;
+    }
+
     const actor = await getActorContext();
     if (!actor || actor.role !== "barangay_official" || actor.scope.kind !== "barangay" || !actor.scope.id) {
       return NextResponse.json({ message: "Unauthorized." }, { status: 401 });

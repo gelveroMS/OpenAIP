@@ -47,6 +47,7 @@ import type { Json } from "@/lib/contracts/databasev2";
 import type { ActorContext } from "@/lib/domain/actor-context";
 import { getActorContext } from "@/lib/domain/get-actor-context";
 import { getChatRepo } from "@/lib/repos/chat/repo.server";
+import { enforceCsrfProtection } from "@/lib/security/csrf";
 import { getTypedAppSetting, isUserBlocked } from "@/lib/settings/app-settings";
 import type {
   AggregationIntentType,
@@ -2705,6 +2706,11 @@ async function resolveTotalsAssistantPayload(input: {
 
 export async function POST(request: Request) {
   try {
+    const csrf = enforceCsrfProtection(request);
+    if (!csrf.ok) {
+      return csrf.response;
+    }
+
     const actor = await getActorContext();
     if (
       !actor ||

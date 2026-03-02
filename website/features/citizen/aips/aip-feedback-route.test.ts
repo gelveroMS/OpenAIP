@@ -154,7 +154,7 @@ describe("GET|POST /api/citizen/aips/[aipId]/feedback", () => {
     const response = await POST(
       new Request("http://localhost", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", origin: "http://localhost" },
         body: JSON.stringify({
           kind: "question",
           body: "How will this be monitored?",
@@ -190,7 +190,7 @@ describe("GET|POST /api/citizen/aips/[aipId]/feedback", () => {
     const response = await POST(
       new Request("http://localhost", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", origin: "http://localhost" },
         body: JSON.stringify({ kind: "question", body: "How will this be monitored?" }),
       }),
       { params: Promise.resolve({ aipId: "aip-1" }) }
@@ -218,7 +218,7 @@ describe("GET|POST /api/citizen/aips/[aipId]/feedback", () => {
     const response = await POST(
       new Request("http://localhost", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", origin: "http://localhost" },
         body: JSON.stringify({ kind: "question", body: "How will this be monitored?" }),
       }),
       { params: Promise.resolve({ aipId: "aip-1" }) }

@@ -413,7 +413,10 @@ async function callMessagesRoute(input: { sessionId?: string; content: string })
   const POST = await getRoutePostHandler();
   const request = new Request("http://localhost/api/barangay/chat/messages", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      origin: "http://localhost",
+    },
     body: JSON.stringify(input),
   });
   const response = await POST(request);

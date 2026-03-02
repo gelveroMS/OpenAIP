@@ -531,6 +531,7 @@ async function callMessagesRoute(input: { sessionId?: string; content: string })
     method: "POST",
     headers: {
       "content-type": "application/json",
+      origin: "http://localhost",
     },
     body: JSON.stringify(input),
   });

@@ -5,12 +5,18 @@ import {
 } from "@/lib/supabase/privileged-ops";
 import { supabaseServer } from "@/lib/supabase/server";
 import { getActorContext } from "@/lib/domain/get-actor-context";
+import { enforceCsrfProtection } from "@/lib/security/csrf";
 
 export async function POST(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ runId: string }> }
 ) {
   try {
+    const csrf = enforceCsrfProtection(request, { requireToken: true });
+    if (!csrf.ok) {
+      return csrf.response;
+    }
+
     const actor = await getActorContext();
     if (!actor) {
       return NextResponse.json({ message: "Unauthorized." }, { status: 401 });

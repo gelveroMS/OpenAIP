@@ -102,7 +102,7 @@ describe("POST /api/citizen/feedback", () => {
     const response = await POST(
       new Request("http://localhost", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", origin: "http://localhost" },
         body: JSON.stringify({
           projectId: "project-1",
           kind: "question",
