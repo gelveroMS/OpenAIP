@@ -6,6 +6,7 @@ type SectionHeaderProps = {
   subtitle?: string;
   align?: "left" | "center";
   className?: string;
+  titleClassName?: string;
 };
 
 export default function SectionHeader({
@@ -14,13 +15,20 @@ export default function SectionHeader({
   subtitle,
   align = "left",
   className,
+  titleClassName,
 }: SectionHeaderProps) {
   return (
     <header className={cn(align === "center" ? "text-center" : "text-left", className)}>
       {eyebrow ? (
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#4B88A2]">{eyebrow}</p>
       ) : null}
-      <h2 className={cn("mt-2 text-3xl font-semibold tracking-tight md:text-4xl", align === "center" ? "mx-auto max-w-3xl" : "")}>
+      <h2
+        className={cn(
+          "mt-2 text-3xl font-semibold tracking-tight md:text-4xl",
+          align === "center" ? "mx-auto max-w-3xl" : "",
+          titleClassName
+        )}
+      >
         {title}
       </h2>
       {subtitle ? (

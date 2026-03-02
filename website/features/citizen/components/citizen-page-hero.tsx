@@ -29,7 +29,7 @@ export default function CitizenPageHero({
         {/* ✅ Actual hero box (background + border + shadow) */}
         <div
           className={cn(
-            "relative overflow-hidden border border-[#063d7c] text-white shadow-sm",
+            "relative h-[255px] overflow-hidden border border-[#063d7c] text-white shadow-sm",
             imageSrc
               ? "bg-slate-900"
               : "bg-gradient-to-r from-[#083a8c] via-[#0c4da5] to-[#0a3f8a]"
@@ -54,7 +54,7 @@ export default function CitizenPageHero({
           )}
 
           {/* ✅ Align hero content with your page width (6xl) */}
-          <div className="relative z-10 mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 py-0 md:py-5 text-center">
+          <div className="relative z-10 mx-auto flex h-full max-w-6xl flex-col justify-center px-4 text-center sm:px-6 lg:px-8">
             {eyebrow ? (
               <p className="text-xs uppercase tracking-[0.2em] text-slate-100/80">
                 {eyebrow}

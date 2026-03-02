@@ -15,8 +15,6 @@ type LegacyHeroShape = Partial<{
 const BLUE_RECTANGLE_SRC = "/citizen-dashboard/blue-rectangle.png";
 const CITY_SRC = "/citizen-dashboard/city.png";
 const FLAG_SRC = "/citizen-dashboard/flag.jpg";
-const GRADIENT_SRC = "/citizen-dashboard/gradient.png";
-const NAVY_RECTANGLE_SRC = "/citizen-dashboard/navy-rectangle.png";
 
 export default function HeroSection({ vm }: HeroSectionProps) {
   const legacyVm = vm as LandingHeroVM & LegacyHeroShape;
@@ -45,43 +43,25 @@ export default function HeroSection({ vm }: HeroSectionProps) {
       <div className="relative left-1/2 -mt-12 w-screen -translate-x-1/2 px-3 sm:px-4 md:px-6">
         <div className="relative h-[calc(100vh-96px)] min-h-[620px] w-full overflow-hidden rounded-2xl supports-[height:100svh]:h-[calc(100svh-96px)]">
           <div className="pointer-events-none absolute inset-0">
-            <Image
-              src={BLUE_RECTANGLE_SRC}
-              alt=""
-              fill
-              sizes="100vw"
-              priority
-              className="object-cover object-center"
-            />
+            <div className="absolute inset-0 bg-[#3888f1]/100" />
+            
             <Image
               src={CITY_SRC}
               alt=""
               fill
               sizes="100vw"
-              className="object-cover object-bottom opacity-93"
+              className="object-cover object-bottom opacity-92"
             />
             <Image
               src={FLAG_SRC}
               alt=""
               fill
               sizes="100vw"
-              className="object-cover object-center opacity-28"
+              className="object-cover object-center opacity-24"
             />
-
-            <Image
-              src={NAVY_RECTANGLE_SRC}
-              alt=""
-              fill
-              sizes="100vw"
-              className="object-cover object-center opacity-72"
-            />
-            <Image
-              src={GRADIENT_SRC}
-              alt=""
-              fill
-              sizes="100vw"
-              className="object-cover object-center opacity-62"
-            />
+            <div className="absolute inset-0 bg-[#3888f1]/50" />
+            <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(10,47,111,0.12)_0%,rgba(10,47,111,0.35)_55%,rgba(10,47,111,0.55)_100%)]" />
+            <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.08)_0%,rgba(0,0,0,0.35)_75%,rgba(0,0,0,0.55)_100%)]" />
           </div>
 
           <HeroMotion

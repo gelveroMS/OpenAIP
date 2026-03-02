@@ -1,3 +1,4 @@
+import CitizenFooter from "@/features/citizen/components/citizen-footer";
 import type { LandingContentVM } from "@/lib/domain/landing-content";
 import LandingContentCanvas from "../components/layout/landing-content-canvas";
 import {
@@ -28,6 +29,7 @@ export default function LandingContentView({ vm }: LandingContentViewProps) {
       <VoiceMattersSection vm={vm.feedback} />
       <AiAssistantPreviewSection vm={vm.chatPreview} />
       <FinalCtaSection vm={vm.finalCta} />
+      <CitizenFooter forceVisible />
     </LandingContentCanvas>
   );
 }

@@ -105,6 +105,7 @@ export default function LguBudgetOverviewMotion({
         <SectionHeader
           align="center"
           title="LGU Budget Overview"
+          titleClassName="font-bold text-[#0B4E7B]"
           subtitle="Explore local government units and view their allocated budgets, project count, and AIP publication status."
         />
       </motion.div>
@@ -146,11 +147,11 @@ export default function LguBudgetOverviewMotion({
             <div className="grid grid-cols-2 items-stretch gap-3">
               <motion.div className="h-full" variants={kpiItemVariant}>
                 <Card className="h-full rounded-2xl border-slate-200 bg-white py-0">
-                  <CardContent className="flex h-full min-h-[126px] flex-col justify-between p-4">
+                  <CardContent className="flex h-full min-h-[126px] flex-col p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">Total Projects</p>
-                    <p className="text-4xl font-semibold leading-none text-[#0C2C3A]">{formatNumber(vm.projectCount)}</p>
+                    <p className="mt-5 text-4xl font-semibold leading-none text-[#0C2C3A]">{formatNumber(vm.projectCount)}</p>
                     {vm.projectDeltaLabel ? (
-                      <span className="inline-flex rounded-md bg-[#10B981]/10 px-2 py-1 text-xs font-medium text-[#0D7B62]">
+                      <span className="mt-4 inline-flex rounded-md bg-[#10B981]/10 px-2 py-1 text-xs font-medium text-[#0D7B62]">
                         {vm.projectDeltaLabel}
                       </span>
                     ) : null}
@@ -174,9 +175,9 @@ export default function LguBudgetOverviewMotion({
             <motion.div variants={kpiItemVariant}>
               <Card className="rounded-2xl border-slate-200 bg-white py-0">
                 <CardContent className="p-4">
-                  <div className="space-y-2">
+                  <div>
                     <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">OpenAIP Users</p>
-                    <p className="text-4xl font-semibold leading-none text-[#0C2C3A]">{formatNumber(vm.activeUsers)}</p>
+                    <p className="mt-5 text-4xl font-semibold leading-none text-[#0C2C3A]">{formatNumber(vm.activeUsers)}</p>
                   </div>
                 </CardContent>
               </Card>

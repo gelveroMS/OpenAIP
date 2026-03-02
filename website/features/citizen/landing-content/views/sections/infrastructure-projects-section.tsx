@@ -389,7 +389,7 @@ export default function InfrastructureProjectsSection({ vm }: InfrastructureProj
               </div>
             </div>
 
-            <div className="pointer-events-none absolute inset-y-0 -left-[43px] -right-[43px] z-[70] hidden items-center justify-between lg:flex">
+            <div className="pointer-events-none absolute inset-y-0 left-[30px] right-[30px] z-[70] hidden items-center justify-between lg:flex">
               <motion.div
                 whileHover={reducedMotion ? undefined : { x: -2, scale: 1.04 }}
                 whileTap={reducedMotion ? undefined : { scale: 0.98 }}

@@ -5,7 +5,6 @@ import { motion, useReducedMotion } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
 import type { FinalCtaVM } from "@/lib/domain/landing-content";
 import { cn } from "@/lib/ui/utils";
-import LandingFooter from "../../components/layout/landing-footer";
 import { MOTION_TOKENS, VIEWPORT_ONCE } from "../../components/motion/motion-primitives";
 
 type FinalCtaMotionProps = {
@@ -15,7 +14,6 @@ type FinalCtaMotionProps = {
 export default function FinalCtaMotion({ vm }: FinalCtaMotionProps) {
   const reducedMotion = useReducedMotion() ?? false;
   const [hasStarted, setHasStarted] = useState(false);
-  const [typedSubtitle, setTypedSubtitle] = useState("");
   const [subtitleDone, setSubtitleDone] = useState(false);
 
   const [titleLead, titleTail] = useMemo(() => {
@@ -32,36 +30,20 @@ export default function FinalCtaMotion({ vm }: FinalCtaMotionProps) {
     }
 
     if (reducedMotion) {
-      setTypedSubtitle(vm.subtitle);
       setSubtitleDone(true);
       return;
     }
 
-    setTypedSubtitle("");
     setSubtitleDone(false);
 
-    let index = 0;
-    let typeTimer: ReturnType<typeof setInterval> | null = null;
-    const startTimer = setTimeout(() => {
-      typeTimer = setInterval(() => {
-        index += 1;
-        setTypedSubtitle(vm.subtitle.slice(0, index));
-        if (index >= vm.subtitle.length) {
-          if (typeTimer) {
-            clearInterval(typeTimer);
-          }
-          setSubtitleDone(true);
-        }
-      }, 52);
-    }, 1220);
+    const revealTimer = setTimeout(() => {
+      setSubtitleDone(true);
+    }, 1600);
 
     return () => {
-      clearTimeout(startTimer);
-      if (typeTimer) {
-        clearInterval(typeTimer);
-      }
+      clearTimeout(revealTimer);
     };
-  }, [hasStarted, reducedMotion, vm.subtitle]);
+  }, [hasStarted, reducedMotion]);
 
   return (
     <div className="flex min-h-screen snap-start flex-col supports-[height:100svh]:min-h-[100svh]">
@@ -115,7 +97,7 @@ export default function FinalCtaMotion({ vm }: FinalCtaMotionProps) {
               ease: MOTION_TOKENS.enterEase,
             }}
           >
-            {typedSubtitle}
+            {vm.subtitle}
           </motion.p>
 
           <motion.div
@@ -164,19 +146,6 @@ export default function FinalCtaMotion({ vm }: FinalCtaMotionProps) {
             )}
           </motion.div>
         </div>
-      </motion.div>
-
-      <motion.div
-        className="w-full"
-        initial={{ opacity: 0 }}
-        animate={subtitleDone ? { opacity: 1 } : { opacity: 0 }}
-        transition={{
-          duration: reducedMotion ? 0.28 : 0.5,
-          delay: reducedMotion ? 0.08 : 0.28,
-          ease: MOTION_TOKENS.enterEase,
-        }}
-      >
-        <LandingFooter />
       </motion.div>
     </div>
   );

@@ -87,36 +87,38 @@ export default function HeroMotion({ title, subtitle, cta }: HeroMotionProps) {
         variants={overlayVariants}
       />
 
-      <div className="relative z-20 h-full px-6 sm:px-10 lg:px-16">
+      <div className="relative z-20 h-full px-10 sm:px-16 lg:px-24">
         <div className="grid h-full grid-cols-12 items-center">
-          <div className="col-span-12 lg:col-span-6">
-            <motion.h1
-              className="max-w-[560px] text-[clamp(2.35rem,5.8vw,4.3rem)] font-semibold leading-[1.02] tracking-tight text-linen"
-              variants={headlineContainerVariants}
-            >
-              {titleLines.map((line, index) => (
-                <motion.span key={`${line}-${index}`} className="block" variants={fadeUp(reducedMotion)}>
-                  {line}
-                </motion.span>
-              ))}
-            </motion.h1>
+          <div className="col-span-12 lg:col-span-7">
+            <div className="py-6 sm:py-8 lg:py-10">
+              <motion.h1
+                className="max-w-[720px] text-[clamp(3.4rem,8.4vw,6.2rem)] font-semibold leading-[1] tracking-tight text-linen"
+                variants={headlineContainerVariants}
+              >
+                {titleLines.map((line, index) => (
+                  <motion.span key={`${line}-${index}`} className="block" variants={fadeUp(reducedMotion)}>
+                    {line}
+                  </motion.span>
+                ))}
+              </motion.h1>
 
-            <motion.p
-              className="mt-5 max-w-[520px] text-[15px] leading-7 text-white/80 md:text-[17px] md:leading-[29px]"
-              variants={subtitleVariants}
-            >
-              {subtitle}
-            </motion.p>
+              <motion.p
+                className="mt-5 max-w-[640px] text-[17px] leading-8 text-white/80 md:text-[19px] md:leading-[31px]"
+                variants={subtitleVariants}
+              >
+                {subtitle}
+              </motion.p>
 
-            <motion.div
-              className="mt-8 inline-flex"
-              variants={ctaVariants}
-              whileHover={reducedMotion ? undefined : { scale: 1.02 }}
-              whileTap={reducedMotion ? undefined : { scale: 0.98 }}
-              transition={{ duration: MOTION_TOKENS.hoverDuration, ease: MOTION_TOKENS.hoverEase }}
-            >
-              {cta}
-            </motion.div>
+              <motion.div
+                className="mt-8 inline-flex"
+                variants={ctaVariants}
+                whileHover={reducedMotion ? undefined : { scale: 1.02 }}
+                whileTap={reducedMotion ? undefined : { scale: 0.98 }}
+                transition={{ duration: MOTION_TOKENS.hoverDuration, ease: MOTION_TOKENS.hoverEase }}
+              >
+                {cta}
+              </motion.div>
+            </div>
           </div>
         </div>
       </div>
@@ -139,12 +141,12 @@ export default function HeroMotion({ title, subtitle, cta }: HeroMotionProps) {
               }
         }
       >
-        <span className="inline-flex items-center gap-2 text-sm text-white/60">
-          Scroll to explore
-          <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" aria-hidden="true">
+        <div className="flex min-w-[92px] flex-col items-center rounded-sm bg-[#082241]/35 px-3 py-2 text-white/70 backdrop-blur-[2px]">
+          <span className="text-sm leading-none">Scroll to explore</span>
+          <svg viewBox="0 0 20 20" className="mt-1 h-4 w-4" fill="none" aria-hidden="true">
             <path d="M5 8.5L10 13.5L15 8.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
           </svg>
-        </span>
+        </div>
       </motion.div>
     </motion.div>
   );

@@ -18,7 +18,7 @@ export default function FinalCtaSection({ vm }: FinalCtaSectionProps) {
     <FullScreenSection
       id="final-cta"
       variant="dark"
-      className="items-stretch bg-[#053645]"
+      className="items-stretch bg-[linear-gradient(180deg,#00384B_0%,#001925_100%)]"
       contentClassName="max-w-none px-0 py-0"
     >
       <FinalCtaMotion vm={safeVm} />

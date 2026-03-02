@@ -420,7 +420,7 @@ export default function HealthProjectsSection({ vm }: HealthProjectsSectionProps
               </div>
             </div>
 
-            <div className="pointer-events-none absolute inset-y-0 -left-[43px] -right-[43px] z-[70] hidden items-center justify-between lg:flex">
+            <div className="pointer-events-none absolute inset-y-0 left-0 right-0 z-[70] hidden items-center justify-between px-2 lg:flex">
               <motion.div
                 whileHover={reducedMotion ? undefined : { x: -2, scale: 1.04 }}
                 whileTap={reducedMotion ? undefined : { scale: 0.98 }}
