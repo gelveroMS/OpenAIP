@@ -202,7 +202,7 @@ export default function CitizenAboutUsView({
 
   return (
     <section className="min-h-dvh w-full bg-gradient-to-b from-[#d3dbe0] to-white">
-      <div className="mx-auto max-w-6xl space-y-10 px-4 sm:px-6 sm:py-12 lg:px-8">
+      <div className="mx-auto max-w-6xl space-y-10 px-4 sm:px-6 sm:py-2 lg:px-8">
         <motion.div variants={sectionReveal} initial="hidden" whileInView="visible" viewport={VIEWPORT_ONCE}>
           <CitizenPageHero
             title="ABOUT US"

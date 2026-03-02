@@ -93,7 +93,7 @@ export default function CitizenFiltersBar({
                 value={searchValue}
                 onChange={(event) => onSearchChange(event.target.value)}
                 placeholder={searchPlaceholder}
-                className="h-11 w-full bg-white pl-9"
+                className="h-9 w-full bg-white pl-9"
               />
             </div>
           </div>

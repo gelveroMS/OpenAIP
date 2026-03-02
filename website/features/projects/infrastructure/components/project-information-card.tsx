@@ -21,6 +21,7 @@ import {
   PhilippinePeso,
   Landmark,
   Plus,
+  MapPin,
 } from "lucide-react";
 import { formatPeso } from "@/lib/formatting";
 import { PRIMARY_BUTTON_CLASS } from "@/constants/theme";
@@ -51,7 +52,7 @@ import { toDateRangeLabel } from "@/features/projects/shared/project-date";
 export default function InfrastructureProjectInformationCard({
   project,
   scope = "barangay",
-  useLogoFallback = false,
+  useLogoFallback = true,
 }: {
   aipYear: number;
   project: InfrastructureProject;
@@ -79,8 +80,8 @@ export default function InfrastructureProjectInformationCard({
 
   return (
     <Card className="border-slate-200">
-      <CardContent className="p-6">
-        <div className="flex items-center justify-between mb-6">
+      <CardContent className="px-6">
+        <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-slate-900">Project Information</h2>
           {scope !== "citizen" ? (
             <Button asChild className={PRIMARY_BUTTON_CLASS}>
@@ -93,7 +94,7 @@ export default function InfrastructureProjectInformationCard({
 
         </div>
 
-        <div className="flex flex-col lg:flex-row gap-6">
+        <div className="flex flex-col gap-6 lg:flex-row">
           {/* Project Image */}
           <div className="lg:w-96 shrink-0">
             <div className="relative w-full aspect-4/3 rounded-lg overflow-hidden bg-slate-100">
@@ -136,6 +137,14 @@ export default function InfrastructureProjectInformationCard({
                 <span className="text-slate-500">Contractor:</span>
                 <span className="font-medium text-slate-900">
                   {project.contractorName || "N/A"}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-3 text-sm">
+                <MapPin className="w-4 h-4 text-slate-400" />
+                <span className="text-slate-500">LGU:</span>
+                <span className="font-medium text-slate-900">
+                  {project.lguLabel ?? "N/A"}
                 </span>
               </div>
 

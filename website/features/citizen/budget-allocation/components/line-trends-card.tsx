@@ -26,6 +26,12 @@ const SERIES_META: Array<{ key: keyof Omit<SectorTrendPoint, "year">; label: str
 
 export default function LineTrendsCard({ subtitle, data }: LineTrendsCardProps) {
   const [activeSeriesName, setActiveSeriesName] = useState<string | null>(null);
+  const formatTooltipValue = (value: number) =>
+    new Intl.NumberFormat("en-PH", {
+      style: "currency",
+      currency: "PHP",
+      maximumFractionDigits: 0,
+    }).format(value);
 
   return (
     <Card className="rounded-2xl border border-[#033a58] bg-[#022437] text-white shadow-sm">
@@ -51,7 +57,32 @@ export default function LineTrendsCard({ subtitle, data }: LineTrendsCardProps) 
                   tick={{ fill: "rgba(241, 245, 249, 0.85)", fontSize: 12 }}
                   tickFormatter={(value: number) => `PHP ${Math.round(value / 1_000_000)}M`}
                 />
-                <Tooltip content={() => null} cursor={false} />
+                <Tooltip
+                  cursor={false}
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length || !activeSeriesName) {
+                      return null;
+                    }
+
+                    const activePayload = payload.find(
+                      (entry) => entry.name === activeSeriesName
+                    );
+
+                    if (!activePayload || typeof activePayload.value !== "number") {
+                      return null;
+                    }
+
+                    return (
+                      <div className="rounded-lg border border-white/15 bg-[#012131]/95 px-3 py-2 text-xs text-white shadow-lg">
+                        <p className="font-semibold text-white">{activeSeriesName}</p>
+                        <p className="text-cyan-100/80">{label}</p>
+                        <p className="mt-1 font-medium text-white">
+                          {formatTooltipValue(activePayload.value)}
+                        </p>
+                      </div>
+                    );
+                  }}
+                />
                 <Legend
                   wrapperStyle={{
                     color: "rgba(241, 245, 249, 0.9)",

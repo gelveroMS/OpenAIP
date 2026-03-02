@@ -26,9 +26,9 @@ export default function CitizenExplainerCard({
     <Card className={cn("border border-slate-200 bg-white shadow-sm", className)}>
       <CardContent className="space-y-2">
         <div className="flex items-start gap-3">
-          <div className="mt-0.5">{resolvedIcon}</div>
+          <div className="flex h-[28px] items-center">{resolvedIcon}</div>
           <div className="space-y-3">
-            <h2 className="text-lg font-bold text-[#022437]">{title}</h2>
+            <h2 className="leading-7 text-lg font-bold text-[#022437]">{title}</h2>
             {children ?? (
               <p className="text-sm leading-relaxed text-slate-600 md:text-[15px]">
                 {body}
