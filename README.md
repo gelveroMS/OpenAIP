@@ -312,7 +312,7 @@ Website (`website/package.json`):
 | Command | Description |
 |---|---|
 | `npm run dev` | Start Next.js dev server |
-| `npm run build` | Production build |
+| `npm run build` | Production build (runs DB hardening assertion first) |
 | `npm run start` | Start production server |
 | `npm run lint` | ESLint checks |
 | `npm run test:ui` | Run Vitest UI tests once |
@@ -378,6 +378,43 @@ Recommended workflow:
    - `aip-pdfs` (uploaded source PDFs)
    - `aip-artifacts` (pipeline artifacts when payload exceeds inline threshold)
    - `project-media` (private project cover/update images served via API proxy)
+
+### DB Hardening Gate (March 2026)
+Deploy/build safety gate:
+- `website/scripts/assert-db-hardening.ts` calls fixed RPC `public.inspect_required_db_hardening()`.
+- Build fails if required March hardening objects are missing or stale.
+- `cd website && npm run build` now runs `npm run db:assert-hardening` before `next build`.
+
+Required env for the assertion:
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
+Run locally:
+```bash
+cd website
+npm run db:assert-hardening
+```
+
+Sample PASS output:
+```text
+[db-hardening] PASS
+[db-hardening] Validated 7 required checks.
+  - OK can_manage_barangay_aip_exists: public.can_manage_barangay_aip(uuid)
+  - OK can_edit_aip_uses_uploader_lock: public.can_edit_aip(uuid)
+  - OK can_upload_aip_pdf_uses_uploader_lock: public.can_upload_aip_pdf(uuid)
+  - OK aips_update_policy_uses_uploader_lock: public.aips.aips_update_policy
+  - OK uploaded_files_select_policy_uses_can_read_aip: public.uploaded_files.uploaded_files_select_policy
+  - OK chat_rate_events_status_constraint_exists: public.chat_rate_events.chat_rate_events_event_status_check
+  - OK consume_chat_quota_exists: public.consume_chat_quota(uuid, int, int, text)
+```
+
+Sample FAIL output:
+```text
+[db-hardening] FAIL
+[db-hardening] Required checks: 7, returned checks: 7
+[db-hardening] Missing/stale required DB objects:
+  - can_manage_barangay_aip_exists: function public.can_manage_barangay_aip(uuid) | Function exists for barangay uploader workflow lock.
+```
 
 ### Publish-Time Categorize Embedding
 When an AIP transitions to `published`, DB trigger `trg_aip_published_embed_categorize` asynchronously calls the Edge Function `embed_categorize_artifact` via `pg_net`.
