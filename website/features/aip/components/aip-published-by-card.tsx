@@ -27,7 +27,7 @@ export function AipPublishedByCard({
 
   return (
     <Card className="border-slate-200">
-      <CardContent className="space-y-3 p-5">
+      <CardContent className="space-y-3 px-5">
         <h3 className="text-sm font-semibold text-slate-900">Publication Details</h3>
         <div className="space-y-1 text-sm text-slate-700">
           <p>

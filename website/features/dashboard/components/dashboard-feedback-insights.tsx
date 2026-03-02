@@ -89,9 +89,6 @@ export function RecentFeedbackCard({
 }
 
 export function CitizenEngagementPulseColumn({
-  newThisWeek,
-  awaitingReply,
-  lguNotesPosted,
   feedbackTrend,
   feedbackTargets,
   recentFeedback,
@@ -110,20 +107,6 @@ export function CitizenEngagementPulseColumn({
       <div className="flex items-center gap-2">
         <MessageSquare className="h-5 w-5 text-foreground" />
         <h2 className="text-lg font-semibold text-foreground">Citizen Engagement Pulse</h2>
-      </div>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div className="rounded-xl border border-border bg-card p-5 text-card-foreground">
-          <div className="text-sm text-muted-foreground">New This Week</div>
-          <div className="text-2xl font-semibold tabular-nums text-foreground">{newThisWeek}</div>
-        </div>
-        <div className="rounded-xl border border-border bg-card p-5 text-card-foreground">
-          <div className="text-sm text-muted-foreground">Awaiting Reply</div>
-          <div className="text-2xl font-semibold tabular-nums text-destructive">{awaitingReply}</div>
-        </div>
-        <div className="rounded-xl border border-border bg-card p-5 text-card-foreground">
-          <div className="text-sm text-muted-foreground">Hidden</div>
-          <div className="text-2xl font-semibold tabular-nums text-muted-foreground">{lguNotesPosted}</div>
-        </div>
       </div>
       <FeedbackTrendCard points={feedbackTrend} />
       <FeedbackTargetsCard targets={feedbackTargets} />

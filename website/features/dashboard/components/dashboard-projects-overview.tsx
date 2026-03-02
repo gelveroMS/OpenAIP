@@ -80,7 +80,7 @@ export function TopFundedProjectsSection({
   return (
     <Card className="bg-card text-card-foreground border border-border rounded-xl py-0">
       <CardHeader className="border-b border-border px-5 py-4">
-        <CardTitle className="flex items-center gap-2 text-sm font-medium text-foreground">
+        <CardTitle className="flex items-center gap-2 text-lg font-medium text-foreground">
           <TrendingUp className="h-4 w-4 text-muted-foreground" />
           Top Funded Projects
         </CardTitle>
@@ -247,7 +247,7 @@ export function TopProjectsTable({
                       : categoryLabel === "Social"
                         ? "bg-dodgerblue-200 text-dodgerblue-100"
                         : categoryLabel === "General"
-                          ? "bg-darkslategray-200 text-darkslategray-100"
+                          ? "bg-[#DCE5E8] text-[#1A677D]"
                           : "bg-secondary text-foreground";
 
                   return (

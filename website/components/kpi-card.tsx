@@ -126,7 +126,7 @@ export function KpiCard({
   ) : null;
 
   const statusLayout = (
-    <div className="space-y-2">
+    <div className="flex h-full flex-col">
       <div className="flex items-start justify-between gap-3">
         <div className={cn("min-w-0", iconNode ? "flex items-center gap-2" : "block")}>
           {iconNode && resolvedIconPlacement === "left" ? iconNode : null}
@@ -137,33 +137,43 @@ export function KpiCard({
           {iconNode && resolvedIconPlacement === "right" ? iconNode : null}
         </div>
       </div>
-      <div className={cn("break-words text-2xl font-semibold leading-tight", valueClass)}>{value}</div>
-      {subtext ? <div className="text-xs text-slate-500">{subtext}</div> : null}
-      {meta ? <div className="text-xs leading-relaxed text-slate-500">{meta}</div> : null}
+      <div className={cn("break-words text-3xl font-semibold leading-tight", valueClass)}>{value}</div>
+      {(subtext || meta) ? (
+        <div className="mt-auto space-y-1 pt-3">
+          {subtext ? <div className="text-xs text-slate-500">{subtext}</div> : null}
+          {meta ? <div className="text-xs leading-relaxed text-slate-500">{meta}</div> : null}
+        </div>
+      ) : null}
     </div>
   );
 
   const compactLayout = (
-    <div className="space-y-1.5">
+    <div className="flex h-full flex-col">
       <div className="flex items-center justify-between gap-2">
         <p className="truncate text-xs text-slate-500">{label}</p>
         {badgeNode}
       </div>
       <div className={cn("break-words text-2xl font-semibold leading-tight", valueClass)}>{value}</div>
-      {subtext ? <div className="text-xs text-slate-500">{subtext}</div> : null}
-      {meta ? <div className="text-[11px] leading-relaxed text-slate-500">{meta}</div> : null}
+      {(subtext || meta) ? (
+        <div className="mt-auto space-y-1 pt-2">
+          {subtext ? <div className="text-xs text-slate-500">{subtext}</div> : null}
+          {meta ? <div className="text-[11px] leading-relaxed text-slate-500">{meta}</div> : null}
+        </div>
+      ) : null}
     </div>
   );
 
   const splitLayout = (
     <div className="flex items-start justify-between gap-4">
-      <div className="min-w-0 space-y-1.5">
+      <div className="flex h-full min-w-0 flex-1 flex-col">
         <p className="truncate text-xs text-slate-500">{label}</p>
         <div className={cn("break-words text-2xl font-semibold leading-tight", valueClass)}>{value}</div>
-        {subtext ? <div className="text-xs text-slate-500">{subtext}</div> : null}
-        <div className="flex flex-wrap items-center gap-2">
-          {meta ? <div className="text-[11px] leading-relaxed text-slate-500">{meta}</div> : null}
-          {badgeNode}
+        <div className="mt-auto space-y-2 pt-2">
+          {subtext ? <div className="text-xs text-slate-500">{subtext}</div> : null}
+          <div className="flex flex-wrap items-center gap-2">
+            {meta ? <div className="text-[11px] leading-relaxed text-slate-500">{meta}</div> : null}
+            {badgeNode}
+          </div>
         </div>
       </div>
       {iconNode && resolvedIconPlacement === "right" ? iconNode : null}

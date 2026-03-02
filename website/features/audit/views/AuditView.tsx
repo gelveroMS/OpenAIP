@@ -133,12 +133,12 @@ export default function AuditView({ logs }: { logs: ActivityLogRow[] }) {
       </div>
 
       {/* Filters bar */}
-      <div className="rounded-xl border border-slate-200 bg-white p-5">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="rounded-xl p-5">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-[140px_180px_minmax(0,1fr)] md:items-end">
           <div className="space-y-2">
             <div className="text-xs text-slate-500">Year</div>
             <Select value={year} onValueChange={setYear}>
-              <SelectTrigger className="h-11 bg-slate-50 border-slate-200">
+              <SelectTrigger className="h-11 w-full border-slate-200 bg-white">
                 <SelectValue placeholder="Select year" />
               </SelectTrigger>
               <SelectContent>
@@ -155,7 +155,7 @@ export default function AuditView({ logs }: { logs: ActivityLogRow[] }) {
           <div className="space-y-2">
             <div className="text-xs text-slate-500">Events</div>
             <Select value={event} onValueChange={setEvent}>
-              <SelectTrigger className="h-11 bg-slate-50 border-slate-200">
+              <SelectTrigger className="h-11 w-full border-slate-200 bg-white">
                 <SelectValue placeholder="All Events" />
               </SelectTrigger>
               <SelectContent>
@@ -177,7 +177,7 @@ export default function AuditView({ logs }: { logs: ActivityLogRow[] }) {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search by name or keyword"
-                className="h-11 pl-9 bg-slate-50 border-slate-200"
+                className="h-11 border-slate-200 bg-white pl-9"
               />
             </div>
           </div>
@@ -191,26 +191,26 @@ export default function AuditView({ logs }: { logs: ActivityLogRow[] }) {
         <Table>
           <TableHeader>
             <TableRow className="bg-slate-50">
-              <TableHead className="w-[180px]">NAME</TableHead>
-              <TableHead className="w-[200px]">POSITION</TableHead>
-              <TableHead className="w-[170px]">EVENT</TableHead>
-              <TableHead className="w-[240px]">DATE &amp; TIME</TableHead>
-              <TableHead>DETAILS</TableHead>
+              <TableHead className="w-[170px] pl-4">NAME</TableHead>
+              <TableHead className="w-[180px] pl-4">POSITION</TableHead>
+              <TableHead className="w-[170px] pl-4">EVENT</TableHead>
+              <TableHead className="w-[220px] pl-4">DATE &amp; TIME</TableHead>
+              <TableHead className="w-[320px] pl-4">DETAILS</TableHead>
             </TableRow>
           </TableHeader>
 
           <TableBody>
             {filtered.map(({ row, name, position, event: eventLabel, details }) => (
               <TableRow key={row.id} className="border-slate-200">
-                <TableCell className="font-medium text-slate-900 p-4">
+                <TableCell className="p-4 font-medium text-slate-900 whitespace-normal break-words align-top">
                   {name}
                 </TableCell>
-                <TableCell className="text-slate-600">{position}</TableCell>
-                <TableCell className="text-slate-900">{eventLabel}</TableCell>
-                <TableCell className="text-slate-600">
+                <TableCell className="text-slate-600 whitespace-normal break-words align-top">{position}</TableCell>
+                <TableCell className="text-slate-900 whitespace-normal break-words align-top">{eventLabel}</TableCell>
+                <TableCell className="text-slate-600 whitespace-normal break-words align-top">
                   {formatDateTime(row.createdAt)}
                 </TableCell>
-                <TableCell className="text-slate-600">{details}</TableCell>
+                <TableCell className="text-slate-600 whitespace-normal break-words align-top">{details}</TableCell>
               </TableRow>
             ))}
 

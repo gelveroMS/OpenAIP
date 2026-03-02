@@ -9,13 +9,13 @@ export function AipPdfContainer({ aip }: { aip: AipHeader }) {
   return (
     <Card className="border-slate-200">
       <CardHeader className="pb-0">
-        <div className="flex items-center gap-2 text-slate-900 font-semibold">
+        <div className="flex items-center gap-2 text-slate-900 text-lg font-semibold">
           <FileText className="h-4 w-4 text-slate-500" />
           AIP Document
         </div>
       </CardHeader>
 
-      <CardContent className="pt-4">
+      <CardContent className="pt-0">
         <div className="border border-slate-200 rounded-lg bg-slate-50 p-8 flex flex-col items-center justify-center gap-4 text-center">
           <div className="h-12 w-12 rounded-lg bg-white border border-slate-200 grid place-items-center">
             <FileText className="h-6 w-6 text-slate-400" />

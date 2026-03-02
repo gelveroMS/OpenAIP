@@ -33,9 +33,11 @@ function getMetadataString(
 export function RecentActivityFeed({
   logs,
   auditHref,
+  compact = false,
 }: {
   logs: ActivityLogRow[];
   auditHref: "/barangay/audit" | "/city/audit";
+  compact?: boolean;
 }) {
   const sortedLogs = [...logs].sort(
     (left, right) =>
@@ -44,10 +46,14 @@ export function RecentActivityFeed({
 
   return (
     <Card className="bg-card text-card-foreground rounded-xl border border-border py-0">
-      <CardHeader className="p-5 pb-0">
+      <CardHeader className={compact ? "p-4 pb-0" : "p-5 pb-0"}>
         <CardTitle className="text-sm font-medium text-foreground">Recent Activity</CardTitle>
       </CardHeader>
-      <CardContent className="max-h-[728px] space-y-2 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] p-5">
+      <CardContent
+        className={compact
+          ? "max-h-[320px] space-y-2 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] p-4"
+          : "max-h-[728px] space-y-2 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] p-5"}
+      >
         {sortedLogs.map((log) => {
           const actionLabel = getAuditActionLabel(log.action);
           const roleLabel = getAuditRoleLabel(log.actorRole ?? null);
@@ -59,7 +65,9 @@ export function RecentActivityFeed({
           return (
             <div
               key={log.id}
-              className="rounded-lg border border-border bg-secondary p-3 hover:bg-accent"
+              className={compact
+                ? "rounded-lg border border-border bg-secondary p-2.5 hover:bg-accent"
+                : "rounded-lg border border-border bg-secondary p-3 hover:bg-accent"}
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="truncate text-sm font-semibold text-foreground">{actionLabel}</span>

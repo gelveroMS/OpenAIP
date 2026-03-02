@@ -76,10 +76,10 @@ export default function CitizenFooter({ forceVisible = false }: CitizenFooterPro
         </div>
 
         <div className="mt-10 border-t border-white/10 pt-6 text-center">
-          <p className="text-xs text-white/40">
+          <p className="text-xs text-white/60">
             © 2025 City Government of Cabuyao. All rights reserved.
           </p>
-          <p className="mt-2 text-xs text-white/30">
+          <p className="mt-2 text-xs text-white/50">
             Empowering citizens through transparency and participation.
           </p>
         </div>

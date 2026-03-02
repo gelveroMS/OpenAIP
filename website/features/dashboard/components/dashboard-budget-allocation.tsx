@@ -2,6 +2,7 @@ import Link from "next/link";
 import { DonutChart } from "@/components/chart";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DollarSign } from "lucide-react";
 
 const DONUT_COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"];
 
@@ -15,6 +16,8 @@ export function BudgetBreakdownSection({
   detailsHref: string;
 }) {
   const dotClassByIndex = ["bg-chart-1", "bg-chart-2", "bg-chart-3", "bg-chart-4", "bg-chart-5"];
+  const scopePrefix = detailsHref.startsWith("/city/") ? "/city" : detailsHref.startsWith("/barangay/") ? "/barangay" : "";
+  const projectsHref = scopePrefix ? `${scopePrefix}/projects` : "/projects";
   const chartData = items.map((item, index) => ({
     name: item.label,
     value: item.amount > 0 ? item.amount : Math.max(item.percentage, 0),
@@ -23,21 +26,26 @@ export function BudgetBreakdownSection({
 
   return (
     <Card className="bg-card text-card-foreground border border-border rounded-xl py-0">
-      <CardHeader className="border-b border-border px-5 pt-5"><CardTitle className="text-lg font-medium text-foreground">Budget Breakdown</CardTitle></CardHeader>
-      <CardContent className="space-y-2">
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1.15fr]">
+      <CardHeader className="border-b border-border px-5 py-3">
+        <CardTitle className="flex items-center gap-2 text-lg font-medium text-foreground">
+          <DollarSign className="h-4 w-4 text-[#1A677D]" />
+          Budget Breakdown
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2 p-5">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.05fr_1fr] lg:items-start">
           <DonutChart
             data={chartData}
             centerLabel="Budget Allocation"
             chartHeightClassName="h-72"
-            className="mx-auto"
+            className="mx-auto lg:mx-0"
           />
-          <div className="space-y-4">
+          <div className="space-y-5 pt-1">
             <div className="border-b border-border pb-4">
               <div className="text-sm text-muted-foreground">Total Budget</div>
-              <div className="whitespace-nowrap tabular-nums truncate text-2xl font-semibold leading-none text-foreground">{totalBudget}</div>
+              <div className="whitespace-nowrap tabular-nums truncate text-4xl font-semibold leading-none text-[#1A677D]">{totalBudget}</div>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-3">
               {items.map((item, index) => (
                 <div key={`summary-${item.sectorCode}`} className="grid grid-cols-[1fr_56px_120px] items-center gap-3 text-sm">
                   <div className="flex items-center gap-2">
@@ -52,8 +60,17 @@ export function BudgetBreakdownSection({
             <div className="text-xs italic text-muted-foreground">Categories derived from project classification.</div>
           </div>
         </div>
-        <div className="border-t border-border pt-4 flex gap-3">
-          <Button asChild className="rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"><Link href={detailsHref}>View AIP Details</Link></Button>
+        <div className="border-t border-border pt-4 flex flex-wrap gap-3">
+          <Button asChild className="rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background">
+            <Link href={detailsHref}>View AIP Details</Link>
+          </Button>
+          <Button
+            asChild
+            variant="outline"
+            className="rounded-lg border-border bg-card text-foreground hover:bg-accent"
+          >
+            <Link href={projectsHref}>View All Projects</Link>
+          </Button>
         </div>
       </CardContent>
     </Card>

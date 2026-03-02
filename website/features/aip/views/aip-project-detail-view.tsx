@@ -262,11 +262,11 @@ export default function AipProjectDetailView({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-2">
       <BreadcrumbNav items={breadcrumb} />
 
       <Card className="border-slate-200">
-        <CardContent className="flex items-center justify-between gap-4 p-6">
+        <CardContent className="flex items-center justify-between gap-4 px-6 py-0">
           <div className="space-y-1">
             <h1 className="text-2xl font-bold text-slate-900">{project.programProjectDescription}</h1>
             <p className="text-xs text-slate-500">Ref code: {project.projectRefCode}</p>

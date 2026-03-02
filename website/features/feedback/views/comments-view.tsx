@@ -50,12 +50,12 @@ export default function CommentsView({
         </p>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="grid gap-4 lg:grid-cols-4">
+      <div className="rounded-2xl p-5">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[120px_160px_120px_120px_minmax(0,1fr)] lg:items-end">
           <div className="space-y-2">
             <div className="text-xs text-slate-500">Year</div>
             <Select value={year} onValueChange={setYear}>
-              <SelectTrigger className="h-11 border-slate-200 bg-slate-50">
+              <SelectTrigger className="h-11 w-full border-slate-200 bg-white">
                 <SelectValue placeholder="Select year" />
               </SelectTrigger>
               <SelectContent>
@@ -72,7 +72,7 @@ export default function CommentsView({
           <div className="space-y-2">
             <div className="text-xs text-slate-500">Project</div>
             <Select value={context} onValueChange={setContext}>
-              <SelectTrigger className="h-11 border-slate-200 bg-slate-50">
+              <SelectTrigger className="h-11 w-full border-slate-200 bg-white">
                 <SelectValue placeholder="All Projects" />
               </SelectTrigger>
               <SelectContent>
@@ -94,7 +94,7 @@ export default function CommentsView({
                 setStatus(value as "all" | "no_response" | "responded")
               }
             >
-              <SelectTrigger className="h-11 border-slate-200 bg-slate-50">
+              <SelectTrigger className="h-11 w-full border-slate-200 bg-white">
                 <SelectValue placeholder="Select status" />
               </SelectTrigger>
               <SelectContent>
@@ -108,7 +108,7 @@ export default function CommentsView({
           <div className="space-y-2">
             <div className="text-xs text-slate-500">Kind</div>
             <Select value={kind} onValueChange={(value) => setKind(value as typeof kind)}>
-              <SelectTrigger className="h-11 border-slate-200 bg-slate-50">
+              <SelectTrigger className="h-11 w-full border-slate-200 bg-white">
                 <SelectValue placeholder="All Kinds" />
               </SelectTrigger>
               <SelectContent>
@@ -121,18 +121,17 @@ export default function CommentsView({
               </SelectContent>
             </Select>
           </div>
-        </div>
-
-        <div className="mt-4 space-y-2">
-          <div className="text-xs text-slate-500">Search</div>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search by commenter name, comment, or project..."
-              className="h-11 border-slate-200 bg-slate-50 pl-9"
-            />
+          <div className="min-w-0 space-y-2">
+            <div className="text-xs text-slate-500">Search</div>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search by commenter name, comment, or project..."
+                className="h-11 border-slate-200 bg-white pl-9"
+              />
+            </div>
           </div>
         </div>
       </div>

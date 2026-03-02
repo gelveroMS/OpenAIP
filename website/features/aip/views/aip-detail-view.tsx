@@ -27,7 +27,6 @@ import { BreadcrumbNav } from "@/components/layout/breadcrumb-nav";
 import { getAipStatusBadgeClass } from "../utils";
 import { AipPdfContainer } from "../components/aip-pdf-container";
 import { AipDetailsSummary } from "../components/aip-details-summary";
-import { AipUploaderInfo } from "../components/aip-uploader-info";
 import { AipProcessingInlineStatus } from "../components/aip-processing-inline-status";
 import type { AipProcessingState } from "../components/aip-processing-status-content";
 import { AipStatusInfoCard } from "../components/aip-status-info-card";
@@ -1017,7 +1016,7 @@ export default function AipDetailView({
         <>
           {/* title bar */}
           <Card className="border-slate-200">
-            <CardContent className="flex items-center justify-between gap-4 p-6">
+            <CardContent className="flex items-center justify-between px-6">
               <h1 className="text-2xl font-bold text-slate-900">{aip.title}</h1>
 
               <Badge
@@ -1130,7 +1129,7 @@ export default function AipDetailView({
             <div className="space-y-6">
               <AipPdfContainer aip={aip} />
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center">
                 <Tabs
                   value={activeTab}
                   onValueChange={(value) => {
@@ -1190,11 +1189,9 @@ export default function AipDetailView({
                     onProjectsStateChange={handleProjectsStateChange}
                   />
 
-                  <AipUploaderInfo aip={aip} />
-
                 </>
               ) : (
-                <div className="space-y-6">
+                <div className="space-y-3">
                   {revisionFeedbackCycles.length > 0 ? (
                     <RevisionFeedbackHistoryCard
                       cycles={revisionFeedbackCycles}
@@ -1207,7 +1204,7 @@ export default function AipDetailView({
                     />
                   ) : (
                     <Card className="border-slate-200">
-                      <CardContent className="p-5 text-sm text-slate-600">
+                      <CardContent className="px-5 text-sm text-slate-600">
                         No workflow feedback history yet.
                       </CardContent>
                     </Card>
@@ -1215,7 +1212,7 @@ export default function AipDetailView({
 
                   {aip.status === "published" ? (
                     <Card className="border-slate-200">
-                      <CardContent className="space-y-3 p-5">
+                      <CardContent className="space-y-3 px-5">
                         <div>
                           <h3 className="text-sm font-semibold text-slate-900">
                             Citizen Feedback
@@ -1287,11 +1284,11 @@ export default function AipDetailView({
             </div>
 
             {showRightSidebar ? (
-              <div className="h-fit space-y-6 lg:sticky lg:top-6">
+              <div className="h-fit space-y-6 lg:sticky lg:top-4">
                 {showRevisionWorkflowSidebar ? (
                   <>
                     <Card className="border-slate-200">
-                      <CardContent className="space-y-4 p-5">
+                      <CardContent className="space-y-4 px-5">
                         <div>
                           <h3 className="text-sm font-semibold text-slate-900">
                             Official Comment / Justification
@@ -1300,7 +1297,7 @@ export default function AipDetailView({
 
                         {isForRevision ? (
                           <>
-                            <div className="rounded border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                            <div className="rounded border border-amber-200 bg-amber-50 px-3 text-xs text-amber-800">
                               Reviewer feedback is available. Save your response, then
                               resubmit this AIP when ready.
                             </div>
@@ -1353,7 +1350,7 @@ export default function AipDetailView({
 
                         {isPendingReview ? (
                           <>
-                            <div className="rounded border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                            <div className="rounded border border-amber-200 bg-amber-50 px-3 text-xs text-amber-800">
                               Editing is not allowed while the AIP is pending review.
                               Please wait for the review process to complete.
                             </div>
@@ -1430,7 +1427,7 @@ export default function AipDetailView({
 
                 {aip.status === "published" ? (
                   <Card className="border-slate-200">
-                    <CardContent className="space-y-3 p-5">
+                    <CardContent className="space-y-3 px-5">
                       <div className="text-sm font-semibold text-slate-900">
                         {getEmbeddingStatusTitle(aip.embedding)}
                       </div>

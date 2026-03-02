@@ -76,12 +76,12 @@ export default function InfrastructureProjectsView({
       </div>
 
       {/* Filters */}
-      <div className="rounded-xl border border-slate-200 bg-white p-5">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-2">
+      <div className="rounded-xl p-5">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-[140px_minmax(0,1fr)] md:items-end">
+          <div className="w-full space-y-2 md:w-[140px]">
             <div className="text-xs text-slate-500">Filter by Year</div>
             <Select value={year} onValueChange={setYear}>
-              <SelectTrigger className="h-11 bg-slate-50 border-slate-200">
+              <SelectTrigger className="h-11 w-full border-slate-200 bg-white">
                 <SelectValue placeholder="Select year" />
               </SelectTrigger>
               <SelectContent>
@@ -98,12 +98,12 @@ export default function InfrastructureProjectsView({
           <div className="space-y-2">
             <div className="text-xs text-slate-500">Search Projects</div>
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <Input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search by project name or keyword"
-                className="h-11 pl-9 bg-slate-50 border-slate-200"
+                className="h-11 border-slate-200 bg-white pl-9"
               />
             </div>
           </div>

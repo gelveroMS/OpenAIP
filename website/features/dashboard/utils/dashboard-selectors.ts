@@ -2,7 +2,6 @@ import type {
   AipStatus,
   PipelineStage,
   PipelineStatus,
-  ProjectCategory,
 } from "@/lib/contracts/databasev2/enums";
 import type {
   DashboardAip,
@@ -22,33 +21,49 @@ export function selectBudgetBySector(
   projects: DashboardProject[],
   sectors: DashboardSector[]
 ): Array<{ sectorCode: string; label: string; amount: number; percentage: number }> {
-  const totals = new Map<string, number>();
+  const totals = new Map<string, number>([
+    ["general", 0],
+    ["social", 0],
+    ["economic", 0],
+    ["other", 0],
+  ]);
+  const labelByCode = new Map(sectors.map((sector) => [sector.code, sector.label.toLowerCase()]));
 
   for (const project of projects) {
-    const key = project.category;
+    const sectorLabel = labelByCode.get(project.sectorCode) ?? "";
+    const key = sectorLabel.includes("general")
+      ? "general"
+      : sectorLabel.includes("social")
+        ? "social"
+        : sectorLabel.includes("economic")
+          ? "economic"
+          : "other";
     const amount = typeof project.total === "number" ? project.total : 0;
     totals.set(key, (totals.get(key) ?? 0) + amount);
   }
 
   const grandTotal = Array.from(totals.values()).reduce((sum, value) => sum + value, 0);
-  const labelByCategory = new Map<ProjectCategory, string>([
-    ["health", "Health"],
-    ["infrastructure", "Infrastructure"],
-    ["other", "Governance and Public Service"],
+  const bucketLabels = new Map<string, string>([
+    ["general", "General"],
+    ["social", "Social"],
+    ["economic", "Economic"],
+    ["other", "Other"],
   ]);
-  const labelByCode = new Map(sectors.map((sector) => [sector.code, sector.label]));
+  const bucketOrder = new Map<string, number>([
+    ["general", 0],
+    ["social", 1],
+    ["economic", 2],
+    ["other", 3],
+  ]);
 
   return Array.from(totals.entries())
     .map(([sectorCode, amount]) => ({
       sectorCode,
-      label:
-        labelByCategory.get(sectorCode as ProjectCategory) ??
-        labelByCode.get(sectorCode) ??
-        sectorCode.toUpperCase(),
+      label: bucketLabels.get(sectorCode) ?? sectorCode,
       amount,
       percentage: grandTotal > 0 ? (amount / grandTotal) * 100 : 0,
     }))
-    .sort((left, right) => right.amount - left.amount);
+    .sort((left, right) => (bucketOrder.get(left.sectorCode) ?? 99) - (bucketOrder.get(right.sectorCode) ?? 99));
 }
 
 export function selectTopFunded(projects: DashboardProject[], limit = 10): DashboardProject[] {

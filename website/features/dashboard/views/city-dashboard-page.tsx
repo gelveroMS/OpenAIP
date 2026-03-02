@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Building2 } from "lucide-react";
 import { DashboardHeader, DateCard, WorkingOnCard } from "@/features/dashboard/components/dashboard-header-widgets";
 import { KpiRow } from "@/features/dashboard/components/dashboard-metric-cards";
 import { BudgetBreakdownSection } from "@/features/dashboard/components/dashboard-budget-allocation";
 import { TopFundedProjectsSection } from "@/features/dashboard/components/dashboard-projects-overview";
-import { AipStatusColumn, AipCoverageCard, PublicationTimelineCard, AipsByYearTable } from "@/features/dashboard/components/dashboard-aip-publication-status";
+import { AipStatusColumn, AipCoverageCard, AipsByYearTable } from "@/features/dashboard/components/dashboard-aip-publication-status";
 import { CitizenEngagementPulseColumn } from "@/features/dashboard/components/dashboard-feedback-insights";
 import { RecentActivityFeed, RecentProjectUpdatesCard } from "@/features/dashboard/components/dashboard-activity-updates";
 import { createCityDraftAipAction, replyCityFeedbackAction } from "@/features/dashboard/actions/city-dashboard-actions";
@@ -40,12 +41,6 @@ export function CityDashboardPage({
   const healthProjectsCount = vm.projects.filter((project) => project.category === "health").length;
   const infraProjectsCount = vm.projects.filter((project) => project.category === "infrastructure").length;
   const projectBreakdownText = `Health: ${healthProjectsCount} | Infra: ${infraProjectsCount}`;
-
-  const publicationYears = data.allAips
-    .map((aip) => aip.fiscalYear)
-    .sort((left, right) => right - left)
-    .slice(0, 5)
-    .map((year) => ({ year, count: data.allAips.filter((aip) => aip.fiscalYear === year && aip.status === "published").length }));
 
   return (
     <div className="space-y-6">
@@ -88,19 +83,19 @@ export function CityDashboardPage({
 
           <div className="grid gap-4 xl:grid-cols-2">
             <div className="space-y-4">
-              <h2 className="text-4xl font-semibold text-slate-900">City AIP Status</h2>
+              <div className="flex items-center gap-2">
+                <Building2 className="h-7 w-7 text-[#0B6477]" />
+                <h2 className="text-4xl font-semibold text-slate-900">City AIP Status</h2>
+              </div>
               <AipCoverageCard selectedAip={data.selectedAip} />
-              <PublicationTimelineCard years={publicationYears} />
-              <AipsByYearTable rows={data.allAips} basePath="/city" />
+              <AipsByYearTable rows={data.allAips} years={data.availableFiscalYears} basePath="/city" />
+              <RecentActivityFeed logs={recentActivityLogs} auditHref="/city/audit" compact />
             </div>
             <CitizenEngagementPulseColumn newThisWeek={vm.newThisWeek} awaitingReply={vm.awaitingReplyCount} lguNotesPosted={vm.lguNotesPosted} feedbackTrend={vm.feedbackTrend} feedbackTargets={vm.feedbackTargets} recentFeedback={vm.recentCitizenFeedback} replyAction={replyCityFeedbackAction} />
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,420px)] xl:items-stretch">
-            <div className="min-w-0">
-              <RecentActivityFeed logs={recentActivityLogs} auditHref="/city/audit" />
-            </div>
-            <div className="min-w-0 flex flex-col items-stretch">
+          <div className="flex justify-end">
+            <div className="w-full max-w-[420px] min-w-0">
               <RecentProjectUpdatesCard logs={data.projectUpdateLogs} />
             </div>
           </div>

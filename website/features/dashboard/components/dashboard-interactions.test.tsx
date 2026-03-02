@@ -360,6 +360,7 @@ describe("Dashboard links and actions", () => {
             uploadedDate: "2026-02-27T08:00:00.000Z",
           },
         ]}
+        years={[2026]}
         basePath="/barangay"
       />
     );

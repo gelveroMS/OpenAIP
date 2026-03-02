@@ -144,7 +144,7 @@ export function KpiRow({
         accentMode="border"
       />
       <KpiCard
-        variant="split"
+        variant="status"
         label="Total Projects"
         value={totalProjects}
         subtext={projectBreakdownText ?? "As of today"}
@@ -153,7 +153,7 @@ export function KpiRow({
         accentMode="border"
       />
       <KpiCard
-        variant="split"
+        variant="status"
         label="Total Budget"
         value={totalBudget}
         subtext={`Based on project totals for ${fiscalYear}`}
@@ -162,7 +162,7 @@ export function KpiRow({
         accentMode="border"
       />
       <KpiCard
-        variant="split"
+        variant="status"
         label="Citizen Feedback"
         value={feedbackValueLabel}
         subtext={`Unreplied: ${awaitingReplyCount} | Hidden: ${hiddenCount}`}

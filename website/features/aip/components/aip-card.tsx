@@ -70,10 +70,10 @@ export default function AipCard({
   return (
     <Link href={`/${scope}/aips/${aip.id}`} className="block">
       <Card className="border-slate-200 hover:border-slate-300 hover:shadow-md transition-all cursor-pointer">
-        <CardContent className="p-6">
+        <CardContent className="px-6">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <h3 className="text-lg font-semibold text-slate-900 hover:text-[#022437] transition-colors">
+              <h3 className="text-xl font-semibold text-slate-900 hover:text-[#022437] transition-colors">
                 {aip.title}
               </h3>
               {isProcessingCard ? (

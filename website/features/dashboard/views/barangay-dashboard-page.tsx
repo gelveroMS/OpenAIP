@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Building2 } from "lucide-react";
 import { DashboardHeader, DateCard, WorkingOnCard } from "@/features/dashboard/components/dashboard-header-widgets";
 import { KpiRow } from "@/features/dashboard/components/dashboard-metric-cards";
 import { BudgetBreakdownSection } from "@/features/dashboard/components/dashboard-budget-allocation";
 import { TopFundedProjectsSection } from "@/features/dashboard/components/dashboard-projects-overview";
-import { AipCoverageCard, PublicationTimelineCard, AipsByYearTable } from "@/features/dashboard/components/dashboard-aip-publication-status";
+import { AipCoverageCard, AipsByYearTable } from "@/features/dashboard/components/dashboard-aip-publication-status";
 import { CitizenEngagementPulseColumn } from "@/features/dashboard/components/dashboard-feedback-insights";
 import { RecentActivityFeed, RecentProjectUpdatesCard } from "@/features/dashboard/components/dashboard-activity-updates";
 import { replyBarangayFeedbackAction, createBarangayDraftAipAction } from "@/features/dashboard/actions/barangay-dashboard-actions";
@@ -40,12 +41,6 @@ export function BarangayDashboardPage({
   const healthProjectsCount = vm.projects.filter((project) => project.category === "health").length;
   const infraProjectsCount = vm.projects.filter((project) => project.category === "infrastructure").length;
   const projectBreakdownText = `Health: ${healthProjectsCount} | Infra: ${infraProjectsCount}`;
-
-  const publicationYears = data.allAips
-    .map((aip) => aip.fiscalYear)
-    .sort((left, right) => right - left)
-    .slice(0, 5)
-    .map((year) => ({ year, count: data.allAips.filter((aip) => aip.fiscalYear === year && aip.status === "published").length }));
 
   return (
     <div className="space-y-6">
@@ -94,15 +89,16 @@ export function BarangayDashboardPage({
 
           <div className="grid gap-4 xl:grid-cols-2">
             <div className="space-y-4">
-              <h2 className="text-4xl font-semibold text-slate-900">Barangay AIP Status</h2>
+              <div className="flex items-center gap-2">
+                <Building2 className="h-5 w-5 text-[#0B6477]" />
+                <h2 className="text-xl font-semibold text-slate-900">Barangay AIP Status</h2>
+              </div>
               <AipCoverageCard selectedAip={data.selectedAip} />
-              <PublicationTimelineCard years={publicationYears} />
-              <AipsByYearTable rows={data.allAips} basePath="/barangay" />
+              <AipsByYearTable rows={data.allAips} years={data.availableFiscalYears} basePath="/barangay" />
+              <RecentActivityFeed logs={recentActivityLogs} auditHref="/barangay/audit" compact />
             </div>
             <CitizenEngagementPulseColumn newThisWeek={vm.newThisWeek} awaitingReply={vm.awaitingReplyCount} lguNotesPosted={vm.lguNotesPosted} feedbackTrend={vm.feedbackTrend} feedbackTargets={vm.feedbackTargets} recentFeedback={vm.recentCitizenFeedback} replyAction={replyBarangayFeedbackAction} />
           </div>
-
-          <RecentActivityFeed logs={recentActivityLogs} auditHref="/barangay/audit" />
         </>
       )}
     </div>
