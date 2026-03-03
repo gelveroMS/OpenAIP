@@ -180,8 +180,8 @@ export function DateCard({ label, backgroundImageUrl }: { label: string; backgro
 export function WorkingOnCard({ items }: { items: Array<{ id: string; label: string; href: string }> }) {
   return (
     <Card className="w-full min-w-0 rounded-xl border border-border bg-card py-0 text-card-foreground">
-      <CardHeader className="p-5 pb-0"><CardTitle className="text-sm font-medium">You&apos;re Working On</CardTitle></CardHeader>
-      <CardContent className="p-5 space-y-3">
+      <CardHeader className="pt-5"><CardTitle className="text-lg font-medium">You&apos;re Working On</CardTitle></CardHeader>
+      <CardContent className="pb-5 space-y-3">
         {items.length === 0 ? (
           <div className="mt-10 text-center text-xl font-semibold">All Caught Up</div>
         ) : (
