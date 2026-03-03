@@ -52,7 +52,7 @@ export function DashboardHeader({
 
   return (
     <div className="w-full space-y-6">
-      <h1 className="text-4xl font-bold text-foreground">{title}</h1>
+      <h1 className="text-5xl font-bold text-foreground">{title}</h1>
       <form ref={formRef} method="get" className="flex items-center justify-end gap-4">
         <input type="hidden" name="kpi" value={kpiMode} />
         <input type="hidden" name="q" value={q} />

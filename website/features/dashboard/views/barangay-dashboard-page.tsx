@@ -71,7 +71,7 @@ export function BarangayDashboardPage({
         <>
           <KpiRow selectedAip={data.selectedAip} totalProjects={vm.projects.length} totalBudget={toCurrency(vm.totalBudget)} citizenFeedbackCount={vm.citizenFeedbackCount} awaitingReplyCount={vm.awaitingReplyCount} hiddenCount={vm.lguNotesPosted} pendingReviewCount={pendingReviewCount} underReviewCount={underReviewCount} forRevisionCount={forRevisionCount} oldestPendingDays={vm.oldestPendingDays} fiscalYear={data.selectedAip.fiscalYear} projectBreakdownText={projectBreakdownText} />
 
-          <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-[4fr_1fr] xl:items-stretch">
+          <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-[3fr_1fr] xl:items-stretch">
             <div className="min-w-0 w-full">
               <BudgetBreakdownSection totalBudget={toCurrency(vm.totalBudget)} items={vm.budgetBySector} detailsHref={`/barangay/aips/${data.selectedAip.id}`} />
             </div>

@@ -78,14 +78,14 @@ export function TopFundedProjectsSection({
   }, [searchText, category, sector]);
 
   return (
-    <Card className="bg-card text-card-foreground border border-border rounded-xl py-0">
-      <CardHeader className="border-b border-border px-5 py-4">
-        <CardTitle className="flex items-center gap-2 text-lg font-medium text-foreground">
+    <Card className="bg-card text-card-foreground border border-border rounded-xl py-4">
+      <CardHeader className="grid-rows-[auto] items-center gap-0 border-b border-border px-5">
+        <CardTitle className="flex items-center gap-2 leading-none text-lg font-medium text-foreground">
           <TrendingUp className="h-4 w-4 text-muted-foreground" />
           Top Funded Projects
         </CardTitle>
       </CardHeader>
-      <CardContent className="p-5 space-y-4">
+      <CardContent className="px-5 space-y-3">
         <TopProjectsFilters
           sectors={sectors}
           searchText={searchText}

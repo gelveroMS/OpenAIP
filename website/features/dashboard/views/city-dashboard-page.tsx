@@ -71,7 +71,7 @@ export function CityDashboardPage({
         <>
           <KpiRow selectedAip={data.selectedAip} totalProjects={vm.projects.length} totalBudget={toCurrency(vm.totalBudget)} citizenFeedbackCount={vm.citizenFeedbackCount} awaitingReplyCount={vm.awaitingReplyCount} hiddenCount={vm.lguNotesPosted} pendingReviewCount={pendingReviewCount} underReviewCount={underReviewCount} forRevisionCount={forRevisionCount} oldestPendingDays={vm.oldestPendingDays} fiscalYear={data.selectedAip.fiscalYear} projectBreakdownText={projectBreakdownText} scope="city" />
 
-          <div className="grid gap-4 xl:grid-cols-[4fr_1fr]">
+          <div className="grid gap-4 xl:grid-cols-[3fr_1fr]">
             <BudgetBreakdownSection totalBudget={toCurrency(vm.totalBudget)} items={vm.budgetBySector} detailsHref={`/city/aips/${data.selectedAip.id}`} />
             <div className="space-y-4"><DateCard label={today} /><WorkingOnCard items={vm.workingOnItems} /></div>
           </div>

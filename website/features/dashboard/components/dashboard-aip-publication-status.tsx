@@ -14,7 +14,7 @@ const STATUS_STYLES: Record<string, string> = {
   pending_review: "bg-accent text-foreground border-border",
   under_review: "bg-info-soft text-foreground border-border",
   for_revision: "bg-warning-soft text-foreground border-border",
-  published: "bg-[color:var(--color-success-soft)] text-[color:var(--color-success)] border-border",
+  published: "border-emerald-200 bg-emerald-50 text-emerald-700",
 };
 
 const STATUS_PIE_COLORS: Record<string, string> = {
@@ -83,11 +83,19 @@ export function AipsByYearTable({
 
   return (
     <Card className="bg-card text-card-foreground border border-border rounded-xl py-0">
-      <CardHeader className="pt-3"><CardTitle className="text-lg font-medium text-foreground">AIPs by Year</CardTitle></CardHeader>
+      <CardHeader className="grid-rows-[auto] items-center gap-0 border-b border-border px-5 py-3">
+        <CardTitle className="leading-none text-lg font-medium text-foreground">AIPs by Year</CardTitle>
+      </CardHeader>
       <CardContent className="pb-5 space-y-2">
-        <div className="grid grid-cols-[72px_140px_1fr_120px_auto] rounded-md border border-border bg-secondary px-3 py-2 text-xs font-medium text-muted-foreground"><span>Year</span><span>Status</span><span>Uploaded By</span><span>Upload Date</span><span className="text-right">Action</span></div>
+        <div className="grid grid-cols-[72px_140px_1fr_120px_88px] rounded-md border border-border bg-secondary px-3 py-2 text-left text-xs font-medium text-muted-foreground">
+          <span className="text-left">Year</span>
+          <span className="text-left">Status</span>
+          <span className="text-left">Uploaded By</span>
+          <span className="text-left">Upload Date</span>
+          <span className="text-left">Action</span>
+        </div>
         {yearRows.map(({ year, aip }) => (
-          <div key={year} className="grid h-8 grid-cols-[72px_140px_1fr_120px_auto] items-center border-b border-border px-3 text-sm hover:bg-accent">
+          <div key={year} className="grid h-8 grid-cols-[72px_140px_1fr_120px_88px] items-center border-b border-border px-3 text-sm hover:bg-accent">
             <span className="font-medium tabular-nums truncate">{year}</span>
             <Badge
               className={`w-fit border text-xs font-medium ${
@@ -101,18 +109,18 @@ export function AipsByYearTable({
               {aip ? (aip.status === "published" ? "Published" : formatStatusLabel(aip.status)) : "None"}
             </Badge>
             <span className="truncate text-muted-foreground">{aip?.uploadedBy ?? "None"}</span>
-            <span className="truncate tabular-nums text-muted-foreground">
+            <span className="truncate tabular-nums text-left text-muted-foreground">
               {aip ? formatDate(aip.uploadedDate ?? aip.statusUpdatedAt) : "None"}
             </span>
             {aip ? (
-              <Button asChild size="sm" variant="ghost" className="justify-self-end text-primary hover:underline">
+              <Button asChild size="sm" variant="ghost" className="justify-self-start px-0 text-primary hover:underline">
                 <Link href={`${basePath}/aips/${aip.id}`}>
                   <Eye className="mr-1 h-4 w-4" />
                   View
                 </Link>
               </Button>
             ) : (
-              <span className="justify-self-end text-xs text-muted-foreground">None</span>
+              <span className="justify-self-start text-xs text-muted-foreground">None</span>
             )}
           </div>
         ))}

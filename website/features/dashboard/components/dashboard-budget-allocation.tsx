@@ -25,15 +25,15 @@ export function BudgetBreakdownSection({
   }));
 
   return (
-    <Card className="bg-card text-card-foreground border border-border rounded-xl py-0">
-      <CardHeader className="border-b border-border px-5 py-3">
-        <CardTitle className="flex items-center gap-2 text-lg font-medium text-foreground">
+    <Card className="bg-card text-card-foreground border border-border rounded-xl pt-5">
+      <CardHeader className="grid-rows-[auto] items-center gap-0 border-b border-border px-5">
+        <CardTitle className="flex items-center gap-2 leading-none text-lg font-medium text-foreground">
           <DollarSign className="h-4 w-4 text-[#1A677D]" />
           Budget Breakdown
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-2 p-5">
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.05fr_1fr] lg:items-start">
+      <CardContent className="space-y-2 px-5 pb-5 pt-3">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.05fr_1fr] lg:items-start">
           <DonutChart
             data={chartData}
             centerLabel="Budget Allocation"
