@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { validateRequestOrigin } from "@/lib/security/csrf";
 
 describe("validateRequestOrigin", () => {
-  it("accepts the current request origin even when it is not in the configured allowlist", () => {
+  it("rejects a same-origin host when it is not in the configured allowlist", () => {
     const request = new Request("http://192.168.1.50:3000/api/barangay/chat/messages", {
       method: "POST",
       headers: {
@@ -10,7 +10,7 @@ describe("validateRequestOrigin", () => {
       },
     });
 
-    expect(validateRequestOrigin(request, ["http://localhost:3000"])).toBe(true);
+    expect(validateRequestOrigin(request, ["http://localhost:3000"])).toBe(false);
   });
 
   it("still rejects cross-origin requests", () => {

@@ -35,6 +35,81 @@ describe("notifications api routes", () => {
     expect(response.status).toBe(401);
   });
 
+  it("applies unread filtering when status=unread", async () => {
+    const range = vi.fn(async () => ({ data: [], error: null, count: 0 }));
+    const isReadAtNull = vi.fn(() => ({
+      range,
+    }));
+    const order = vi.fn(() => ({
+      is: isReadAtNull,
+      range,
+    }));
+    const eqRecipient = vi.fn(() => ({
+      order,
+    }));
+    const select = vi.fn(() => ({
+      eq: eqRecipient,
+    }));
+
+    mockSupabaseServer.mockResolvedValue({
+      auth: {
+        getUser: async () => ({
+          data: { user: { id: "user-123" } },
+          error: null,
+        }),
+      },
+      from: () => ({
+        select,
+      }),
+    });
+
+    const response = await listNotifications(
+      new Request("http://localhost/api/notifications?status=unread&offset=5&limit=10")
+    );
+
+    expect(response.status).toBe(200);
+    expect(eqRecipient).toHaveBeenCalledWith("recipient_user_id", "user-123");
+    expect(isReadAtNull).toHaveBeenCalledWith("read_at", null);
+    expect(range).toHaveBeenCalledWith(5, 14);
+  });
+
+  it("falls back to all notifications when status is invalid", async () => {
+    const range = vi.fn(async () => ({ data: [], error: null, count: 2 }));
+    const isReadAtNull = vi.fn(() => ({
+      range,
+    }));
+    const order = vi.fn(() => ({
+      is: isReadAtNull,
+      range,
+    }));
+    const eqRecipient = vi.fn(() => ({
+      order,
+    }));
+    const select = vi.fn(() => ({
+      eq: eqRecipient,
+    }));
+
+    mockSupabaseServer.mockResolvedValue({
+      auth: {
+        getUser: async () => ({
+          data: { user: { id: "user-456" } },
+          error: null,
+        }),
+      },
+      from: () => ({
+        select,
+      }),
+    });
+
+    const response = await listNotifications(
+      new Request("http://localhost/api/notifications?status=invalid")
+    );
+
+    expect(response.status).toBe(200);
+    expect(isReadAtNull).not.toHaveBeenCalled();
+    expect(range).toHaveBeenCalledWith(0, 19);
+  });
+
   it("marks only current user's rows as read in mark-all endpoint", async () => {
     const eqRecipient = vi.fn(() => ({
       is: async () => ({ error: null }),
