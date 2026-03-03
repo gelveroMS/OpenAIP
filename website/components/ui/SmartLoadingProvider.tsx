@@ -86,7 +86,7 @@ function OverlayLoader({ label }: { label: string }) {
 
 function RegionLoader({ label }: { label: string }) {
   return (
-    <div className="flex h-full w-full items-center justify-center overflow-hidden bg-slate-100/78 px-4 py-6 backdrop-blur-sm sm:px-6">
+    <div className="pointer-events-auto flex h-full w-full items-center justify-center overflow-hidden bg-slate-100/78 px-4 py-6 backdrop-blur-sm sm:px-6">
       <div role="status" aria-live="polite">
         <LoadingIndicator label={label} />
       </div>

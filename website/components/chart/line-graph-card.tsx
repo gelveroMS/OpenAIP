@@ -38,8 +38,47 @@ type ChartDimensions = {
   height: number;
 };
 
+type LineGraphTooltipEntry = {
+  color?: string;
+  name?: string;
+  value?: number | string;
+};
+
+type LineGraphTooltipProps = {
+  active?: boolean;
+  label?: string | number;
+  payload?: LineGraphTooltipEntry[];
+};
+
 const DEFAULT_HEIGHT_CLASS = "h-56";
 const DEFAULT_COLORS = ["#25647e", "#3b82f6", "#10b981", "#f59e0b", "#6a7282", "#ef4444"];
+
+function LineGraphTooltipContent({ active, label, payload }: LineGraphTooltipProps) {
+  if (!active || !payload?.length) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-[0_4px_14px_rgba(15,23,42,0.08)]">
+      {label !== undefined ? (
+        <div className="mb-1 font-semibold text-slate-900">{String(label)}</div>
+      ) : null}
+      <div className="space-y-1">
+        {payload.map((entry, index) => (
+          <div key={`${entry.name ?? "series"}-${index}`} className="flex items-center gap-2 text-slate-600">
+            <span className="inline-flex h-2.5 w-2.5 items-center justify-center" aria-hidden>
+              <svg viewBox="0 0 10 10" className="h-2.5 w-2.5">
+                <circle cx="5" cy="5" r="5" fill={entry.color ?? "#64748b"} />
+              </svg>
+            </span>
+            <span className="font-medium text-slate-700">{entry.name ?? "Value"}</span>
+            <span>{String(entry.value ?? "")}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function LineGraphCard({
   data,
@@ -146,14 +185,7 @@ export function LineGraphCard({
               {showTooltip ? (
                 <Tooltip
                   cursor={{ stroke: "#cbd5e1", strokeDasharray: "3 3" }}
-                  contentStyle={{
-                    borderRadius: "0.5rem",
-                    border: "1px solid #e2e8f0",
-                    backgroundColor: "#ffffff",
-                    boxShadow: "0 4px 14px rgba(15, 23, 42, 0.08)",
-                    fontSize: "12px",
-                  }}
-                  labelStyle={{ color: "#0f172a", fontWeight: 600, marginBottom: 4 }}
+                  content={<LineGraphTooltipContent />}
                 />
               ) : null}
 
@@ -190,10 +222,13 @@ export function LineGraphCard({
           {resolvedSeries.map((entry) => (
             <li key={`legend-${entry.key}`} className="flex items-center gap-2 text-xs text-slate-600">
               <span
-                className="h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: entry.color }}
+                className="inline-flex h-2.5 w-2.5 items-center justify-center"
                 aria-hidden
-              />
+              >
+                <svg viewBox="0 0 10 10" className="h-2.5 w-2.5">
+                  <circle cx="5" cy="5" r="5" fill={entry.color} />
+                </svg>
+              </span>
               <span>{entry.label}</span>
             </li>
           ))}

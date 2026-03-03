@@ -68,8 +68,8 @@ export default function DashboardFiltersRow({
   };
 
   return (
-    <div className="space-y-2">
-      <div className="grid gap-3 lg:grid-cols-[185px_24px_185px_240px_240px_auto] items-end">
+    <div className="space-y-2 lg:flex lg:flex-col lg:items-end">
+      <div className="grid items-end gap-3 lg:w-auto lg:grid-cols-[185px_24px_185px_240px_240px_auto]">
         <div className="space-y-1">
           <div className="text-[12px] text-slate-600">Date Range</div>
           <Input
@@ -135,7 +135,7 @@ export default function DashboardFiltersRow({
           </Button>
         </div>
       </div>
-      <div className="text-[12px] text-slate-500">
+      <div className="text-[12px] text-slate-500 lg:text-right">
         Filters persist in the URL, carry into dashboard drill-down pages, and reuse date range in Usage Controls chatbot metrics.
       </div>
     </div>

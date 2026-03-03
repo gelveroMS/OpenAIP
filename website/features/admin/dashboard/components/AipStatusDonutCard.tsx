@@ -39,6 +39,7 @@ export default function AipStatusDonutCard({
           <div className="w-full max-w-[420px]">
             <DonutChart
               data={chartData}
+              showTooltip={false}
               centerLabel={
                 <div className="leading-tight">
                   <div className="text-[12px] text-slate-500">Total</div>
@@ -64,7 +65,11 @@ export default function AipStatusDonutCard({
                 onClick={() => onStatusClick(segment.status)}
               >
                 <span className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: segment.color }} />
+                  <span className="inline-flex h-2.5 w-2.5 items-center justify-center" aria-hidden>
+                    <svg viewBox="0 0 10 10" className="h-2.5 w-2.5">
+                      <circle cx="5" cy="5" r="5" fill={segment.color} />
+                    </svg>
+                  </span>
                   <span>{segment.label}:</span>
                   <span className="font-medium text-slate-700">{segment.count}</span>
                 </span>

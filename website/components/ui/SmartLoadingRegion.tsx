@@ -26,7 +26,7 @@ export default function SmartLoadingRegion({ id, children }: SmartLoadingRegionP
   return (
     <div className="relative flex min-h-0 w-full flex-1 flex-col">
       {children}
-      <div ref={hostRef} className="absolute inset-0 z-[60]" />
+      <div ref={hostRef} className="pointer-events-none absolute inset-0 z-[60]" />
     </div>
   );
 }

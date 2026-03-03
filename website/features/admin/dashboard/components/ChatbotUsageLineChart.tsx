@@ -25,6 +25,7 @@ export default function ChatbotUsageLineChart({ metrics }: { metrics: UsageMetri
           series={[{ key: "value", label: "Requests", color: "var(--chart-1)" }]}
           className="rounded-none border-0 bg-transparent p-0"
           heightClass="h-[250px]"
+          showTooltip={false}
         />
       </CardContent>
     </Card>

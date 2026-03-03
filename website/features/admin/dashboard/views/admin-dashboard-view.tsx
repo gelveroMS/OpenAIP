@@ -65,7 +65,7 @@ export default function AdminDashboardView({
         </Badge>
       </div>
 
-      <div className="rounded-[10px] border border-slate-200 bg-[#F4F6F8] px-8 py-4">
+      <div className="rounded-[10px] bg-[#F4F6F8] px-8 py-4">
         <DashboardFiltersRow
           filters={filters}
           lguOptions={viewModel.lguOptions}

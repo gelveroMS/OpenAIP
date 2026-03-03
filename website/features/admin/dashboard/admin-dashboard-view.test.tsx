@@ -88,5 +88,9 @@ describe("AdminDashboardView", () => {
 
     expect(screen.queryByText(/Recent Activity/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/View Audit/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "View LGUs" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "View Accounts" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "View Content" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "View AIPs" })).toBeInTheDocument();
   });
 });

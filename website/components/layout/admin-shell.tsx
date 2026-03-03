@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import AdminSidebar from "@/components/layout/admin-sidebar";
 import AdminTopbar from "@/components/layout/admin-topbar";
+import LguFooter from "@/components/layout/lgu-footer";
 import SmartLoadingRegion from "@/components/ui/SmartLoadingRegion";
 
 type Props = {
@@ -33,6 +34,7 @@ export default function AdminShell({
         <main className="flex flex-1 min-h-0 flex-col px-8 py-6">
           <SmartLoadingRegion id="admin-main">{children}</SmartLoadingRegion>
         </main>
+        <LguFooter />
       </div>
     </div>
   );

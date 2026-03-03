@@ -18,6 +18,7 @@ type DonutChartProps = {
   className?: string;
   mobileBreakpoint?: number;
   chartHeightClassName?: string;
+  showTooltip?: boolean;
   onSliceClick?: (slice: DonutChartDatum, index: number) => void;
 };
 
@@ -108,6 +109,7 @@ export function DonutChart({
   className,
   mobileBreakpoint = MOBILE_BREAKPOINT_PX,
   chartHeightClassName = DEFAULT_CHART_HEIGHT_CLASS,
+  showTooltip = true,
   onSliceClick,
 }: DonutChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -306,15 +308,14 @@ export function DonutChart({
                 ? () => onSliceClick({ name: slice.name, value: slice.value, color: slice.color }, index)
                 : undefined
             }
-            style={onSliceClick ? { cursor: "pointer" } : undefined}
+            className={onSliceClick ? "cursor-pointer" : undefined}
           />
         ))}
       </Pie>
 
-      {!isMobile ? (
+      {!isMobile && showTooltip ? (
         <Tooltip
           cursor={false}
-          wrapperStyle={{ outline: "none" }}
           content={({ active, payload }) => {
             const first = (payload as TooltipPayloadItem[] | undefined)?.[0]?.payload;
             if (!active || !first) {
@@ -379,10 +380,13 @@ export function DonutChart({
             <li key={`legend-${slice.name}`} className="min-w-0 rounded-md bg-muted/30 px-2.5 py-2">
               <div className="flex items-start gap-2">
                 <span
-                  className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: slice.color }}
+                  className="mt-1 inline-flex h-2.5 w-2.5 shrink-0 items-center justify-center"
                   aria-hidden
-                />
+                >
+                  <svg viewBox="0 0 10 10" className="h-2.5 w-2.5">
+                    <circle cx="5" cy="5" r="5" fill={slice.color} />
+                  </svg>
+                </span>
                 <div className="min-w-0">
                   <p className="truncate text-xs font-medium text-foreground">{slice.name}</p>
                   <p className="text-[11px] text-muted-foreground">
