@@ -37,6 +37,8 @@ export const metadata: Metadata = {
   description: "Turn AIP documents into actionable planning data.",
 };
 
+export const dynamic = "force-dynamic";
+
 export default function RootLayout({
   children,
 }: Readonly<{
