@@ -15,6 +15,7 @@ OpenAIP is a monorepo for a role-based LGU web platform and an AI pipeline that 
 - [Getting Started](#getting-started)
 - [Scripts](#scripts)
 - [Database & Migrations](#database--migrations)
+- [Notifications & Outbox](#notifications--outbox)
 - [Auth & Authorization](#auth--authorization)
 - [Storage / File Handling](#storage--file-handling)
 - [Testing & Quality](#testing--quality)
@@ -37,8 +38,8 @@ OpenAIP is a monorepo for a role-based LGU web platform and an AI pipeline that 
 | Pipeline Backend | FastAPI + Python 3.11 worker/service package (`openaip-pipeline`) |
 | Database | Supabase Postgres |
 | Auth | Supabase Auth + role-based route gating |
-| Storage | Supabase Storage (`aip-pdfs`, `aip-artifacts`, `project-media`) |
-| Realtime | Supabase Realtime on `public.extraction_runs` |
+| Storage | Supabase Storage (`aip-pdfs`, `aip-artifacts`, `project-media`, `about-us-docs`) |
+| Realtime | Supabase Realtime on `public.extraction_runs` and `public.notifications` |
 | AI/ML | OpenAI (`gpt-5.2`, `text-embedding-3-large`), LangChain OpenAI |
 | Tooling | npm, Vitest, ESLint, pytest, Ruff, Pyright, Docker Compose |
 
@@ -80,7 +81,7 @@ Core data flow:
 | Path | Responsibility |
 |---|---|
 | `website/app` | Next.js routes (citizen/LGU/admin) and API route handlers |
-| `website/features` | Feature modules (AIP, projects, submissions, audit, feedback, chat, account, admin) |
+| `website/features` | Feature modules (AIP, projects, submissions, audit, feedback, chat, notifications, account, admin) |
 | `website/lib` | Repo layer, Supabase clients, domain logic, typed DB contracts |
 | `website/docs/sql` | Database schema baseline + incremental SQL patches |
 | `website/docs/SUPABASE_MIGRATION.md` | Supabase migration guidance and adapter strategy |
@@ -373,11 +374,23 @@ Recommended workflow:
    - `website/docs/sql/2026-02-26_projects_updates_and_media.sql`
    - `website/docs/sql/2026-02-26_projects_status_proposed_rename.sql`
    - `website/docs/sql/2026-02-27_barangay_audit_crud_workflow.sql`
+   - `website/docs/sql/2026-02-28_citizen_profile_scope_self_update.sql`
+   - `website/docs/sql/2026-02-28_city_audit_crud_workflow.sql`
+   - `website/docs/sql/2026-03-01_admin_usage_controls_chat_quota_and_policy_cleanup.sql`
+   - `website/docs/sql/2026-03-01_barangay_aip_uploader_workflow_lock.sql`
+   - `website/docs/sql/2026-03-01_citizen_about_us_content_settings.sql`
+   - `website/docs/sql/2026-03-01_citizen_dashboard_content_settings.sql`
+   - `website/docs/sql/2026-03-01_feedback_activity_log_include_citizen.sql`
+   - `website/docs/sql/2026-03-01_project_updates_hide_unhide_and_feedback_author_visibility.sql`
+   - `website/docs/sql/2026-03-03_embed_categorize_signed_dispatch.sql`
+   - `website/docs/sql/2026-03-03_notifications_outbox_tables_rls.sql`
+   - `website/docs/sql/2026-03-03_notifications_admin_pipeline_outbox_alerts.sql`
    - Note: `2026-02-26_projects_status_proposed_rename.sql` renames existing `projects.status` values from `planning` to `proposed`.
 3. Create Supabase storage buckets manually:
    - `aip-pdfs` (uploaded source PDFs)
    - `aip-artifacts` (pipeline artifacts when payload exceeds inline threshold)
    - `project-media` (private project cover/update images served via API proxy)
+   - `about-us-docs` (citizen about-us reference docs used by `content.citizen_about_us`)
 
 ### DB Hardening Gate (March 2026)
 Deploy/build safety gate:
@@ -507,6 +520,43 @@ Related docs:
 - `website/docs/sql/database-v2.sql`
 - `aip-intelligence-pipeline/src/openaip_pipeline/resources/manifests/pipeline_versions.yaml`
 
+## Notifications & Outbox
+Schema and DB objects (March 2026 baseline):
+- `public.notifications`
+- `public.notification_preferences`
+- `public.email_outbox`
+- `public.emit_admin_pipeline_job_failed()` with trigger `trg_extraction_runs_emit_admin_pipeline_failed`
+
+Notification APIs in website:
+- `GET /api/notifications`
+- `GET /api/notifications/unread-count`
+- `PATCH /api/notifications/[notificationId]/read`
+- `POST /api/notifications/read-all`
+- `GET /api/notifications/open?next=...&notificationId=...|dedupe=...`
+
+Tracked-open behavior:
+- `notifications-inbox` links call `/api/notifications/open` with a safe internal `next` path.
+- The open route marks read by `notificationId` or `dedupe` then returns `307`.
+- Unsafe paths are rejected and redirected to `/`.
+
+Outbox processor:
+- Edge Function: `supabase/functions/send-email-outbox/index.ts`
+- Authorization: requires bearer JWT with `role=service_role`.
+- Reads queued rows from `public.email_outbox`, sends via Resend, updates status/attempt counters.
+- Emits hourly deduped admin notifications when failure threshold is exceeded (`OUTBOX_FAILURE_THRESHOLD_REACHED`).
+
+Outbox function required env:
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `RESEND_API_KEY`
+- `FROM_EMAIL`
+- `APP_BASE_URL`
+
+Outbox function optional tuning env:
+- `EMAIL_OUTBOX_BATCH_SIZE` (default `25`)
+- `EMAIL_OUTBOX_MAX_ATTEMPTS` (default `5`)
+- `EMAIL_OUTBOX_FAILURE_THRESHOLD_PER_HOUR` (default `20`)
+
 ## Auth & Authorization
 - Session/auth gate is enforced in `website/proxy.ts` via `website/lib/supabase/proxy.ts`.
 - Role mapping uses DB roles: `citizen`, `barangay_official`, `city_official`, `municipal_official`, `admin`.
@@ -523,6 +573,7 @@ Related docs:
   - `AIP_UPLOAD_MAX_BYTES` (default 15 MB).
   - per-uploader cooldown after repeated failed runs (`AIP_UPLOAD_FAILURE_*`), returning HTTP `429` with `Retry-After`.
 - Source files are uploaded to bucket `aip-pdfs` and metadata is written to `public.uploaded_files`.
+- Citizen about-us reference documents are served from `about-us-docs` (configured via `content.citizen_about_us` in `app.settings`).
 - Extraction runs are queued in `public.extraction_runs`.
 - Worker downloads source PDFs using signed URLs with configured timeout and size bounds (`PIPELINE_SUPABASE_DOWNLOAD_TIMEOUT_SECONDS`, `PIPELINE_SOURCE_PDF_MAX_BYTES`).
 - Worker enforces extraction page/parse/elapsed bounds and embedding timeout, and persists explicit failure reason codes in `public.extraction_runs.error_code`.
@@ -578,7 +629,9 @@ docker build -f Dockerfile.worker -t openaip-pipeline-worker .
 Production runtime requirements:
 - Website envs: `NEXT_PUBLIC_SUPABASE_URL`, publishable/anon key, `SUPABASE_SERVICE_ROLE_KEY`, `BASE_URL` (optional: `SUPABASE_STORAGE_ARTIFACT_BUCKET`, `SUPABASE_STORAGE_PROJECT_MEDIA_BUCKET`, `AIP_UPLOAD_MAX_BYTES`, `AIP_UPLOAD_FAILURE_THRESHOLD`, `AIP_UPLOAD_FAILURE_WINDOW_MINUTES`, `AIP_UPLOAD_FAILURE_COOLDOWN_MINUTES`)
 - Pipeline envs: `OPENAI_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` (recommended guardrails: `PIPELINE_EXTRACT_MAX_PAGES`, `PIPELINE_PARSE_TIMEOUT_SECONDS`, `PIPELINE_EXTRACT_TIMEOUT_SECONDS`, `PIPELINE_EMBED_TIMEOUT_SECONDS`, `PIPELINE_RETRY_FAILURE_THRESHOLD`, `PIPELINE_RETRY_FAILURE_WINDOW_SECONDS`, `PIPELINE_SUPABASE_HTTP_TIMEOUT_SECONDS`, `PIPELINE_SUPABASE_DOWNLOAD_TIMEOUT_SECONDS`, `PIPELINE_SOURCE_PDF_MAX_BYTES`)
+- Outbox function envs (if using email notifications): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, `FROM_EMAIL`, `APP_BASE_URL` (optional: `EMAIL_OUTBOX_BATCH_SIZE`, `EMAIL_OUTBOX_MAX_ATTEMPTS`, `EMAIL_OUTBOX_FAILURE_THRESHOLD_PER_HOUR`)
 - Supabase project with DB schema and storage buckets in place
+- `app.settings` schema/table available to service role, with seeded keys `content.citizen_about_us` and `content.citizen_dashboard`
 - Outbound network access from pipeline runtime to Supabase + OpenAI
 
 Common hosting options for this codebase:
@@ -634,6 +687,10 @@ Common hosting options for this codebase:
 | `POST /v1/runs/*` returns 401 | Missing/invalid `aud`/`ts`/`nonce`/`sig`, stale `ts`, replayed nonce, or audience not allowlisted | Set `PIPELINE_RUNS_HMAC_SECRET` and `PIPELINE_RUNS_ALLOWED_AUDIENCES`; sign request body/path/method correctly and keep clock skew within ±60s |
 | `POST /v1/chat/*` returns 401 | Missing/invalid `x-pipeline-aud`/`x-pipeline-ts`/`x-pipeline-nonce`/`x-pipeline-sig`, stale `ts`, invalid `aud`, bad signature, or replayed `(aud,nonce,ts,body)` | Set matching `PIPELINE_HMAC_SECRET` on website + pipeline; sign `aud|ts|nonce|rawBody`, keep clock skew within ±60s, and send unique nonce per request |
 | `Invalid schema: app` from chatbot/admin settings APIs | Supabase Data API does not expose `app` schema, or `app.settings` is missing/inaccessible | Expose `app` in Supabase Data API schemas and run `website/docs/sql/2026-02-26_app_settings_schema_and_grants.sql` |
+| Notifications inbox is empty for events that should notify | Notifications tables/triggers are missing from DB baseline | Apply `website/docs/sql/2026-03-03_notifications_outbox_tables_rls.sql` and `website/docs/sql/2026-03-03_notifications_admin_pipeline_outbox_alerts.sql` (or full `database-v2.sql`) |
+| Clicking "Open related page" does not mark rows as read | `GET /api/notifications/open` route not reached (or unsafe `next` path) | Ensure links are built via tracked-open helper and `next` is an internal path beginning with `/` |
+| `send-email-outbox` returns 401/500 | Missing service-role bearer auth or missing outbox env values | Invoke with service-role JWT and set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, `FROM_EMAIL`, `APP_BASE_URL` |
+| Citizen about-us/dashboard content does not load seeded values | `app.settings` seeds not applied or `about-us-docs` bucket missing | Apply March 1 content seed SQL files and create/verify `about-us-docs` bucket objects |
 | `pytest`/`ruff`/`pyright` command not found | Dev extras not installed | Reinstall with `python -m pip install -e ".[dev]"` |
 | `Fatal error in launcher` when running `pip` inside pipeline venv | Venv launchers still point to old folder path after rename | Recreate `.venv`, then use `python -m pip install --upgrade pip` and `python -m pip install -e ".[dev]"` |
 

@@ -65,6 +65,26 @@ Repository selection is centralized in:
   - feedback reply validates body/length and parent eligibility, and routes reply creation through feedback threads repo for invariant + audit preservation
 - Dashboard mock mode does not use a dashboard-only toggle; it follows global flags only (`NEXT_PUBLIC_APP_ENV`, `NEXT_PUBLIC_USE_MOCKS`).
 
+## Notifications
+
+UI routes:
+- Citizen: `app/(citizen)/notifications/page.tsx`
+- Barangay: `app/(lgu)/barangay/(authenticated)/notifications/page.tsx`
+- City: `app/(lgu)/city/(authenticated)/notifications/page.tsx`
+- Admin: `app/admin/(authenticated)/notifications/page.tsx`
+
+API routes:
+- `GET /api/notifications`
+- `GET /api/notifications/unread-count`
+- `PATCH /api/notifications/[notificationId]/read`
+- `POST /api/notifications/read-all`
+- `GET /api/notifications/open?next=...&notificationId=...|dedupe=...`
+
+Primary components:
+- `features/notifications/components/notifications-bell.tsx`
+- `features/notifications/components/notifications-inbox.tsx`
+- `features/notifications/realtime-listener.tsx`
+
 ## Quality Checks
 
 ```bash
@@ -105,3 +125,9 @@ node scripts/repo-smoke/run.js
 - Database schema and SQL patches are in `docs/sql`.
 - Canonical schema file is `docs/sql/database-v2.sql`.
 - The mirrored copy `docs/databasev2.txt` is kept synchronized with the canonical SQL file.
+- Notifications/outbox baseline depends on March 3 SQL patches:
+  - `docs/sql/2026-03-03_notifications_outbox_tables_rls.sql`
+  - `docs/sql/2026-03-03_notifications_admin_pipeline_outbox_alerts.sql`
+- Citizen landing/about-us seeded app settings depend on:
+  - `docs/sql/2026-03-01_citizen_about_us_content_settings.sql`
+  - `docs/sql/2026-03-01_citizen_dashboard_content_settings.sql`
