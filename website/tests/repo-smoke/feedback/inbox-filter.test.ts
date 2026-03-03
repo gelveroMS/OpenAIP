@@ -86,22 +86,21 @@ export async function runFeedbackInboxFilterTests() {
   };
 
   const supabaseRepo = createCommentRepoFromClient(
-    async () => fakeClient as CommentRepoClient
+    async () => fakeClient as unknown as CommentRepoClient
   );
   await supabaseRepo.listThreadsForInbox({ lguId: "lgu_001" });
+  const appliedKindFilter: string[] = capturedKindFilter ?? [];
 
   assert(
-    Array.isArray(capturedKindFilter) && capturedKindFilter.length > 0,
+    appliedKindFilter.length > 0,
     "Expected supabase inbox query to apply kind filter."
   );
   assert(
-    CITIZEN_INITIATED_FEEDBACK_KINDS.every((kind) =>
-      (capturedKindFilter as string[]).includes(kind)
-    ),
+    CITIZEN_INITIATED_FEEDBACK_KINDS.every((kind) => appliedKindFilter.includes(kind)),
     "Expected supabase inbox query kind filter to include all citizen-initiated kinds."
   );
   assert(
-    !(capturedKindFilter as string[]).includes("lgu_note"),
+    !appliedKindFilter.includes("lgu_note"),
     "Expected supabase inbox query kind filter to exclude lgu_note."
   );
 }

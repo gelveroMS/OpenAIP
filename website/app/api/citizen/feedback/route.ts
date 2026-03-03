@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   assertFeedbackUsageAllowed,
+  type FeedbackQueryClient,
   isFeedbackUsageError,
 } from "@/lib/feedback/usage-guards";
 import { notifySafely } from "@/lib/notifications";
@@ -69,7 +70,10 @@ export async function POST(request: Request) {
 
     const client = await supabaseServer();
     const { userId } = await requireCitizenActor(client);
-    await assertFeedbackUsageAllowed({ client: client as any, userId });
+    await assertFeedbackUsageAllowed({
+      client: client as unknown as FeedbackQueryClient,
+      userId,
+    });
     const project = await resolveProjectByIdOrRef(client, projectId);
     assertPublishedProjectAip(project.aipStatus);
 

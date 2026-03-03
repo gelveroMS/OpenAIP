@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   assertFeedbackUsageAllowed,
+  type FeedbackQueryClient,
   isFeedbackUsageError,
 } from "@/lib/feedback/usage-guards";
 import { enforceCsrfProtection } from "@/lib/security/csrf";
@@ -51,7 +52,10 @@ export async function POST(
     const { aipId } = await context.params;
     const client = await supabaseServer();
     const { userId } = await requireCitizenActor(client);
-    await assertFeedbackUsageAllowed({ client: client as any, userId });
+    await assertFeedbackUsageAllowed({
+      client: client as unknown as FeedbackQueryClient,
+      userId,
+    });
     const aip = await resolveAipById(client, aipId);
     assertPublishedAipStatus(aip.status);
 

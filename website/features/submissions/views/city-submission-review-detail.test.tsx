@@ -3,13 +3,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import CitySubmissionReviewDetail from "./city-submission-review-detail";
 import type { AipHeader } from "@/features/aip/types";
+import type { AipRevisionFeedbackCycle } from "@/lib/repos/aip/repo";
 import type { LatestReview } from "@/lib/repos/submissions/repo";
 import { claimReviewAction } from "../actions/submissionsReview.actions";
 
 const mockReplace = vi.fn();
 const mockPush = vi.fn();
 const mockRefresh = vi.fn();
-const mockToCityRevisionFeedbackCycles = vi.hoisted(() => vi.fn(() => []));
+const mockToCityRevisionFeedbackCycles = vi.hoisted(
+  () => vi.fn<() => AipRevisionFeedbackCycle[]>(() => [])
+);
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({

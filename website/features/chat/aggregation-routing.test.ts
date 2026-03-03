@@ -85,10 +85,13 @@ function createServerClient() {
 
             const applyFilters = () => {
               let rows = Object.values(lineItemsById);
-              if (ilikeFilter) {
+              const activeIlikeFilter = ilikeFilter;
+              if (activeIlikeFilter) {
                 rows = rows.filter((row) => {
-                  const candidate = String((row as Record<string, unknown>)[ilikeFilter.field] ?? "");
-                  return candidate.toLowerCase() === ilikeFilter.value.toLowerCase();
+                  const candidate = String(
+                    (row as Record<string, unknown>)[activeIlikeFilter.field] ?? ""
+                  );
+                  return candidate.toLowerCase() === activeIlikeFilter.value.toLowerCase();
                 });
               }
               for (const filter of eqFilters) {

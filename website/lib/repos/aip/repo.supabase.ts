@@ -3,7 +3,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { supabaseServer } from "@/lib/supabase/server";
 import type { Json } from "@/lib/contracts/databasev2";
-import { assertFeedbackUsageAllowed } from "@/lib/feedback/usage-guards";
+import { assertFeedbackUsageAllowed, type FeedbackQueryClient } from "@/lib/feedback/usage-guards";
 import type { AipProjectRepo, AipRepo } from "./repo";
 import {
   BARANGAY_UPLOADER_WORKFLOW_LOCK_REASON,
@@ -1462,7 +1462,7 @@ export function createSupabaseAipProjectRepo(): AipProjectRepo {
       });
 
       await assertFeedbackUsageAllowed({
-        client: client as any,
+        client: client as unknown as FeedbackQueryClient,
         userId: authData.user.id,
       });
 

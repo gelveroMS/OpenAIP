@@ -1,4 +1,3 @@
-import type { Json } from "@/lib/contracts/databasev2";
 import { CitizenChatRepoErrors } from "./types";
 import type { CitizenChatMessage, CitizenChatRepo, CitizenChatSession } from "./repo";
 import type { Json } from "@/lib/contracts/databasev2";

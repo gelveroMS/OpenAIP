@@ -85,7 +85,10 @@ describe("Citizen project feedback lookup", () => {
       },
     });
 
-    const resolved = await resolveProjectByIdOrRef(client as ProjectLookupClient, PROJECT_ID);
+    const resolved = await resolveProjectByIdOrRef(
+      client as unknown as ProjectLookupClient,
+      PROJECT_ID
+    );
 
     expect(resolved.id).toBe(PROJECT_ID);
     expect(resolved.aipId).toBe(AIP_ID);

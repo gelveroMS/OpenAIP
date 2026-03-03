@@ -147,6 +147,7 @@ function FeedbackCard({
   const isHidden = item.isHidden === true;
   const isNested = item.parentFeedbackId !== null;
   const shouldShowKindBadge = item.kind !== "lgu_note";
+  const authorInitial = item.author.fullName.trim().charAt(0).toUpperCase() || "?";
 
   return (
     <article

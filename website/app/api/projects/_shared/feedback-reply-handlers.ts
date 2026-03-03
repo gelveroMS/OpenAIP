@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getActorContext } from "@/lib/domain/get-actor-context";
 import {
   assertFeedbackUsageAllowed,
+  type FeedbackQueryClient,
   isFeedbackUsageError,
 } from "@/lib/feedback/usage-guards";
 import { notifySafely } from "@/lib/notifications";
@@ -181,7 +182,10 @@ export async function handleProjectFeedbackReplyRequest(input: {
     }
 
     const client = await supabaseServer();
-    await assertFeedbackUsageAllowed({ client: client as any, userId: actor.userId });
+    await assertFeedbackUsageAllowed({
+      client: client as unknown as FeedbackQueryClient,
+      userId: actor.userId,
+    });
     const project = await resolveScopedProject({
       client,
       scope: input.scope,

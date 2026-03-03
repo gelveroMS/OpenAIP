@@ -150,6 +150,22 @@ type FilterableQuery = {
   or: (...args: unknown[]) => unknown;
 };
 
+type ActivityRowsQueryResult = PromiseLike<{
+  data: unknown[] | null;
+  error: { message: string } | null;
+}>;
+
+type ActivityRowsCountQuery = {
+  range: (
+    start: number,
+    end: number
+  ) => Promise<{
+    data: unknown[] | null;
+    error: { message: string } | null;
+    count: number | null;
+  }>;
+};
+
 function applyActivityLogFilters(
   query: FilterableQuery,
   filters: ActivityLogFilters
@@ -249,14 +265,15 @@ async function listActivityRows(
   filters: ActivityLogFilters = {}
 ): Promise<ActivityLogRow[]> {
   const admin = supabaseAdmin();
-  let query: any = admin
+  const query = admin
     .from("activity_log")
     .select(SELECT_COLUMNS)
     .order("created_at", { ascending: false });
-
-  query = applyActivityLogFilters(query as FilterableQuery, filters);
-
-  const { data, error } = await query;
+  const filteredQuery = applyActivityLogFilters(
+    query as unknown as FilterableQuery,
+    filters
+  ) as unknown as ActivityRowsQueryResult;
+  const { data, error } = await filteredQuery;
   if (error) {
     throw new Error(error.message);
   }
@@ -274,19 +291,18 @@ async function listActivityPage(input: AuditListInput): Promise<AuditListResult>
   const start = (input.page - 1) * input.pageSize;
   const end = start + input.pageSize - 1;
 
-  let query: any = admin
+  const query = admin
     .from("activity_log")
     .select(SELECT_COLUMNS, { count: "exact" })
     .order("created_at", { ascending: false });
-
-  query = applyActivityLogFilters(query as FilterableQuery, {
+  const filteredQuery = applyActivityLogFilters(query as unknown as FilterableQuery, {
     role: input.role,
     year: input.year,
     event: input.event,
     q: input.q,
-  });
+  }) as unknown as ActivityRowsCountQuery;
 
-  const { data, error, count } = await query.range(start, end);
+  const { data, error, count } = await filteredQuery.range(start, end);
   if (error) {
     throw new Error(error.message);
   }

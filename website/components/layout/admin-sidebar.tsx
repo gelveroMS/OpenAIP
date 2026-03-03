@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { cn } from "@/ui/utils";
+import { cn } from "@/lib/ui/utils";
 import { ADMIN_NAV } from "@/constants/lgu-nav";
 
 function isActive(pathname: string, href: string) {

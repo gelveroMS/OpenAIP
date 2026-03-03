@@ -4,29 +4,32 @@ const mockGetActorContext = vi.fn();
 const mockMapUserAuditHistory = vi.fn();
 const mockSupabaseAdmin = vi.fn();
 const mockGetTypedAppSetting = vi.fn();
-const mockDeriveChatbotMetrics = vi.fn(() => ({
-  totalRequests: 0,
-  errorRate: 0,
-  avgDailyRequests: 0,
-  periodDays: 14,
-  trendTotalRequestsPct: 0,
-  trendErrorRatePct: 0,
-  trendAvgDailyPct: 0,
-}));
+const mockDeriveChatbotMetrics = vi.fn((input?: unknown) => {
+  void input;
+  return {
+    totalRequests: 0,
+    errorRate: 0,
+    avgDailyRequests: 0,
+    periodDays: 14,
+    trendTotalRequestsPct: 0,
+    trendErrorRatePct: 0,
+    trendAvgDailyPct: 0,
+  };
+});
 
 vi.mock("@/lib/domain/get-actor-context", () => ({
   getActorContext: () => mockGetActorContext(),
 }));
 
 vi.mock("@/lib/repos/usage-controls/mappers/usage-controls.mapper", () => ({
-  deriveChatbotMetrics: (...args: unknown[]) => mockDeriveChatbotMetrics(...args),
+  deriveChatbotMetrics: (input: unknown) => mockDeriveChatbotMetrics(input),
   mapFlaggedUsers: vi.fn(() => []),
-  mapUserAuditHistory: (...args: unknown[]) => mockMapUserAuditHistory(...args),
+  mapUserAuditHistory: (input: unknown) => mockMapUserAuditHistory(input),
 }));
 
 vi.mock("@/lib/settings/app-settings", () => ({
   clearBlockedUser: vi.fn(),
-  getTypedAppSetting: (...args: unknown[]) => mockGetTypedAppSetting(...args),
+  getTypedAppSetting: (key: unknown) => mockGetTypedAppSetting(key),
   isSettingsStoreUnavailableError: vi.fn(() => false),
   setBlockedUser: vi.fn(),
   setTypedAppSetting: vi.fn(),

@@ -26,7 +26,9 @@ const PIPELINE_INTENT_TYPES: readonly PipelineIntentType[] = [
 ] as const;
 const PIPELINE_AUDIENCE = "website-backend";
 
-function requireEnv(name: "PIPELINE_API_BASE_URL" | "PIPELINE_HMAC_SECRET"): string {
+function requireEnv(
+  name: "PIPELINE_API_BASE_URL" | "PIPELINE_HMAC_SECRET" | "PIPELINE_INTERNAL_TOKEN"
+): string {
   const value = process.env[name]?.trim();
   if (!value) {
     throw new Error(`${name} is not configured.`);

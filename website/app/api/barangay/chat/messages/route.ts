@@ -49,7 +49,7 @@ import {
 } from "@/lib/chat/scope";
 import { resolveRetrievalScope } from "@/lib/chat/scope-resolver.server";
 import { routeSqlFirstTotals, buildTotalsMissingMessage } from "@/lib/chat/totals-sql-routing";
-import type { PipelineChatCitation } from "@/lib/chat/types";
+import type { PipelineChatCitation, PipelineIntentClassification } from "@/lib/chat/types";
 import type { Json } from "@/lib/contracts/databasev2";
 import type { ActorContext } from "@/lib/domain/actor-context";
 import { getActorContext } from "@/lib/domain/get-actor-context";
@@ -1907,7 +1907,7 @@ function makeTotalsLogPayload(
 }
 
 async function appendAssistantMessage(params: {
-  actor: PrivilegedActorContext | null;
+  actor?: PrivilegedActorContext | null;
   sessionId: string;
   content: string;
   citations: ChatCitation[];
@@ -1915,7 +1915,7 @@ async function appendAssistantMessage(params: {
 }): Promise<ChatMessage> {
   const normalizedMeta = normalizeRetrievalMetaStatus(params.retrievalMeta);
   const inserted = await insertAssistantChatMessage({
-    actor: params.actor,
+    actor: params.actor ?? null,
     sessionId: params.sessionId,
     content: params.content,
     citations: params.citations as unknown as Json,

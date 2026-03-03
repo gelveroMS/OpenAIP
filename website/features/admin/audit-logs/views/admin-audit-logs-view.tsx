@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/table";
 import { Search } from "lucide-react";
 import type { ActivityLogRow, AuditRoleFilter } from "@/lib/repos/audit/types";
-import { getAuditActionLabel, getAuditRoleLabel } from "@/features/audit/presentation/audit";
+import { getAuditActionLabel, getAuditRoleLabel } from "@/features/audit/types/audit";
 
 type Props = {
   logs: ActivityLogRow[];

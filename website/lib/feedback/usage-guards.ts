@@ -2,7 +2,7 @@ import "server-only";
 
 import { getTypedAppSetting, isUserBlocked } from "@/lib/settings/app-settings";
 
-type FeedbackQueryClient = {
+export type FeedbackQueryClient = {
   from: (table: string) => {
     select: (columns: string) => {
       eq: (column: string, value: unknown) => {
@@ -10,7 +10,10 @@ type FeedbackQueryClient = {
           gte: (
             column: string,
             value: string
-          ) => Promise<{ data: Array<{ id: string }> | null; error: { message: string } | null }>;
+          ) => PromiseLike<{
+            data: Array<{ id: string }> | null;
+            error: { message: string } | null;
+          }>;
         };
       };
     };

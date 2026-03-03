@@ -97,8 +97,8 @@ async function resolveRecipientsForEvent(
 }> {
   let resolvedAipId = input.aipId ?? null;
   let resolvedProjectId = input.projectId ?? null;
-  let resolvedFeedbackId = input.feedbackId ?? null;
-  let resolvedProjectUpdateId = input.projectUpdateId ?? null;
+  const resolvedFeedbackId = input.feedbackId ?? null;
+  const resolvedProjectUpdateId = input.projectUpdateId ?? null;
   let resolvedBarangayId = input.barangayId ?? null;
   let resolvedCityId = input.cityId ?? null;
 

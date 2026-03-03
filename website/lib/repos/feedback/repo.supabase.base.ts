@@ -52,7 +52,7 @@ type SupabaseQueryLike = {
 type SupabaseClientLike = {
   from: (table: string) => SupabaseQueryLike;
   schema?: (name: string) => {
-    from: (table: string) => any;
+    from: (table: string) => SupabaseQueryLike;
   };
   rpc?: (fn: string, args: Record<string, unknown>) => Promise<SupabaseQueryResult>;
   auth?: {
@@ -821,7 +821,8 @@ async function readAppSettingRaw(
       .maybeSingle();
 
     if (error) return null;
-    return typeof data?.value === "string" ? data.value : null;
+    const row = (data as { value?: unknown } | null) ?? null;
+    return typeof row?.value === "string" ? row.value : null;
   } catch {
     return null;
   }

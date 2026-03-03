@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import NotificationsRealtimeListener from "@/features/notifications/realtime-listener";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import { cn } from "@/ui/utils";
+import { cn } from "@/lib/ui/utils";
 
 type Props = {
   href: string;
