@@ -69,7 +69,7 @@ export default function DashboardFiltersRow({
 
   return (
     <div className="space-y-2 lg:flex lg:flex-col lg:items-end">
-      <div className="grid items-end gap-3 lg:w-auto lg:grid-cols-[185px_24px_185px_240px_240px_auto]">
+      <div className="grid w-full items-end gap-3 lg:inline-grid lg:w-auto lg:grid-cols-[185px_24px_185px_180px_180px_max-content]">
         <div className="space-y-1">
           <div className="text-[12px] text-slate-600">Date Range</div>
           <Input
@@ -92,7 +92,7 @@ export default function DashboardFiltersRow({
         <div className="space-y-1">
           <div className="text-[12px] text-slate-600">LGU Scope</div>
           <Select value={lguValue} onValueChange={handleLguChange}>
-            <SelectTrigger className="h-9.5 border-slate-300 bg-white">
+            <SelectTrigger className="h-9.5 w-full border-slate-300 bg-white">
               <SelectValue placeholder="All LGUs" />
             </SelectTrigger>
             <SelectContent>
@@ -116,7 +116,7 @@ export default function DashboardFiltersRow({
               onChange({ ...filters, aipStatus: value as AdminDashboardFilters["aipStatus"] })
             }
           >
-            <SelectTrigger className="h-9.5 border-slate-300 bg-white">
+            <SelectTrigger className="h-9.5 w-full border-slate-300 bg-white">
               <SelectValue placeholder="All Statuses" />
             </SelectTrigger>
             <SelectContent>

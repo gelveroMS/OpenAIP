@@ -15,7 +15,7 @@ export default function ErrorRateBarChart({ metrics }: { metrics: UsageMetricsVM
   const barWidth = Math.min(28, step * 0.7);
 
   return (
-    <Card className="border-slate-200 py-0 shadow-none">
+    <Card className="border-slate-200 py-3 shadow-none">
       <CardHeader className="space-y-1 pb-0">
         <CardTitle className="text-[18px]">Error Rate Trend</CardTitle>
         <div className="text-[12px] text-slate-500">
