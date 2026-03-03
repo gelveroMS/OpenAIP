@@ -149,13 +149,13 @@ export default function NotificationsBell({ href, className }: Props) {
             type="button"
             aria-label="Open notifications"
             className={cn(
-              "relative grid h-10 w-10 place-items-center rounded-full bg-[#0B3440] text-white transition-colors hover:bg-[#022437]",
+              "relative grid h-9 w-9 place-items-center rounded-full bg-transparent text-[#05293A] transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0B3440]/15",
               className
             )}
           >
-            <Bell className="h-5 w-5" />
+            <Bell className="h-5 w-5 stroke-[2.2]" />
             {unreadCount > 0 ? (
-              <Badge className="absolute -right-1 -top-1 h-5 min-w-5 rounded-full bg-red-600 px-1 text-[10px] leading-none text-white">
+              <Badge className="absolute -right-1 top-0 h-[18px] min-w-[18px] rounded-full bg-[#EF4444] px-1 text-[10px] font-semibold leading-none text-white">
                 {unreadCount > 99 ? "99+" : unreadCount}
               </Badge>
             ) : null}
