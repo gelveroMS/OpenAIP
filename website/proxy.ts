@@ -1,4 +1,4 @@
-import { type NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import {
   createCspNonce,
   CSP_NONCE_HEADER,
@@ -7,15 +7,32 @@ import {
 } from "@/lib/security/csp";
 import { updateSession } from "@/lib/supabase/proxy";
 
+const SESSION_BYPASS_PATHS = new Set([
+  "/api/system/banner",
+  "/api/system/security-policy",
+]);
+
+function withForwardedHeaders(request: NextRequest, extraHeaders: Headers): NextResponse {
+  const headers = new Headers(request.headers);
+  extraHeaders.forEach((value, key) => headers.set(key, value));
+  return NextResponse.next({
+    request: {
+      headers,
+    },
+  });
+}
+
 export async function proxy(request: NextRequest) {
   const nonce = createCspNonce();
   const extraHeaders = new Headers();
   extraHeaders.set(CSP_NONCE_HEADER, nonce);
   extraHeaders.set(NEXT_NONCE_HEADER, nonce);
 
-  const response = await updateSession(request, {
-    extraHeaders,
-  });
+  const response = SESSION_BYPASS_PATHS.has(request.nextUrl.pathname)
+    ? withForwardedHeaders(request, extraHeaders)
+    : await updateSession(request, {
+        extraHeaders,
+      });
 
   withSecurityHeaders(response, {
     isProduction: process.env.NODE_ENV === "production",
