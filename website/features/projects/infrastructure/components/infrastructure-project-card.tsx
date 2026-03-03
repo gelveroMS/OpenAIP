@@ -75,10 +75,10 @@ export default function InfrastructureProjectCard({
 
   return (
     <Card className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <CardContent className="px-3 py-2 sm:px-4 sm:py-3">
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[420px_1fr]">
+      <CardContent className="px-5">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[420px_1fr] lg:items-stretch">
           {/* fixed image + cover */}
-          <div className="relative aspect-[3/2] w-full overflow-hidden rounded-xl bg-slate-100">
+          <div className="relative h-[260px] w-full overflow-hidden rounded-xl bg-slate-100 lg:h-full">
                 <Image
                     src={imageSrc}
                     alt={project.title}

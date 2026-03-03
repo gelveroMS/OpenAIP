@@ -110,7 +110,7 @@ export function AipDetailsTableCard({
         
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h3 className="text-sm font-semibold text-slate-900">
+            <h3 className="text-lg font-bold text-slate-900">
               Annual Investment Plan {year} Details
             </h3>
 

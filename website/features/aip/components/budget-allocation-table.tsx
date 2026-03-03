@@ -100,10 +100,10 @@ export function BudgetAllocationTable({
 }) {
   return (
     <Card className="border-slate-200">
-      <CardContent className="px-6 space-y-2">
+      <CardContent className="px-5">
         <div>
-          <h3 className="text-sm font-semibold text-slate-900">Budget Allocation Table</h3>
-          <p className="text-xs text-slate-500">Breakdown by project category</p>
+          <h3 className="text-lg font-bold text-slate-900">Budget Allocation Table</h3>
+          <p className="mt-2 text-xs text-slate-500">Breakdown by project category</p>
         </div>
 
         <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">

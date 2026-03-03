@@ -77,8 +77,8 @@ export default function HealthProjectsView({
 
       {/* Filters */}
       <div className="rounded-xl p-5">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-[140px_minmax(0,1fr)] md:items-end">
-          <div className="w-full space-y-2 md:w-[140px]">
+        <div className="grid grid-cols-1 gap-4 md:ml-auto md:w-fit md:grid-cols-[140px_420px] md:items-end">
+          <div className="w-full space-y-2">
             <div className="text-xs text-slate-500">Filter by Year</div>
             <Select value={year} onValueChange={setYear}>
               <SelectTrigger className="h-11 w-full border-slate-200 bg-white">
@@ -95,7 +95,7 @@ export default function HealthProjectsView({
             </Select>
           </div>
 
-          <div className="space-y-2">
+          <div className="w-full space-y-2 md:w-[420px]">
             <div className="text-xs text-slate-500">Search Projects</div>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -103,7 +103,7 @@ export default function HealthProjectsView({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search by project name or keyword"
-                className="h-11 border-slate-200 bg-white pl-9"
+                className="h-11 w-full border-slate-200 bg-white pl-9"
               />
             </div>
           </div>

@@ -38,6 +38,7 @@ import { toDateRangeLabel } from "@/features/projects/shared/project-date";
  * @param actionSlot - Optional action element (e.g. View button)
  */
 export default function HealthProjectCard({ 
+
   project,
   actionSlot,
   useLogoFallback = true,
@@ -59,10 +60,10 @@ export default function HealthProjectCard({
 
   return (
     <Card className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <CardContent className="px-3 py-2 sm:px-4 sm:py-3">
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[420px_1fr]">
+      <CardContent className="px-5">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[420px_1fr] lg:items-stretch">
           {/* Left image */}
-          <div className="relative aspect-[3/2] w-full overflow-hidden rounded-xl bg-slate-100">
+          <div className="relative h-[260px] w-full overflow-hidden rounded-xl bg-slate-100 lg:h-full">
             {imageSrc ? (
               <Image
                 src={imageSrc}
@@ -163,7 +164,7 @@ export default function HealthProjectCard({
               </div>
             </div>
 
-            {actionSlot ? <div className="flex justify-end pt-1">{actionSlot}</div> : null}
+            {actionSlot ? <div className="mt-2 flex justify-end pt-1">{actionSlot}</div> : null}
           </div>
         </div>
       </CardContent>
