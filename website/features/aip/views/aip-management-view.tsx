@@ -27,6 +27,7 @@ import { getAipYears } from "../utils";
 import AipCard from "../components/aip-card";
 import UploadAipDialog from "../dialogs/upload-aip-dialog";
 import { isMockEnabled } from "@/lib/config/appEnv";
+import { withCsrfHeader } from "@/lib/security/csrf";
 import {
   mapRunToAipCardProcessing,
   useExtractionRunsRealtime,
@@ -208,10 +209,13 @@ export default function AipManagementView({
 
           const uploadApiPath =
             scope === "city" ? "/api/city/aips/upload" : "/api/barangay/aips/upload";
-          const response = await fetch(uploadApiPath, {
-            method: "POST",
-            body: form,
-          });
+          const response = await fetch(
+            uploadApiPath,
+            withCsrfHeader({
+              method: "POST",
+              body: form,
+            })
+          );
 
           const payload = (await response.json()) as {
             message?: string;

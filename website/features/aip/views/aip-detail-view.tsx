@@ -48,6 +48,7 @@ import {
   type ExtractionRunRealtimeEvent,
 } from "../hooks/use-extraction-runs-realtime";
 import { isEmbedSkipNoArtifactMessage } from "@/lib/constants/embedding";
+import { withCsrfHeader } from "@/lib/security/csrf";
 
 const PIPELINE_STAGES: PipelineStageUi[] = [
   "extract",
@@ -665,7 +666,7 @@ export default function AipDetailView({
 
       const response = await fetch(
         `/api/${runApiScope}/aips/runs/${encodeURIComponent(failedRun.runId)}/retry`,
-        { method: "POST" }
+        withCsrfHeader({ method: "POST" })
       );
 
       const payload = (await response.json()) as {

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { User } from "lucide-react";
 import AccountModal from "@/features/account/AccountModal";
+import NotificationsBell from "@/features/notifications/components/notifications-bell";
 import type { LguAccountProfile } from "@/features/account/types";
 
 type Props = {
@@ -13,10 +14,14 @@ type Props = {
 
 export default function LguTopbar({ name, roleLabel, accountProfile }: Props) {
   const [accountModalOpen, setAccountModalOpen] = useState(false);
+  const notificationsHref =
+    accountProfile.role === "city" ? "/city/notifications" : "/barangay/notifications";
 
   return (
     <header className="w-full bg-white">
       <div className="h-16 px-8 flex items-center justify-end gap-4">
+        <NotificationsBell href={notificationsHref} />
+
         <div className="text-right leading-tight">
           <div className="text-sm font-semibold text-slate-900">{name}</div>
           <div className="text-xs text-slate-500">{roleLabel}</div>

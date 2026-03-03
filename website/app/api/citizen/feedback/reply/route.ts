@@ -3,6 +3,7 @@ import {
   assertFeedbackUsageAllowed,
   isFeedbackUsageError,
 } from "@/lib/feedback/usage-guards";
+import { enforceCsrfProtection } from "@/lib/security/csrf";
 import { supabaseServer } from "@/lib/supabase/server";
 import {
   assertPublishedProjectAip,
@@ -28,6 +29,11 @@ const FEEDBACK_SELECT_COLUMNS =
 
 export async function POST(request: Request) {
   try {
+    const csrf = enforceCsrfProtection(request);
+    if (!csrf.ok) {
+      return csrf.response;
+    }
+
     const payload = (await request.json().catch(() => null)) as
       | ReplyFeedbackRequestBody
       | null;

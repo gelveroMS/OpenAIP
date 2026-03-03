@@ -12,6 +12,7 @@ import {
   __getMockAipReviewsForAipId,
 } from "@/lib/repos/submissions/repo.mock";
 import { AIPS_TABLE } from "@/mocks/fixtures/aip/aips.table.fixture";
+import { notifySafely } from "@/lib/notifications";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { supabaseServer } from "@/lib/supabase/server";
 
@@ -716,6 +717,19 @@ export async function submitAipForReviewAction(input: {
 
     const aipRepo = getAipRepo({ defaultScope: "barangay" });
     await aipRepo.updateAipStatus(aip.id, "pending_review");
+    await notifySafely({
+      eventType: aip.status === "for_revision" ? "AIP_RESUBMITTED" : "AIP_SUBMITTED",
+      scopeType: "city",
+      entityType: "aip",
+      entityId: aip.id,
+      aipId: aip.id,
+      actorUserId: actor?.userId ?? null,
+      actorRole: actor?.role ?? null,
+      transition:
+        aip.status === "for_revision"
+          ? "for_revision->pending_review"
+          : "draft->pending_review",
+    });
     await logBarangayAipWorkflowEvent({
       actor,
       aipId: aip.id,
@@ -771,6 +785,17 @@ export async function submitCityAipForPublishAction(input: {
     await recordCityPublishReview({
       aipId: aip.id,
       reviewerId: actor?.userId ?? null,
+    });
+    await notifySafely({
+      eventType: "AIP_PUBLISHED",
+      scopeType: "city",
+      entityType: "aip",
+      entityId: aip.id,
+      aipId: aip.id,
+      actorUserId: actor?.userId ?? null,
+      actorRole: actor?.role ?? null,
+      transition:
+        aip.status === "for_revision" ? "for_revision->published" : "draft->published",
     });
 
     return success("AIP published successfully.");

@@ -12,7 +12,7 @@ export default async function BarangayAipDetail({
   const actor = await getActorContext();
 
   const aipRepo = getAipRepo({ defaultScope: "barangay" });
-  const aip = await aipRepo.getAipDetail(aipId, actor);
+  const aip = await aipRepo.getAipDetail(aipId, actor ?? undefined);
 
   if (!aip || aip.scope !== "barangay") return notFound();
 

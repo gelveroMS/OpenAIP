@@ -1,7 +1,6 @@
 import { supabaseServer } from "@/lib/supabase/server";
 import {
   fail,
-  mapSupabaseAuthErrorMessage,
   normalizeEmail,
   normalizePassword,
   ok,
@@ -9,6 +8,7 @@ import {
 import { dbRoleToRouteRole } from "@/lib/auth/route-roles";
 import {
   clearLoginAttemptState,
+  getRequestFingerprint,
   getLoginAttemptStatus,
   recordLoginFailure,
 } from "@/lib/security/login-attempts.server";
@@ -21,22 +21,27 @@ type StaffSignInBody = {
   role?: unknown;
 };
 
-function lockoutMessage(lockedUntil: string | null): string {
-  if (!lockedUntil) return "Too many failed login attempts. Please try again later.";
-  const minutes = Math.max(
-    1,
-    Math.ceil((new Date(lockedUntil).getTime() - Date.now()) / (60 * 1000))
-  );
-  return `Too many failed login attempts. Try again in ${minutes} minute(s).`;
-}
+const LOCKOUT_ERROR_MESSAGE = "Too many failed login attempts. Please try again later.";
+const INVALID_CREDENTIALS_MESSAGE = "Invalid email or password.";
 
 function isStaffRole(value: unknown): value is "admin" | "city" | "barangay" {
   return value === "admin" || value === "city" || value === "barangay";
 }
 
-async function safeRecordFailure(email: string, settings: Awaited<ReturnType<typeof getSecuritySettings>>) {
+async function safeRecordFailure(input: {
+  email: string;
+  settings: Awaited<ReturnType<typeof getSecuritySettings>>;
+  requestFingerprint: string | null;
+}) {
   try {
-    return await recordLoginFailure({ email, settings });
+    return await recordLoginFailure({
+      email: input.email,
+      settings: input.settings,
+      monitoring: {
+        route: "staff_sign_in",
+        requestFingerprint: input.requestFingerprint,
+      },
+    });
   } catch {
     return null;
   }
@@ -48,6 +53,7 @@ export async function POST(request: Request) {
     const email = normalizeEmail(body?.email);
     const password = normalizePassword(body?.password);
     const role = body?.role;
+    const requestFingerprint = getRequestFingerprint(request);
 
     if (!email || !password || !isStaffRole(role)) {
       return fail("A valid role, email, and password are required.", 400);
@@ -60,43 +66,53 @@ export async function POST(request: Request) {
       lockedUntil: null,
     }));
     if (status.isLocked) {
-      return fail(lockoutMessage(status.lockedUntil), 429);
+      return fail(LOCKOUT_ERROR_MESSAGE, 429);
     }
 
     const client = await supabaseServer();
     const { data, error } = await client.auth.signInWithPassword({ email, password });
     if (error) {
-      const nextStatus = await safeRecordFailure(email, settings);
-      const message = nextStatus?.isLocked
-        ? lockoutMessage(nextStatus.lockedUntil)
-        : mapSupabaseAuthErrorMessage(error.message);
-      return fail(message, nextStatus?.isLocked ? 429 : 401);
+      const nextStatus = await safeRecordFailure({
+        email,
+        settings,
+        requestFingerprint,
+      });
+      return fail(nextStatus?.isLocked ? LOCKOUT_ERROR_MESSAGE : INVALID_CREDENTIALS_MESSAGE, nextStatus?.isLocked ? 429 : 401);
     }
 
     if (!data.user?.id) {
-      await safeRecordFailure(email, settings);
-      return fail("Sign-in failed. Please try again.", 401);
+      await safeRecordFailure({
+        email,
+        settings,
+        requestFingerprint,
+      });
+      return fail(INVALID_CREDENTIALS_MESSAGE, 401);
     }
 
     const { data: roleValue, error: roleError } = await client.rpc("current_role");
     if (roleError) {
       await client.auth.signOut();
-      return fail(roleError.message, 500);
+      return fail("Unable to sign in.", 500);
     }
 
     const resolvedRole = dbRoleToRouteRole(roleValue);
     if (!resolvedRole) {
       await client.auth.signOut();
-      await safeRecordFailure(email, settings);
-      return fail("Role Validation Failed.", 403);
+      const nextStatus = await safeRecordFailure({
+        email,
+        settings,
+        requestFingerprint,
+      });
+      return fail(nextStatus?.isLocked ? LOCKOUT_ERROR_MESSAGE : INVALID_CREDENTIALS_MESSAGE, nextStatus?.isLocked ? 429 : 401);
     }
     if (resolvedRole !== role) {
       await client.auth.signOut();
-      const nextStatus = await safeRecordFailure(email, settings);
-      const message = nextStatus?.isLocked
-        ? lockoutMessage(nextStatus.lockedUntil)
-        : "Role Validation Failed.";
-      return fail(message, nextStatus?.isLocked ? 429 : 403);
+      const nextStatus = await safeRecordFailure({
+        email,
+        settings,
+        requestFingerprint,
+      });
+      return fail(nextStatus?.isLocked ? LOCKOUT_ERROR_MESSAGE : INVALID_CREDENTIALS_MESSAGE, nextStatus?.isLocked ? 429 : 401);
     }
 
     await clearLoginAttemptState({ email }).catch(() => undefined);
@@ -104,7 +120,7 @@ export async function POST(request: Request) {
     const response = ok({ role: resolvedRole });
     applySessionPolicyCookies(response, settings);
     return response;
-  } catch (error) {
-    return fail(error instanceof Error ? error.message : "Unable to sign in.", 500);
+  } catch {
+    return fail("Unable to sign in.", 500);
   }
 }

@@ -3,6 +3,8 @@ import {
   assertFeedbackUsageAllowed,
   isFeedbackUsageError,
 } from "@/lib/feedback/usage-guards";
+import { notifySafely } from "@/lib/notifications";
+import { enforceCsrfProtection } from "@/lib/security/csrf";
 import { supabaseServer } from "@/lib/supabase/server";
 import {
   assertPublishedAipStatus,
@@ -48,6 +50,11 @@ export async function POST(
   context: { params: Promise<{ aipId: string }> }
 ) {
   try {
+    const csrf = enforceCsrfProtection(request);
+    if (!csrf.ok) {
+      return csrf.response;
+    }
+
     const payload = (await request.json().catch(() => null)) as
       | CreateFeedbackRequestBody
       | null;
@@ -85,6 +92,16 @@ export async function POST(
     if (error || !data) {
       throw new CitizenAipFeedbackApiError(500, error?.message ?? "Failed to create feedback.");
     }
+    await notifySafely({
+      eventType: "FEEDBACK_CREATED",
+      scopeType: "citizen",
+      entityType: "feedback",
+      entityId: data.id,
+      feedbackId: data.id,
+      aipId: aip.id,
+      actorUserId: userId,
+      actorRole: "citizen",
+    });
 
     const [item] = await hydrateAipFeedbackItems([data]);
     if (!item) {

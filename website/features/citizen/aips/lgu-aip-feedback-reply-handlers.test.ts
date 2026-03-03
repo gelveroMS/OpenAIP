@@ -145,7 +145,7 @@ describe("handleScopedAipFeedbackReplyRequest", () => {
     const response = await handleScopedAipFeedbackReplyRequest({
       request: new Request("http://localhost", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", origin: "http://localhost" },
         body: JSON.stringify({ parentFeedbackId: "root-1", body: "Noted." }),
       }),
       scope: "barangay",
@@ -210,7 +210,7 @@ describe("handleScopedAipFeedbackReplyRequest", () => {
     const response = await handleScopedAipFeedbackReplyRequest({
       request: new Request("http://localhost", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", origin: "http://localhost" },
         body: JSON.stringify({ parentFeedbackId: "reply-parent", body: "Noted." }),
       }),
       scope: "barangay",
@@ -294,7 +294,7 @@ describe("handleScopedAipFeedbackReplyRequest", () => {
     const response = await handleScopedAipFeedbackReplyRequest({
       request: new Request("http://localhost", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", origin: "http://localhost" },
         body: JSON.stringify({ parentFeedbackId: "reply-parent", body: "Noted." }),
       }),
       scope: "barangay",
@@ -329,7 +329,7 @@ describe("handleScopedAipFeedbackReplyRequest", () => {
     const response = await handleScopedAipFeedbackReplyRequest({
       request: new Request("http://localhost", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", origin: "http://localhost" },
         body: JSON.stringify({ parentFeedbackId: "root-1", body: "Noted." }),
       }),
       scope: "barangay",

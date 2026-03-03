@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { CitizenAuthModalHost } from "@/features/citizen/auth";
 import CitizenFooter from "@/features/citizen/components/citizen-footer";
@@ -15,7 +15,9 @@ const CitizenLayout = ({ children }: { children: ReactNode }) => {
 
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-b from-[#D3DBE0] to-[#FFFFFF]">
-      <CitizenTopNav />
+      <Suspense fallback={null}>
+        <CitizenTopNav />
+      </Suspense>
       <main
         className={cn(
           "mx-auto w-full flex-1 min-h-0",
@@ -26,7 +28,9 @@ const CitizenLayout = ({ children }: { children: ReactNode }) => {
       >
         {children}
       </main>
-      <CitizenAuthModalHost />
+      <Suspense fallback={null}>
+        <CitizenAuthModalHost />
+      </Suspense>
       <CitizenFooter />
       <FloatingChatButton />
     </div>

@@ -143,7 +143,7 @@ describe("POST /api/citizen/aips/[aipId]/feedback/reply", () => {
     const response = await POST(
       new Request("http://localhost", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", origin: "http://localhost" },
         body: JSON.stringify({
           parentFeedbackId: "fb-parent",
           kind: "question",
@@ -223,7 +223,7 @@ describe("POST /api/citizen/aips/[aipId]/feedback/reply", () => {
     const response = await POST(
       new Request("http://localhost", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", origin: "http://localhost" },
         body: JSON.stringify({
           parentFeedbackId: "fb-parent",
           kind: "question",
@@ -262,7 +262,7 @@ describe("POST /api/citizen/aips/[aipId]/feedback/reply", () => {
     const response = await POST(
       new Request("http://localhost", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", origin: "http://localhost" },
         body: JSON.stringify({
           parentFeedbackId: "fb-parent",
           kind: "question",

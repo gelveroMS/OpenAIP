@@ -54,9 +54,9 @@ export default function LineTrendsCard({ subtitle, data }: LineTrendsCardProps) 
                     borderRadius: "0.75rem",
                   }}
                   labelStyle={{ color: "#F8FAFC" }}
-                  formatter={(value: number | string, name: string) => {
+                  formatter={(value: number | string | undefined, name: string | undefined) => {
                     const amount = typeof value === "number" ? value : Number(value);
-                    return [formatPeso(Number.isFinite(amount) ? amount : 0), name];
+                    return [formatPeso(Number.isFinite(amount) ? amount : 0), name ?? ""];
                   }}
                 />
                 <Legend

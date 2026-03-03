@@ -60,7 +60,7 @@ export default function DonutCard({ fiscalYear, totalBudget, sectors }: DonutCar
                   ))}
                 </Pie>
                 <Tooltip
-                  formatter={(value: number | string) => {
+                  formatter={(value: number | string | undefined) => {
                     const amount = typeof value === "number" ? value : Number(value);
                     return formatPeso(Number.isFinite(amount) ? amount : 0);
                   }}

@@ -40,6 +40,10 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
   DropdownMenuItem: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
 
+vi.mock("@/features/notifications/components/notifications-bell", () => ({
+  default: () => <div data-testid="notifications-bell" />,
+}));
+
 describe("CitizenTopNav", () => {
   beforeEach(() => {
     vi.clearAllMocks();

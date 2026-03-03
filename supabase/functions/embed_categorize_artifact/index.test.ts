@@ -2,6 +2,63 @@ import { assert, assertEquals } from "jsr:@std/assert@1";
 
 import { buildChunkPlan, handleRequest } from "./index.ts";
 
+async function signJob(args: {
+  secret: string;
+  aud: string;
+  ts: string;
+  nonce: string;
+  rawBody: string;
+}): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(args.secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const payload = `${args.aud}|${args.ts}|${args.nonce}|${args.rawBody}`;
+  const signature = new Uint8Array(
+    await crypto.subtle.sign("HMAC", key, encoder.encode(payload)),
+  );
+  return [...signature].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function buildSignedRequest(args: {
+  secret?: string;
+  aud?: string;
+  ts?: string;
+  nonce?: string;
+  body: Record<string, unknown>;
+  overrideSig?: string;
+}): Promise<Request> {
+  const secret = args.secret ?? "expected-secret";
+  const aud = args.aud ?? "embed-categorize-dispatcher";
+  const ts = args.ts ?? Math.floor(Date.now() / 1000).toString();
+  const nonce = args.nonce ?? crypto.randomUUID();
+  const rawBody = JSON.stringify(args.body);
+  const sig =
+    args.overrideSig ??
+    (await signJob({
+      secret,
+      aud,
+      ts,
+      nonce,
+      rawBody,
+    }));
+
+  return new Request("http://localhost/embed_categorize_artifact", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-job-ts": ts,
+      "x-job-nonce": nonce,
+      "x-job-sig": sig,
+    },
+    body: rawBody,
+  });
+}
+
 Deno.test("buildChunkPlan is deterministic for identical categorize input", () => {
   const args = {
     projectsRaw: [
@@ -109,8 +166,9 @@ Deno.test("buildChunkPlan groups by category when per-project chunks are too sho
   assertEquals(chunks[0]?.metadata.chunk_kind, "category_group");
 });
 
-Deno.test("handleRequest rejects missing/invalid job secret", async () => {
+Deno.test("handleRequest rejects unsigned requests", async () => {
   Deno.env.set("EMBED_CATEGORIZE_JOB_SECRET", "expected-secret");
+  Deno.env.set("EMBED_CATEGORIZE_JOB_AUDIENCE", "embed-categorize-dispatcher");
 
   const req = new Request("http://localhost/embed_categorize_artifact", {
     method: "POST",
@@ -120,4 +178,66 @@ Deno.test("handleRequest rejects missing/invalid job secret", async () => {
 
   const res = await handleRequest(req);
   assertEquals(res.status, 401);
+});
+
+Deno.test("handleRequest rejects invalid signature", async () => {
+  Deno.env.set("EMBED_CATEGORIZE_JOB_SECRET", "expected-secret");
+  Deno.env.set("EMBED_CATEGORIZE_JOB_AUDIENCE", "embed-categorize-dispatcher");
+
+  const req = await buildSignedRequest({
+    body: {
+      aip_id: "aip-id-789",
+      request_id: crypto.randomUUID(),
+    },
+    overrideSig: "00",
+  });
+
+  const res = await handleRequest(req);
+  assertEquals(res.status, 401);
+});
+
+Deno.test("handleRequest rejects stale timestamp", async () => {
+  Deno.env.set("EMBED_CATEGORIZE_JOB_SECRET", "expected-secret");
+  Deno.env.set("EMBED_CATEGORIZE_JOB_AUDIENCE", "embed-categorize-dispatcher");
+
+  const staleTs = (Math.floor(Date.now() / 1000) - 120).toString();
+  const req = await buildSignedRequest({
+    ts: staleTs,
+    body: {
+      aip_id: "aip-id-789",
+      request_id: crypto.randomUUID(),
+    },
+  });
+
+  const res = await handleRequest(req);
+  assertEquals(res.status, 401);
+});
+
+Deno.test("handleRequest rejects replayed nonce", async () => {
+  Deno.env.set("EMBED_CATEGORIZE_JOB_SECRET", "expected-secret");
+  Deno.env.set("EMBED_CATEGORIZE_JOB_AUDIENCE", "embed-categorize-dispatcher");
+
+  const ts = Math.floor(Date.now() / 1000).toString();
+  const nonce = crypto.randomUUID();
+  const body = { aip_id: "aip-id-789" };
+
+  const firstReq = await buildSignedRequest({ ts, nonce, body });
+  const firstRes = await handleRequest(firstReq);
+  assertEquals(firstRes.status, 400);
+
+  const secondReq = await buildSignedRequest({ ts, nonce, body });
+  const secondRes = await handleRequest(secondReq);
+  assertEquals(secondRes.status, 401);
+});
+
+Deno.test("handleRequest requires request_id or artifact_id", async () => {
+  Deno.env.set("EMBED_CATEGORIZE_JOB_SECRET", "expected-secret");
+  Deno.env.set("EMBED_CATEGORIZE_JOB_AUDIENCE", "embed-categorize-dispatcher");
+
+  const req = await buildSignedRequest({
+    body: { aip_id: "aip-id-789" },
+  });
+
+  const res = await handleRequest(req);
+  assertEquals(res.status, 400);
 });

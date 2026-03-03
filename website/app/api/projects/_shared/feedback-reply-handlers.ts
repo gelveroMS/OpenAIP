@@ -4,6 +4,8 @@ import {
   assertFeedbackUsageAllowed,
   isFeedbackUsageError,
 } from "@/lib/feedback/usage-guards";
+import { notifySafely } from "@/lib/notifications";
+import { enforceCsrfProtection } from "@/lib/security/csrf";
 import { supabaseServer } from "@/lib/supabase/server";
 import {
   CITIZEN_PROJECT_FEEDBACK_KINDS,
@@ -159,6 +161,11 @@ export async function handleProjectFeedbackReplyRequest(input: {
   projectIdOrRef: string;
 }) {
   try {
+    const csrf = enforceCsrfProtection(input.request);
+    if (!csrf.ok) {
+      return csrf.response;
+    }
+
     const payload = (await input.request.json().catch(() => null)) as
       | ReplyFeedbackRequestBody
       | null;
@@ -246,6 +253,17 @@ export async function handleProjectFeedbackReplyRequest(input: {
     if (error || !data) {
       throw new CitizenFeedbackApiError(500, error?.message ?? "Failed to create feedback reply.");
     }
+    await notifySafely({
+      eventType: "FEEDBACK_CREATED",
+      scopeType: input.scope,
+      entityType: "feedback",
+      entityId: data.id,
+      feedbackId: data.id,
+      projectId: project.id,
+      aipId: project.aipId,
+      actorUserId: actor.userId,
+      actorRole: actor.role,
+    });
 
     const [item] = await hydrateProjectFeedbackItems([data]);
     if (!item) {

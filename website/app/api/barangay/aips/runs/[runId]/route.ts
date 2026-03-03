@@ -1,25 +1,27 @@
 import { NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase/server";
+import { getActorContext } from "@/lib/domain/get-actor-context";
+import { isInvariantError } from "@/lib/security/invariants";
+import {
+  readExtractionRunStatusForBarangay,
+  toPrivilegedActorContext,
+} from "@/lib/supabase/privileged-ops";
 
 export async function GET(
   _request: Request,
   context: { params: Promise<{ runId: string }> }
 ) {
   try {
-    const { runId } = await context.params;
-    const client = await supabaseServer();
-
-    const { data, error } = await client
-      .from("extraction_runs")
-      .select(
-        "id,aip_id,uploaded_file_id,stage,status,error_code,error_message,started_at,finished_at,created_at,overall_progress_pct,stage_progress_pct,progress_message,progress_updated_at"
-      )
-      .eq("id", runId)
-      .maybeSingle();
-
-    if (error) {
-      return NextResponse.json({ message: error.message }, { status: 400 });
+    const actor = await getActorContext();
+    const privilegedActor = toPrivilegedActorContext(actor);
+    if (!privilegedActor) {
+      return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
     }
+
+    const { runId } = await context.params;
+    const data = await readExtractionRunStatusForBarangay({
+      actor: privilegedActor,
+      runId,
+    });
     if (!data) {
       return NextResponse.json({ message: "Run not found." }, { status: 404 });
     }
@@ -44,6 +46,9 @@ export async function GET(
       { status: 200 }
     );
   } catch (error) {
+    if (isInvariantError(error)) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
+    }
     const message = error instanceof Error ? error.message : "Unexpected run status error.";
     return NextResponse.json({ message }, { status: 500 });
   }

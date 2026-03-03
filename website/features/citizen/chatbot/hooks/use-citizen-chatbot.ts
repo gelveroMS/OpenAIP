@@ -246,6 +246,7 @@ export function useCitizenChatbot() {
       setIsBootstrapping(false);
       return;
     }
+    const currentUserId = userId;
 
     async function bootstrapSessions() {
       setIsBootstrapping(true);
@@ -253,7 +254,7 @@ export function useCitizenChatbot() {
       setMessagesBySession({});
       setLoadedSessionIds({});
       try {
-        const list = await repo.listSessions(userId);
+        const list = await repo.listSessions(currentUserId);
         if (!active) return;
         setSessions(sortSessionsByUpdatedAt(list));
         setErrorState("none");
@@ -477,11 +478,12 @@ export function useCitizenChatbot() {
       if (!sessionId) {
         throw new Error("Failed to create chat session.");
       }
+      const resolvedSessionId = sessionId;
 
       optimisticId = `temp_user_${Date.now()}`;
       const optimisticMessage: CitizenChatMessage = {
         id: optimisticId,
-        sessionId,
+        sessionId: resolvedSessionId,
         role: "user",
         content,
         citations: null,
@@ -492,14 +494,14 @@ export function useCitizenChatbot() {
       setMessageInput("");
       setMessagesBySession((prev) => ({
         ...prev,
-        [sessionId]: [...(prev[sessionId] ?? []), optimisticMessage],
+        [resolvedSessionId]: [...(prev[resolvedSessionId] ?? []), optimisticMessage],
       }));
 
-      const persistedUser = await repo.appendUserMessage(sessionId, content);
+      const persistedUser = await repo.appendUserMessage(resolvedSessionId, content);
 
       setMessagesBySession((prev) => ({
         ...prev,
-        [sessionId]: (prev[sessionId] ?? []).map((msg) =>
+        [resolvedSessionId]: (prev[resolvedSessionId] ?? []).map((msg) =>
           msg.id === optimisticId ? persistedUser : msg
         ),
       }));
@@ -507,7 +509,7 @@ export function useCitizenChatbot() {
       setSessions((prev) =>
         sortSessionsByUpdatedAt(
           prev.map((session) =>
-            session.id === sessionId
+            session.id === resolvedSessionId
               ? {
                   ...session,
                   lastMessageAt: persistedUser.createdAt,
@@ -519,7 +521,7 @@ export function useCitizenChatbot() {
       );
 
       const reply = await requestAssistantReply({
-        sessionId,
+        sessionId: resolvedSessionId,
         userMessage: content,
       });
 
@@ -540,13 +542,13 @@ export function useCitizenChatbot() {
 
       setMessagesBySession((prev) => ({
         ...prev,
-        [sessionId]: [...(prev[sessionId] ?? []), assistantMessage],
+        [resolvedSessionId]: [...(prev[resolvedSessionId] ?? []), assistantMessage],
       }));
 
       setSessions((prev) =>
         sortSessionsByUpdatedAt(
           prev.map((session) =>
-            session.id === sessionId
+            session.id === resolvedSessionId
               ? {
                   ...session,
                   lastMessageAt: assistantMessage.createdAt,
@@ -558,9 +560,12 @@ export function useCitizenChatbot() {
       );
     } catch (error) {
       if (sessionId && optimisticId) {
+        const rollbackSessionId = sessionId;
         setMessagesBySession((prev) => ({
           ...prev,
-          [sessionId]: (prev[sessionId] ?? []).filter((msg) => msg.id !== optimisticId),
+          [rollbackSessionId]: (prev[rollbackSessionId] ?? []).filter(
+            (msg) => msg.id !== optimisticId
+          ),
         }));
       }
 

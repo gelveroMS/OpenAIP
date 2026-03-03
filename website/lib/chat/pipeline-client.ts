@@ -1,15 +1,34 @@
 import "server-only";
 
+import { createHmac, randomUUID } from "node:crypto";
+
 import type { PipelineChatAnswer, RetrievalScopePayload } from "./types";
 
 const DEFAULT_TIMEOUT_MS = 30000;
+const PIPELINE_AUDIENCE = "website-backend";
 
-function requireEnv(name: "PIPELINE_API_BASE_URL" | "PIPELINE_INTERNAL_TOKEN"): string {
+function requireEnv(name: "PIPELINE_API_BASE_URL" | "PIPELINE_HMAC_SECRET"): string {
   const value = process.env[name]?.trim();
   if (!value) {
     throw new Error(`${name} is not configured.`);
   }
   return value;
+}
+
+function buildPipelineSignatureHeaders(rawBody: string): Record<string, string> {
+  const aud = PIPELINE_AUDIENCE;
+  const ts = String(Math.floor(Date.now() / 1000));
+  const nonce = randomUUID();
+  const secret = requireEnv("PIPELINE_HMAC_SECRET");
+  const canonical = `${aud}|${ts}|${nonce}|${rawBody}`;
+  const sig = createHmac("sha256", secret).update(canonical).digest("hex");
+
+  return {
+    "x-pipeline-aud": aud,
+    "x-pipeline-ts": ts,
+    "x-pipeline-nonce": nonce,
+    "x-pipeline-sig": sig,
+  };
 }
 
 function parsePipelineResponse(payload: unknown): PipelineChatAnswer {
@@ -74,7 +93,13 @@ export async function requestPipelineChatAnswer(input: {
   timeoutMs?: number;
 }): Promise<PipelineChatAnswer> {
   const baseUrl = requireEnv("PIPELINE_API_BASE_URL").replace(/\/+$/, "");
-  const token = requireEnv("PIPELINE_INTERNAL_TOKEN");
+  const rawBody = JSON.stringify({
+    question: input.question,
+    retrieval_scope: input.retrievalScope,
+    top_k: input.topK ?? 8,
+    min_similarity: input.minSimilarity ?? 0.3,
+  });
+  const signedHeaders = buildPipelineSignatureHeaders(rawBody);
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -84,14 +109,9 @@ export async function requestPipelineChatAnswer(input: {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-pipeline-token": token,
+        ...signedHeaders,
       },
-      body: JSON.stringify({
-        question: input.question,
-        retrieval_scope: input.retrievalScope,
-        top_k: input.topK ?? 8,
-        min_similarity: input.minSimilarity ?? 0.3,
-      }),
+      body: rawBody,
       signal: controller.signal,
       cache: "no-store",
     });
@@ -120,7 +140,11 @@ export async function requestPipelineQueryEmbedding(input: {
   timeoutMs?: number;
 }): Promise<{ embedding: number[]; model: string; dimensions: number }> {
   const baseUrl = requireEnv("PIPELINE_API_BASE_URL").replace(/\/+$/, "");
-  const token = requireEnv("PIPELINE_INTERNAL_TOKEN");
+  const rawBody = JSON.stringify({
+    text: input.text,
+    model_name: input.modelName,
+  });
+  const signedHeaders = buildPipelineSignatureHeaders(rawBody);
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -130,12 +154,9 @@ export async function requestPipelineQueryEmbedding(input: {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-pipeline-token": token,
+        ...signedHeaders,
       },
-      body: JSON.stringify({
-        text: input.text,
-        model_name: input.modelName,
-      }),
+      body: rawBody,
       signal: controller.signal,
       cache: "no-store",
     });

@@ -150,49 +150,50 @@ type FilterableQuery = {
   or: (...args: unknown[]) => unknown;
 };
 
-function applyActivityLogFilters<T extends FilterableQuery>(
-  query: T,
+function applyActivityLogFilters(
+  query: FilterableQuery,
   filters: ActivityLogFilters
-): T {
+): FilterableQuery {
   let next = query;
 
   if (filters.actorId) {
-    next = next.eq("actor_id", filters.actorId) as T;
+    next = next.eq("actor_id", filters.actorId) as FilterableQuery;
   }
 
   if (filters.actorRole) {
-    next = next.eq("actor_role", filters.actorRole) as T;
+    next = next.eq("actor_role", filters.actorRole) as FilterableQuery;
   }
 
   if (filters.barangayId) {
-    next = next.eq("barangay_id", filters.barangayId) as T;
+    next = next.eq("barangay_id", filters.barangayId) as FilterableQuery;
   }
   if (filters.cityId) {
-    next = next.eq("city_id", filters.cityId) as T;
+    next = next.eq("city_id", filters.cityId) as FilterableQuery;
   }
 
   if (filters.role && filters.role !== "all") {
     if (filters.role === "admin") {
-      next = next.eq("actor_role", "admin") as T;
+      next = next.eq("actor_role", "admin") as FilterableQuery;
     } else if (filters.role === "citizen") {
-      next = next.eq("actor_role", "citizen") as T;
+      next = next.eq("actor_role", "citizen") as FilterableQuery;
     } else if (filters.role === "lgu_officials") {
       next = next.in("actor_role", [
         "barangay_official",
         "city_official",
         "municipal_official",
-      ]) as T;
+      ]) as FilterableQuery;
     }
   }
 
   if (typeof filters.year === "number") {
     const yearStart = new Date(Date.UTC(filters.year, 0, 1)).toISOString();
     const yearEnd = new Date(Date.UTC(filters.year + 1, 0, 1)).toISOString();
-    next = next.gte("created_at", yearStart).lt("created_at", yearEnd) as T;
+    next = next.gte("created_at", yearStart) as FilterableQuery;
+    next = next.lt("created_at", yearEnd) as FilterableQuery;
   }
 
   if (filters.event && filters.event !== "all") {
-    next = next.eq("action", filters.event) as T;
+    next = next.eq("action", filters.event) as FilterableQuery;
   }
 
   const q = typeof filters.q === "string" ? escapeIlikeTerm(filters.q) : "";
@@ -205,7 +206,7 @@ function applyActivityLogFilters<T extends FilterableQuery>(
         `metadata->>actor_position.ilike.%${q}%`,
         `metadata->>details.ilike.%${q}%`,
       ].join(",")
-    ) as T;
+    ) as FilterableQuery;
   }
 
   return next;
@@ -248,12 +249,12 @@ async function listActivityRows(
   filters: ActivityLogFilters = {}
 ): Promise<ActivityLogRow[]> {
   const admin = supabaseAdmin();
-  let query = admin
+  let query: any = admin
     .from("activity_log")
     .select(SELECT_COLUMNS)
     .order("created_at", { ascending: false });
 
-  query = applyActivityLogFilters(query, filters);
+  query = applyActivityLogFilters(query as FilterableQuery, filters);
 
   const { data, error } = await query;
   if (error) {
@@ -273,12 +274,12 @@ async function listActivityPage(input: AuditListInput): Promise<AuditListResult>
   const start = (input.page - 1) * input.pageSize;
   const end = start + input.pageSize - 1;
 
-  let query = admin
+  let query: any = admin
     .from("activity_log")
     .select(SELECT_COLUMNS, { count: "exact" })
     .order("created_at", { ascending: false });
 
-  query = applyActivityLogFilters(query, {
+  query = applyActivityLogFilters(query as FilterableQuery, {
     role: input.role,
     year: input.year,
     event: input.event,

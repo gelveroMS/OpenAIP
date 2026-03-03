@@ -62,6 +62,58 @@ class ExtractionResult(BaseModel):
     json_str: str
 
 
+class ExtractionGuardrailError(RuntimeError):
+    def __init__(self, reason_code: str, message: str):
+        super().__init__(message)
+        self.reason_code = reason_code
+
+
+def _read_positive_int_env(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        parsed = int(raw.strip())
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _read_positive_float_env(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        parsed = float(raw.strip())
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _resolve_max_pages(value: int | None) -> int:
+    if isinstance(value, int) and value > 0:
+        return value
+    return _read_positive_int_env("PIPELINE_EXTRACT_MAX_PAGES", 200)
+
+
+def _resolve_parse_timeout_seconds(value: float | None) -> float:
+    if isinstance(value, (int, float)) and float(value) > 0:
+        return float(value)
+    return _read_positive_float_env("PIPELINE_PARSE_TIMEOUT_SECONDS", 20.0)
+
+
+def _resolve_extract_timeout_seconds(value: float | None) -> float:
+    if isinstance(value, (int, float)) and float(value) > 0:
+        return float(value)
+    return _read_positive_float_env("PIPELINE_EXTRACT_TIMEOUT_SECONDS", 1800.0)
+
+
+# Security proof:
+# - PIPELINE_EXTRACT_MAX_PAGES (default 200) rejects oversized page-count PDFs with PDF_PAGE_LIMIT_EXCEEDED.
+# - PIPELINE_PARSE_TIMEOUT_SECONDS (default 20) rejects slow parse with PARSE_TIMEOUT.
+# - PIPELINE_EXTRACT_TIMEOUT_SECONDS (default 1800) bounds per-run extraction time with EXTRACT_TIMEOUT.
+
+
 def extract_single_page_pdf(original_pdf_path: str, page_index: int) -> str:
     reader = PdfReader(original_pdf_path)
     if len(reader.pages) == 0:
@@ -195,17 +247,45 @@ def extract_brgy_aip_from_pdf_all_pages(
     pdf_path: str,
     model: str,
     on_progress: Callable[[int, int], None] | None,
+    max_pages: int | None = None,
+    parse_timeout_seconds: float | None = None,
+    extract_timeout_seconds: float | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], int]:
+    parse_started = time.perf_counter()
     reader = PdfReader(pdf_path)
+    parse_elapsed = time.perf_counter() - parse_started
+    parse_timeout = _resolve_parse_timeout_seconds(parse_timeout_seconds)
+    if parse_elapsed > parse_timeout:
+        raise ExtractionGuardrailError(
+            "PARSE_TIMEOUT",
+            f"PDF parsing exceeded timeout ({parse_timeout:.2f}s).",
+        )
+
     total_pages = len(reader.pages)
     if total_pages == 0:
         raise ValueError("PDF has no pages")
+
+    resolved_max_pages = _resolve_max_pages(max_pages)
+    if total_pages > resolved_max_pages:
+        raise ExtractionGuardrailError(
+            "PDF_PAGE_LIMIT_EXCEEDED",
+            f"PDF has {total_pages} pages, exceeding limit of {resolved_max_pages}.",
+        )
+
+    extract_timeout = _resolve_extract_timeout_seconds(extract_timeout_seconds)
+    extract_started = time.perf_counter()
+
     projects: list[dict[str, Any]] = []
     project_key_normalized_changes_count = 0
     usage_total: dict[str, Any] = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
     system_prompt = read_text("prompts/extraction/barangay_system.txt")
     user_prompt = read_text("prompts/extraction/barangay_user.txt")
     for index in range(total_pages):
+        if time.perf_counter() - extract_started > extract_timeout:
+            raise ExtractionGuardrailError(
+                "EXTRACT_TIMEOUT",
+                f"Extraction exceeded timeout ({extract_timeout:.2f}s) after {index} page(s).",
+            )
         page_data, page_usage = extract_brgy_aip_from_pdf_page(
             client=client,
             pdf_path=pdf_path,
@@ -242,6 +322,9 @@ def run_extraction(
     uploaded_file_id: str | None = None,
     on_progress: Callable[[int, int], None] | None = None,
     client: OpenAI | None = None,
+    max_pages: int | None = None,
+    parse_timeout_seconds: float | None = None,
+    extract_timeout_seconds: float | None = None,
 ) -> ExtractionResult:
     if not os.path.exists(pdf_path):
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
@@ -252,6 +335,9 @@ def run_extraction(
         pdf_path=pdf_path,
         model=model,
         on_progress=on_progress,
+        max_pages=max_pages,
+        parse_timeout_seconds=parse_timeout_seconds,
+        extract_timeout_seconds=extract_timeout_seconds,
     )
     document, doc_warnings = extract_document_metadata(pdf_path, scope="barangay", page_count_hint=page_count)
     fiscal_year = int(document.get("fiscal_year") or 0)

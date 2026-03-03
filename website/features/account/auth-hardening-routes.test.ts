@@ -5,6 +5,7 @@ const mockGetSecuritySettings = vi.fn();
 const mockGetLoginAttemptStatus = vi.fn();
 const mockRecordLoginFailure = vi.fn();
 const mockClearLoginAttemptState = vi.fn();
+const mockGetRequestFingerprint = vi.fn();
 const mockApplySessionPolicyCookies = vi.fn();
 const mockGetCitizenProfileByUserId = vi.fn();
 const mockIsCitizenProfileComplete = vi.fn();
@@ -21,6 +22,7 @@ vi.mock("@/lib/security/login-attempts.server", () => ({
   getLoginAttemptStatus: (...args: unknown[]) => mockGetLoginAttemptStatus(...args),
   recordLoginFailure: (...args: unknown[]) => mockRecordLoginFailure(...args),
   clearLoginAttemptState: (...args: unknown[]) => mockClearLoginAttemptState(...args),
+  getRequestFingerprint: (...args: unknown[]) => mockGetRequestFingerprint(...args),
 }));
 
 vi.mock("@/lib/security/session-cookies.server", () => ({
@@ -69,6 +71,7 @@ describe("auth hardening routes", () => {
       lockedUntil: null,
     });
     mockClearLoginAttemptState.mockResolvedValue(undefined);
+    mockGetRequestFingerprint.mockReturnValue("203.0.113.50");
     mockGetCitizenProfileByUserId.mockResolvedValue({
       role: "citizen",
       full_name: "Citizen User",
@@ -102,6 +105,8 @@ describe("auth hardening routes", () => {
 
     expect(response.status).toBe(429);
     expect(body.ok).toBe(false);
+    expect(body.error?.message).toBe("Too many failed login attempts. Please try again later.");
+    expect(body.error?.message).not.toContain("Try again in");
     expect(mockSupabaseServer).not.toHaveBeenCalled();
   });
 
@@ -130,6 +135,8 @@ describe("auth hardening routes", () => {
 
     expect(response.status).toBe(429);
     expect(body.ok).toBe(false);
+    expect(body.error?.message).toBe("Too many failed login attempts. Please try again later.");
+    expect(body.error?.message).not.toContain("Try again in");
     expect(mockSupabaseServer).not.toHaveBeenCalled();
   });
 
@@ -166,8 +173,11 @@ describe("auth hardening routes", () => {
     const response = await POST(request);
     const body = await response.json();
 
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(401);
     expect(body.ok).toBe(false);
+    expect(body.error?.message).toBe("Invalid email or password.");
+    expect(body.error?.message).not.toContain("Role Validation Failed");
+    expect(body.error?.message).not.toContain("Try again in");
     expect(signOut).toHaveBeenCalledTimes(1);
     expect(mockRecordLoginFailure).toHaveBeenCalledTimes(1);
   });

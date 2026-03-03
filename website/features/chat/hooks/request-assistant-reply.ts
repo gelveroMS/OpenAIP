@@ -11,8 +11,8 @@ type ReplyResponse = {
   role: "assistant";
   content: string;
   createdAt: string;
-  citations?: unknown | null;
-  retrievalMeta?: unknown | null;
+  citations?: ChatMessage["citations"];
+  retrievalMeta?: ChatMessage["retrievalMeta"];
 };
 
 export async function requestAssistantReply(input: ReplyRequestInput): Promise<ChatMessage> {

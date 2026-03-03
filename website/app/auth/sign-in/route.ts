@@ -1,7 +1,6 @@
 import { supabaseServer } from "@/lib/supabase/server";
 import {
   fail,
-  mapSupabaseAuthErrorMessage,
   normalizeEmail,
   normalizePassword,
   ok,
@@ -12,6 +11,7 @@ import {
 } from "@/lib/auth/citizen-profile-completion";
 import {
   clearLoginAttemptState,
+  getRequestFingerprint,
   getLoginAttemptStatus,
   recordLoginFailure,
 } from "@/lib/security/login-attempts.server";
@@ -23,18 +23,23 @@ type SignInRequestBody = {
   password?: unknown;
 };
 
-function lockoutMessage(lockedUntil: string | null): string {
-  if (!lockedUntil) return "Too many failed login attempts. Please try again later.";
-  const minutes = Math.max(
-    1,
-    Math.ceil((new Date(lockedUntil).getTime() - Date.now()) / (60 * 1000))
-  );
-  return `Too many failed login attempts. Try again in ${minutes} minute(s).`;
-}
+const LOCKOUT_ERROR_MESSAGE = "Too many failed login attempts. Please try again later.";
+const INVALID_CREDENTIALS_MESSAGE = "Invalid email or password.";
 
-async function safeRecordFailure(email: string, settings: Awaited<ReturnType<typeof getSecuritySettings>>) {
+async function safeRecordFailure(input: {
+  email: string;
+  settings: Awaited<ReturnType<typeof getSecuritySettings>>;
+  requestFingerprint: string | null;
+}) {
   try {
-    return await recordLoginFailure({ email, settings });
+    return await recordLoginFailure({
+      email: input.email,
+      settings: input.settings,
+      monitoring: {
+        route: "citizen_sign_in",
+        requestFingerprint: input.requestFingerprint,
+      },
+    });
   } catch {
     return null;
   }
@@ -45,6 +50,7 @@ export async function POST(request: Request) {
     const payload = (await request.json().catch(() => null)) as SignInRequestBody | null;
     const email = normalizeEmail(payload?.email);
     const password = normalizePassword(payload?.password);
+    const requestFingerprint = getRequestFingerprint(request);
 
     if (!email || !password) {
       return fail("A valid email and password are required.", 400);
@@ -57,7 +63,7 @@ export async function POST(request: Request) {
       lockedUntil: null,
     }));
     if (status.isLocked) {
-      return fail(lockoutMessage(status.lockedUntil), 429);
+      return fail(LOCKOUT_ERROR_MESSAGE, 429);
     }
 
     const client = await supabaseServer();
@@ -67,41 +73,48 @@ export async function POST(request: Request) {
     });
 
     if (error) {
-      const nextStatus = await safeRecordFailure(email, settings);
-      const message = nextStatus?.isLocked
-        ? lockoutMessage(nextStatus.lockedUntil)
-        : mapSupabaseAuthErrorMessage(error.message);
-      return fail(message, nextStatus?.isLocked ? 429 : 401);
+      const nextStatus = await safeRecordFailure({
+        email,
+        settings,
+        requestFingerprint,
+      });
+      return fail(nextStatus?.isLocked ? LOCKOUT_ERROR_MESSAGE : INVALID_CREDENTIALS_MESSAGE, nextStatus?.isLocked ? 429 : 401);
     }
 
     const userId = data.user?.id;
     if (!userId) {
-      await safeRecordFailure(email, settings);
-      return fail("Sign-in failed. Please try again.", 401);
+      await safeRecordFailure({
+        email,
+        settings,
+        requestFingerprint,
+      });
+      return fail(INVALID_CREDENTIALS_MESSAGE, 401);
     }
 
     const { data: roleValue, error: roleError } = await client.rpc("current_role");
     if (roleError) {
       await client.auth.signOut();
-      return fail(roleError.message, 500);
+      return fail("Unable to sign in.", 500);
     }
     if (typeof roleValue === "string" && roleValue !== "citizen") {
       await client.auth.signOut();
-      const nextStatus = await safeRecordFailure(email, settings);
-      const message = nextStatus?.isLocked
-        ? lockoutMessage(nextStatus.lockedUntil)
-        : "This sign-in form is only for citizens.";
-      return fail(message, nextStatus?.isLocked ? 429 : 403);
+      const nextStatus = await safeRecordFailure({
+        email,
+        settings,
+        requestFingerprint,
+      });
+      return fail(nextStatus?.isLocked ? LOCKOUT_ERROR_MESSAGE : INVALID_CREDENTIALS_MESSAGE, nextStatus?.isLocked ? 429 : 401);
     }
 
     const profile = await getCitizenProfileByUserId(client, userId);
     if (profile && profile.role !== "citizen") {
       await client.auth.signOut();
-      const nextStatus = await safeRecordFailure(email, settings);
-      const message = nextStatus?.isLocked
-        ? lockoutMessage(nextStatus.lockedUntil)
-        : "This sign-in form is only for citizens.";
-      return fail(message, nextStatus?.isLocked ? 429 : 403);
+      const nextStatus = await safeRecordFailure({
+        email,
+        settings,
+        requestFingerprint,
+      });
+      return fail(nextStatus?.isLocked ? LOCKOUT_ERROR_MESSAGE : INVALID_CREDENTIALS_MESSAGE, nextStatus?.isLocked ? 429 : 401);
     }
 
     await clearLoginAttemptState({ email }).catch(() => undefined);
@@ -111,8 +124,7 @@ export async function POST(request: Request) {
     });
     applySessionPolicyCookies(response, settings);
     return response;
-  } catch (error) {
-    return fail(error instanceof Error ? error.message : "Unable to sign in.", 500);
+  } catch {
+    return fail("Unable to sign in.", 500);
   }
 }
-
