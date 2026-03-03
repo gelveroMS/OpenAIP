@@ -132,7 +132,7 @@ export function ProjectReviewModal({
     setReason("");
     setSubmitting(false);
     setSubmitError(null);
-  }, [project?.id, open]);
+  }, [open, project]);
 
   const hasAiIssues = (project?.errors?.length ?? project?.aiIssues?.length ?? 0) > 0;
 

@@ -57,8 +57,8 @@ function createInsertClient(insertedRow: Record<string, unknown>) {
     from: (table: string) => {
       if (table !== "feedback") throw new Error(`Unexpected table: ${table}`);
       return {
-        insert: (_payload: unknown) => ({
-          select: (_columns: string) => ({
+        insert: () => ({
+          select: () => ({
             single: async () => ({
               data: insertedRow,
               error: null,

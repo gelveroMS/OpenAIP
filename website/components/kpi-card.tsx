@@ -66,6 +66,7 @@ export type KpiCardProps = {
   subtext?: ReactNode;
   meta?: ReactNode;
   icon?: ReactNode;
+  iconContainerClassName?: string;
   iconPlacement?: KpiCardIconPlacement;
   variant?: KpiCardVariant;
   accent?: KpiCardAccent;
@@ -81,6 +82,7 @@ export function KpiCard({
   subtext,
   meta,
   icon,
+  iconContainerClassName,
   iconPlacement,
   variant = "status",
   accent = "none",
@@ -117,7 +119,8 @@ export function KpiCard({
       className={cn(
         "inline-flex items-center justify-center rounded-lg",
         variant === "split" ? "h-10 w-10 rounded-xl" : "h-8 w-8",
-        iconContainerClass
+        iconContainerClass,
+        iconContainerClassName
       )}
       aria-hidden
     >

@@ -21,9 +21,9 @@ vi.mock("@/lib/supabase/privileged-ops", () => ({
 
 function createSupabaseClient() {
   return {
-    from: (_table: string) => ({
-      select: (_columns: string) => ({
-        eq: (_field: string, _value: string) => ({
+    from: () => ({
+      select: () => ({
+        eq: () => ({
           maybeSingle: async () => ({
             data: {
               id: "run-old",

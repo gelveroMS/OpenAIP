@@ -32,6 +32,8 @@ function createMockClient(input: { aips: MockAipRow[]; projects: MockProjectRow[
       if (table === "aips") {
         return {
           select: (_columns: string, _options?: { head?: boolean; count?: "exact" }) => {
+            void _columns;
+            void _options;
             const eqFilters: Array<{ field: string; value: unknown }> = [];
             const builder = {
               eq: (field: string, value: unknown) => {
@@ -57,6 +59,7 @@ function createMockClient(input: { aips: MockAipRow[]; projects: MockProjectRow[
       if (table === "projects") {
         return {
           select: (_columns: string, options?: { count?: "exact" }) => {
+            void _columns;
             const eqFilters: Array<{ field: string; value: unknown }> = [];
             const inFilters: Array<{ field: string; values: unknown[] }> = [];
             const orderFields: Array<{ field: string; ascending: boolean }> = [];
@@ -110,7 +113,7 @@ function createMockClient(input: { aips: MockAipRow[]; projects: MockProjectRow[
                 inFilters.push({ field, values });
                 return builder;
               },
-              or: (_query: string) => builder,
+              or: () => builder,
               order: (field: string, opts?: { ascending?: boolean }) => {
                 orderFields.push({ field, ascending: opts?.ascending ?? true });
                 return builder;

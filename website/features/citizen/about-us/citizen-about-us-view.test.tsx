@@ -5,7 +5,11 @@ import CitizenAboutUsView from "@/features/citizen/about-us/views/citizen-about-
 
 vi.mock("next/image", () => ({
   default: (props: Record<string, unknown>) => (
-    <img alt={String(props.alt ?? "")} src={String(props.src ?? "")} />
+    <div
+      role="img"
+      aria-label={String(props.alt ?? "")}
+      data-src={String(props.src ?? "")}
+    />
   ),
 }));
 
@@ -13,13 +17,6 @@ vi.mock("framer-motion", () => {
   const createMotionComponent = () =>
     function MotionComponent({
       children,
-      whileInView: _whileInView,
-      viewport: _viewport,
-      variants: _variants,
-      initial: _initial,
-      animate: _animate,
-      exit: _exit,
-      transition: _transition,
       ...props
     }: PropsWithChildren<
       Record<string, unknown> & {
@@ -32,7 +29,16 @@ vi.mock("framer-motion", () => {
         transition?: unknown;
       }
     >) {
-      return <div {...props}>{children}</div>;
+      const nextProps = { ...props };
+      delete nextProps.whileInView;
+      delete nextProps.viewport;
+      delete nextProps.variants;
+      delete nextProps.initial;
+      delete nextProps.animate;
+      delete nextProps.exit;
+      delete nextProps.transition;
+
+      return <div {...nextProps}>{children}</div>;
     };
 
   return {

@@ -593,6 +593,7 @@ export function createMockAipRepoImpl({
       { visibility = "my", scope }: { visibility?: "public" | "my"; scope?: LguScope } = {},
       _actor?: import("@/lib/domain/actor-context").ActorContext | null
     ) {
+      void _actor;
       const effectiveScope = scope ?? defaultScope;
       const filtered = AIPS_TABLE.filter((aip) => aip.scope === effectiveScope);
       const visible =
@@ -627,6 +628,7 @@ export function createMockAipRepoImpl({
       aipId: string,
       _actor?: import("@/lib/domain/actor-context").ActorContext | null
     ) {
+      void _actor;
       if (!aipId) return null;
 
       const found = AIPS_TABLE.find((aip) => aip.id === aipId);
@@ -669,6 +671,7 @@ export function createMockAipRepoImpl({
       next: AipStatus,
       _actor?: import("@/lib/domain/actor-context").ActorContext | null
     ) {
+      void _actor;
       const index = AIPS_TABLE.findIndex((aip) => aip.id === aipId);
       if (index === -1) return;
       const nextRow = { ...AIPS_TABLE[index], status: next };

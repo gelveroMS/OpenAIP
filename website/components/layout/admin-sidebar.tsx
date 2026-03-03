@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import { Shield } from "lucide-react";
 import { cn } from "@/lib/ui/utils";
 import { ADMIN_NAV } from "@/constants/lgu-nav";
 
@@ -20,35 +21,40 @@ export default function AdminSidebar() {
   const to = searchParams.get("to");
 
   return (
-    <aside className="
-                      h-screen
-                      w-16 md:w-60 lg:w-64
-                      shrink-0
-                      sticky top-0
-                      overflow-y-auto
-                      bg-sidebar
-                      text-sidebar-foreground
-                      flex flex-col
-                    ">
-      <div className="px-4 pt-4 pb-3">
-        <div className="flex flex-col items-center gap-1">
+    <aside
+      className={cn(
+        "shrink-0 sticky top-0 bg-[#022437] text-white flex flex-col",
+        "w-16 md:w-72",
+        "h-dvh overflow-hidden"
+      )}
+    >
+      <div className="pt-4 md:pt-8 pb-2 md:pb-3 px-2 md:px-6">
+        <div className="flex flex-col items-center gap-2 md:gap-3">
           <Image
             src="/brand/logo3.svg"
             alt="OpenAIP Logo"
             width={100}
             height={100}
-            className="h-20 w-20 object-contain"
+            className="h-10 w-10 md:h-20 md:w-20 object-contain"
           />
-          <div className="text-3xl font-semibold leading-none">OpenAIP</div>
+          <div className="hidden md:block text-3xl font-semibold leading-none">OpenAIP</div>
         </div>
 
-          <div className="mt-6 h-21 rounded-[9px] border-2 border-[#1B6272] bg-[#114B59] shadow-[0_4px_4px_rgba(0,0,0,0.25)] flex items-center justify-center px-4 text-2xl font-light text-center">
-          Admin
+        <div className="hidden md:flex mt-5 items-center gap-3 rounded-3xl border border-white/10 bg-[#0A5A6C33] px-3 py-3 shadow-[0_10px_24px_rgba(0,0,0,0.2)] backdrop-blur-sm">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/5">
+            <Shield className="h-7 w-7 text-white/90" />
+          </div>
+          <div className="min-w-0">
+            <div className="truncate text-[15px] font-semibold leading-tight text-white">
+              Admin Console
+            </div>
+            <div className="mt-1 truncate text-sm text-white/65">System Administration</div>
+          </div>
         </div>
       </div>
 
-      <nav className="flex-1 px-4 py-3">
-        <ul className="space-y-1">
+      <nav className="flex-1 overflow-y-auto px-1 md:px-4 pb-3 md:py-5">
+        <ul className="space-y-1 md:space-y-1.5">
           {ADMIN_NAV.map((item) => {
             const Icon = item.icon;
             const active = isActive(pathname, item.href);
@@ -58,19 +64,21 @@ export default function AdminSidebar() {
               if (to) params.set("to", to);
             }
             const href = params.size > 0 ? `${item.href}?${params.toString()}` : item.href;
+            const rowClassName = cn(
+              "w-full flex items-center rounded-xl transition-colors",
+              "hover:bg-white/10",
+              active && "bg-[#2E6F7A] hover:bg-[#2E6F7A]",
+              "h-9 md:h-10",
+              "px-2 md:px-3",
+              "gap-0 md:gap-3",
+              "text-[11px] md:text-xs"
+            );
 
             return (
               <li key={item.href}>
-                <Link
-                  href={href}
-                  className={cn(
-                    "flex h-11 items-center gap-3 rounded-[10px] px-4 text-[12px] transition-colors text-sidebar-foreground/80",
-                    "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                    active && "bg-sidebar-accent text-sidebar-accent-foreground hover:bg-sidebar-accent"
-                  )}
-                >
-                  <Icon className="h-4 w-4" />
-                  <span className="font-medium leading-5">{item.label}</span>
+                <Link href={href} className={rowClassName}>
+                  <Icon className="h-4.5 w-4.5 md:h-4 md:w-4 mx-auto md:mx-0" />
+                  <span className="hidden md:block font-medium leading-5">{item.label}</span>
                 </Link>
               </li>
             );

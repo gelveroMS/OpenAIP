@@ -33,7 +33,7 @@ function createMockClient(input: {
 
       return {
         update: (payload: Record<string, unknown>) => ({
-          eq: async (_field: string, _value: string) => {
+          eq: async () => {
             input.onUpdate?.(payload);
             return {
               error: input.updateError ? { message: input.updateError } : null,

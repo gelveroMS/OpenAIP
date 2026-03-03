@@ -6,7 +6,6 @@ export function isFeedbackDebugEnabled() {
 
 export function feedbackDebugLog(label: string, payload: DebugPayload) {
   if (!isFeedbackDebugEnabled()) return;
-  // eslint-disable-next-line no-console
   console.debug(`[feedback][debug] ${label}`, payload);
 }
 

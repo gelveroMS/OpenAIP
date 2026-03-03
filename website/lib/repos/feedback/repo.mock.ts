@@ -82,6 +82,7 @@ export function createMockCommentRepo(): CommentRepo {
 
   return {
     async listThreadsForInbox(_params: ListThreadsForInboxParams): Promise<CommentThread[]> {
+      void _params;
       const sorted = [...threadStore]
         .map(hydrateThreadPreview)
         .filter((thread) => isCitizenInitiatedFeedbackKind(thread.preview.kind))
@@ -171,6 +172,7 @@ export function createMockCommentRepo(): CommentRepo {
     },
 
     async resolveThread(_params: ResolveThreadParams): Promise<void> {
+      void _params;
       return;
     },
   };

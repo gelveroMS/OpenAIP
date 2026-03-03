@@ -141,7 +141,7 @@ export function useCitizenAccount(): UseCitizenAccountResult {
         inFlightRefreshRef.current = null;
       }
     }
-  }, [supabase]);
+  }, []);
 
   useEffect(() => {
     void refresh();

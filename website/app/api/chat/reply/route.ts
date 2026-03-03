@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { enforceCsrfProtection } from "@/lib/security/csrf";
 
 type ReplyRequestBody = {
   session_id?: string;
@@ -21,6 +22,11 @@ function buildAssistantReply(content: string): string {
 }
 
 export async function POST(request: Request) {
+  const csrf = enforceCsrfProtection(request);
+  if (!csrf.ok) {
+    return csrf.response;
+  }
+
   const body = (await request.json().catch(() => null)) as ReplyRequestBody | null;
   const sessionId = body?.session_id?.trim();
   const userMessage = body?.user_message?.trim();

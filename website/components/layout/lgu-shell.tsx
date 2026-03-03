@@ -3,6 +3,7 @@ import type { LguVariant } from "@/types/navigation";
 import LguSidebar from "@/components/layout/lgu-sidebar";
 import LguTopbar from "@/components/layout/lgu-topbar";
 import LguFooter from "@/components/layout/lgu-footer";
+import SmartLoadingRegion from "@/components/ui/SmartLoadingRegion";
 import type { LguAccountProfile } from "@/features/account/types";
 
 type Props = {
@@ -31,7 +32,9 @@ export default function LguShell({
       <div className="flex-1 min-w-0 flex flex-col">
         <LguTopbar name={userName} roleLabel={roleLabel} accountProfile={accountProfile} />
 
-        <main className="flex-1 min-h-0 px-8 py-6">{children}</main>
+        <main className="flex flex-1 min-h-0 flex-col px-8 py-6">
+          <SmartLoadingRegion id="lgu-main">{children}</SmartLoadingRegion>
+        </main>
 
         <LguFooter />
       </div>

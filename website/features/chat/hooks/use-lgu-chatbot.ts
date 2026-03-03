@@ -11,6 +11,35 @@ import type {
 
 const SEARCH_DEBOUNCE_MS = 250;
 
+export function mapLguChatbotErrorMessage(
+  error: unknown,
+  fallbackMessage: string
+): string {
+  const rawMessage = error instanceof Error ? error.message.trim() : "";
+
+  if (rawMessage === "Use /api/city/chat/messages for city officials.") {
+    return "This account belongs to the city chatbot. Open /city/chatbot.";
+  }
+
+  if (rawMessage === "Use /api/barangay/chat/messages for barangay officials.") {
+    return "This account belongs to the barangay chatbot. Open /barangay/chatbot.";
+  }
+
+  if (rawMessage === "Authentication required." || rawMessage === "Unauthorized.") {
+    return "Authentication required. Please sign in again.";
+  }
+
+  if (rawMessage === "Only barangay and city officials can use the LGU chatbot.") {
+    return "This account is not allowed to use the LGU chatbot.";
+  }
+
+  if (rawMessage === "Forbidden. Missing required LGU scope.") {
+    return "Your account is missing its required LGU assignment. Contact an administrator.";
+  }
+
+  return rawMessage || fallbackMessage;
+}
+
 type LocalChatMessage = ChatMessage & {
   deliveryStatus: ChatMessageDeliveryStatus;
 };
@@ -190,7 +219,7 @@ export function useLguChatbot(routePrefix = "/api/barangay/chat") {
 
     loadSessions().catch((err) => {
       if (!isMounted) return;
-      setError(err instanceof Error ? err.message : "Failed to load chat sessions.");
+      setError(mapLguChatbotErrorMessage(err, "Failed to load chat sessions."));
     });
 
     return () => {
@@ -221,7 +250,7 @@ export function useLguChatbot(routePrefix = "/api/barangay/chat") {
 
     loadMessages().catch((err) => {
       if (!isMounted) return;
-      setError(err instanceof Error ? err.message : "Failed to load messages.");
+      setError(mapLguChatbotErrorMessage(err, "Failed to load messages."));
     });
 
     return () => {
@@ -245,7 +274,7 @@ export function useLguChatbot(routePrefix = "/api/barangay/chat") {
         })
         .catch((err) => {
           if (cancelled) return;
-          setError(err instanceof Error ? err.message : "Failed to search conversations.");
+          setError(mapLguChatbotErrorMessage(err, "Failed to search conversations."));
         });
     }, SEARCH_DEBOUNCE_MS);
 
@@ -275,7 +304,10 @@ export function useLguChatbot(routePrefix = "/api/barangay/chat") {
   }, [activeSessionId, messagesBySession, visibleSessions]);
 
   const activeSession = sessions.find((session) => session.id === activeSessionId) ?? null;
-  const activeMessages = activeSessionId ? messagesBySession[activeSessionId] ?? [] : [];
+  const activeMessages = useMemo(
+    () => (activeSessionId ? messagesBySession[activeSessionId] ?? [] : []),
+    [activeSessionId, messagesBySession]
+  );
 
   const handleSelect = useCallback((id: string) => {
     setActiveSessionId(id);
@@ -287,7 +319,7 @@ export function useLguChatbot(routePrefix = "/api/barangay/chat") {
     try {
       await createSession();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create chat.");
+      setError(mapLguChatbotErrorMessage(err, "Failed to create chat."));
     }
   }, [createSession]);
 
@@ -305,7 +337,7 @@ export function useLguChatbot(routePrefix = "/api/barangay/chat") {
           const created = await createSession();
           sessionId = created.id;
         } catch (err) {
-          setError(err instanceof Error ? err.message : "Failed to create chat.");
+          setError(mapLguChatbotErrorMessage(err, "Failed to create chat."));
           setIsSending(false);
           return;
         }
@@ -397,7 +429,7 @@ export function useLguChatbot(routePrefix = "/api/barangay/chat") {
             ),
           };
         });
-        setError(err instanceof Error ? err.message : "Failed to send message.");
+        setError(mapLguChatbotErrorMessage(err, "Failed to send message."));
       } finally {
         setIsSending(false);
       }
@@ -437,7 +469,7 @@ export function useLguChatbot(routePrefix = "/api/barangay/chat") {
         mergeSessions([renamed]);
         await refreshSearch();
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Failed to rename conversation.";
+        const message = mapLguChatbotErrorMessage(err, "Failed to rename conversation.");
         setError(message);
         throw new Error(message);
       }
@@ -480,7 +512,7 @@ export function useLguChatbot(routePrefix = "/api/barangay/chat") {
 
         await refreshSearch();
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Failed to delete conversation.";
+        const message = mapLguChatbotErrorMessage(err, "Failed to delete conversation.");
         setError(message);
         throw new Error(message);
       }

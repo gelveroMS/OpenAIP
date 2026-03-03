@@ -30,8 +30,8 @@ describe("GET /api/citizen/about-us/reference/[docId]", () => {
 
     mockSupabaseAdmin.mockReturnValue({
       storage: {
-        from: (_bucket: string) => ({
-          createSignedUrl: async (_objectName: string, _ttl: number) => ({
+        from: () => ({
+          createSignedUrl: async () => ({
             data: { signedUrl: "https://example.com/signed.pdf" },
             error: null,
           }),
@@ -72,8 +72,8 @@ describe("GET /api/citizen/about-us/reference/[docId]", () => {
 
     mockSupabaseAdmin.mockReturnValue({
       storage: {
-        from: (_bucket: string) => ({
-          createSignedUrl: async (_objectName: string, _ttl: number) => ({
+        from: () => ({
+          createSignedUrl: async () => ({
             data: null,
             error: { message: "storage error" },
           }),

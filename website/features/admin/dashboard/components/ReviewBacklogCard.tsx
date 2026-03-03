@@ -14,7 +14,7 @@ export default function ReviewBacklogCard({
   onViewAips: () => void;
 }) {
   return (
-    <Card className="border-slate-200 py-0 shadow-none">
+    <Card className="border-slate-200 py-3 shadow-none">
       <CardHeader className="space-y-1 pb-0">
         <CardTitle className="text-[18px]">Review Backlog</CardTitle>
         <div className="text-[12px] text-slate-500">Aging analysis for pending reviews</div>

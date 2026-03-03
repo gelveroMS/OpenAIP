@@ -15,6 +15,7 @@ export function getAipRepo(options: CreateMockAipRepoOptions = {}): AipRepo {
 }
 
 export function getAipProjectRepo(_scope?: LguScope): AipProjectRepo {
+  void _scope;
   return selectRepo({
     label: "AipProjectRepo",
     mock: () => createMockAipProjectRepo(),

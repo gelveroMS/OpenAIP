@@ -6,7 +6,9 @@ import CitizenTopNav from "@/features/citizen/components/citizen-top-nav";
 const mockUseCitizenAccount = vi.fn();
 
 vi.mock("next/image", () => ({
-  default: (props: Record<string, unknown>) => <img alt={String(props.alt ?? "")} />,
+  default: (props: Record<string, unknown>) => (
+    <div role="img" aria-label={String(props.alt ?? "")} />
+  ),
 }));
 
 vi.mock("next/navigation", () => ({

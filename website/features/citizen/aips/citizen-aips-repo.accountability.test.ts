@@ -61,8 +61,8 @@ function createServerClient(input: {
       if (table === "aips") {
         return {
           select: () => ({
-            eq: (_column: string, _value: string) => ({
-              eq: (_column2: string, _value2: string) => ({
+            eq: () => ({
+              eq: () => ({
                 maybeSingle: async () => ({ data: aipRow, error: null }),
               }),
             }),
@@ -73,7 +73,7 @@ function createServerClient(input: {
       if (table === "projects") {
         return {
           select: () => ({
-            in: (_column: string, _values: string[]) => ({
+            in: () => ({
               order: async () => ({ data: [], error: null }),
             }),
           }),
@@ -83,8 +83,8 @@ function createServerClient(input: {
       if (table === "extraction_artifacts") {
         return {
           select: () => ({
-            eq: (_column: string, _value: string) => ({
-              in: (_column2: string, _values: string[]) => ({
+            eq: () => ({
+              in: () => ({
                 order: async () => ({ data: [], error: null }),
               }),
             }),
@@ -95,8 +95,8 @@ function createServerClient(input: {
       if (table === "uploaded_files") {
         return {
           select: () => ({
-            eq: (_column: string, _value: boolean) => ({
-              in: (_column2: string, _values: string[]) => ({
+            eq: () => ({
+              in: () => ({
                 order: async () => ({ data: [currentFileRow], error: null }),
               }),
             }),
@@ -107,7 +107,7 @@ function createServerClient(input: {
       if (table === "aip_reviews") {
         return {
           select: () => ({
-            eq: (_column: string, _value: string) => ({
+            eq: () => ({
               order: async () => ({ data: reviewRows, error: null }),
             }),
           }),
@@ -117,8 +117,8 @@ function createServerClient(input: {
       if (table === "feedback") {
         return {
           select: () => ({
-            eq: (_column: string, _value: string) => ({
-              eq: (_column2: string, _value2: string) => ({
+            eq: () => ({
+              eq: () => ({
                 is: async () => ({ count: 0, error: null }),
               }),
             }),
@@ -158,8 +158,8 @@ function createAdminClient(input: {
       };
     },
     storage: {
-      from: (_bucket: string) => ({
-        createSignedUrl: async (_object: string, _ttl: number) => ({
+      from: () => ({
+        createSignedUrl: async () => ({
           data: { signedUrl: "https://example.com/aip.pdf" },
           error: null,
         }),

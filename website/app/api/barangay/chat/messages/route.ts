@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { formatTotalsEvidence } from "@/lib/chat/evidence";
+import { getLguChatAuthFailure } from "@/lib/chat/lgu-route-auth";
 import { buildRefusalMessage } from "@/lib/chat/refusal";
 import {
   detectAggregationIntent,
@@ -11,7 +12,6 @@ import {
   listBarangayIdsInCity,
   resolveCityByNameExact,
   selectPublishedCityAip,
-  type CityRef,
   type CityScopeResult,
 } from "@/lib/chat/city-scope";
 import { detectIntent, extractFiscalYear } from "@/lib/chat/intent";
@@ -85,6 +85,11 @@ import {
 import { supabaseServer } from "@/lib/supabase/server";
 
 const MAX_MESSAGE_LENGTH = 12000;
+
+function resolveExpectedRouteKind(request: Request): "barangay" | "city" {
+  const pathname = new URL(request.url).pathname.toLowerCase();
+  return pathname.includes("/api/city/chat/") ? "city" : "barangay";
+}
 
 type ScopeType = "barangay" | "city" | "municipality";
 
@@ -183,12 +188,6 @@ type RpcTotalsByFundSourceRow = {
   fund_source: string | null;
   fund_total: number | string | null;
   count_items: number | string | null;
-};
-
-type RpcCompareFiscalYearTotalsRow = {
-  year_a_total: number | string | null;
-  year_b_total: number | string | null;
-  delta: number | string | null;
 };
 
 type TotalsAssistantPayload = {
@@ -421,11 +420,6 @@ function inferAggregationIntentFromPipelineClassification(input: {
   }
 
   return input.detected;
-}
-
-function isMissingConsumeQuotaRpcError(message: string): boolean {
-  const normalized = message.toLowerCase();
-  return normalized.includes("consume_chat_quota") && normalized.includes("schema cache");
 }
 
 function toScopeResolution(input: {
@@ -862,18 +856,6 @@ function toTotalsByFundSourceRows(value: unknown): RpcTotalsByFundSourceRow[] {
     });
   }
   return rows;
-}
-
-function toCompareTotalsRow(value: unknown): RpcCompareFiscalYearTotalsRow | null {
-  if (!Array.isArray(value) || value.length === 0) return null;
-  const first = value[0];
-  if (!first || typeof first !== "object") return null;
-  const typed = first as Partial<RpcCompareFiscalYearTotalsRow>;
-  return {
-    year_a_total: typed.year_a_total ?? null,
-    year_b_total: typed.year_b_total ?? null,
-    delta: typed.delta ?? null,
-  };
 }
 
 function formatScheduleRange(startDate: string | null, endDate: string | null): string {
@@ -3098,7 +3080,16 @@ export async function POST(request: Request) {
     }
 
     const actor = await getActorContext();
-    assertActorPresent(actor, "Unauthorized.");
+    const authFailure = getLguChatAuthFailure(
+      resolveExpectedRouteKind(request),
+      actor,
+      "messages"
+    );
+    if (authFailure) {
+      return NextResponse.json({ message: authFailure.message }, { status: authFailure.status });
+    }
+
+    assertActorPresent(actor, "Authentication required.");
     assertPrivilegedWriteAccess({
       actor,
       allowlistedRoles: ["barangay_official", "city_official"],
@@ -3107,7 +3098,7 @@ export async function POST(request: Request) {
         city_official: "city",
       },
       requireScopeId: true,
-      message: "Unauthorized.",
+      message: "Forbidden. Missing required LGU scope.",
     });
     const privilegedActor = toPrivilegedActorContext(actor);
     if (await isUserBlocked(actor.userId)) {
@@ -3190,12 +3181,13 @@ export async function POST(request: Request) {
     }
 
     const userMessage = await repo.appendUserMessage(session.id, content);
+    const pendingClarification = await getLatestPendingClarification(session.id);
     const startedAt = Date.now();
     const frontendIntent = frontendIntentClassification?.intent;
     const confidence = frontendIntentClassification?.confidence ?? null;
     const domainCues = containsDomainCues(content);
 
-    if (!domainCues && isConversationalIntent(frontendIntent)) {
+    if (!pendingClarification && !domainCues && isConversationalIntent(frontendIntent)) {
       const shortcutScopeResolution: ChatScopeResolution = {
         mode: "global",
         requestedScopes: [],
@@ -3204,6 +3196,7 @@ export async function POST(request: Request) {
         ambiguousScopes: [],
       };
       const assistantMessage = await appendAssistantMessage({
+        actor: privilegedActor,
         sessionId: session.id,
         content: conversationalReply(frontendIntent),
         citations: [
@@ -3465,7 +3458,6 @@ export async function POST(request: Request) {
           ? userBarangay?.name ?? explicitBarangayTarget?.scopeName ?? null
           : null;
 
-    const pendingClarification = await getLatestPendingClarification(session.id);
     if (pendingClarification) {
       const selection = parseClarificationSelection(content);
 

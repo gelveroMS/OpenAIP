@@ -1,5 +1,3 @@
-import { BUDGET_CATEGORIES } from "@/lib/constants/budget-categories";
-
 export type BudgetAllocationRecord = {
   id: string;
   lguName: string;
