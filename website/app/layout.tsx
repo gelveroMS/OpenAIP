@@ -4,6 +4,7 @@ import "./globals.css";
 import "leaflet/dist/leaflet.css";
 import SessionTimeoutGuard from "@/components/security/session-timeout-guard";
 import GlobalSystemBanner from "@/components/system/global-system-banner";
+import SmartLoadingProvider from "@/components/ui/SmartLoadingProvider";
 
 const arimo = Arimo({
   variable: "--font-arimo",
@@ -47,9 +48,11 @@ export default function RootLayout({
       <body
         className={`${arimo.variable} ${geistMono.variable} ${arsenalSc.variable} ${baskervvilleSc.variable} ${inter.variable} antialiased`}
       >
-        <GlobalSystemBanner />
-        <SessionTimeoutGuard />
-        {children}
+        <SmartLoadingProvider>
+          <GlobalSystemBanner />
+          <SessionTimeoutGuard />
+          {children}
+        </SmartLoadingProvider>
       </body>
     </html>
   );

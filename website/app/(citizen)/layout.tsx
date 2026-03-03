@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { CitizenAuthModalHost } from "@/features/citizen/auth";
 import CitizenFooter from "@/features/citizen/components/citizen-footer";
 import CitizenTopNav from "@/features/citizen/components/citizen-top-nav";
+import SmartLoadingRegion from "@/components/ui/SmartLoadingRegion";
 import { cn } from "@/lib/ui/utils";
 
 const CitizenLayout = ({ children }: { children: ReactNode }) => {
@@ -19,13 +20,13 @@ const CitizenLayout = ({ children }: { children: ReactNode }) => {
       </Suspense>
       <main
         className={cn(
-          "mx-auto w-full flex-1 min-h-0",
+          "mx-auto flex w-full flex-1 min-h-0 flex-col",
           isLandingDashboard
             ? "m-0 max-w-none p-0"
-            : "flex flex-col max-w-6xl px-4 py-6 md:px-8 md:py-8"
+            : "max-w-6xl px-4 py-6 md:px-8 md:py-8"
         )}
       >
-        {children}
+        <SmartLoadingRegion id="citizen-main">{children}</SmartLoadingRegion>
       </main>
       <Suspense fallback={null}>
         <CitizenAuthModalHost />
