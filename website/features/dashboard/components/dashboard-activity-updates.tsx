@@ -45,14 +45,14 @@ export function RecentActivityFeed({
   );
 
   return (
-    <Card className="bg-card text-card-foreground rounded-xl border border-border py-0">
-      <CardHeader className={compact ? "p-4 pb-0" : "p-5 pb-0"}>
-        <CardTitle className="text-sm font-medium text-foreground">Recent Activity</CardTitle>
+    <Card className="bg-card text-card-foreground rounded-xl border border-border py-5">
+      <CardHeader>
+        <CardTitle className="text-lg font-medium text-foreground">Recent Activity</CardTitle>
       </CardHeader>
       <CardContent
         className={compact
-          ? "max-h-[320px] space-y-2 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] p-4"
-          : "max-h-[728px] space-y-2 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] p-5"}
+          ? "max-h-[320px] space-y-2 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] px-4"
+          : "max-h-[728px] space-y-2 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] px-5"}
       >
         {sortedLogs.map((log) => {
           const actionLabel = getAuditActionLabel(log.action);
@@ -69,7 +69,7 @@ export function RecentActivityFeed({
                 ? "rounded-lg border border-border bg-secondary p-2.5 hover:bg-accent"
                 : "rounded-lg border border-border bg-secondary p-3 hover:bg-accent"}
             >
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center justify-between">
                 <span className="truncate text-sm font-semibold text-foreground">{actionLabel}</span>
                 <Badge className="rounded-md border border-border bg-card text-muted-foreground">
                   {roleLabel}
@@ -87,14 +87,16 @@ export function RecentActivityFeed({
             No official activity logs yet.
           </div>
         )}
+      </CardContent>
+      <div className={compact ? "px-4 pt-3" : "px-5 pt-3"}>
         <Button
           asChild
           variant="ghost"
-          className="h-auto rounded-lg border border-border bg-card p-3 text-center text-sm text-primary hover:underline"
+          className="h-auto w-full rounded-lg border border-border bg-card p-3 text-center text-sm text-primary hover:underline"
         >
           <Link href={auditHref}>View Audit and Accountability</Link>
         </Button>
-      </CardContent>
+      </div>
     </Card>
   );
 }
@@ -119,9 +121,9 @@ export function RecentProjectUpdatesCard({
   return (
     <Card className="bg-card text-card-foreground rounded-xl border border-border py-0 w-full min-w-0 flex min-h-0 max-h-[418px] flex-col">
       <CardHeader className="shrink-0 p-5 pb-0">
-        <CardTitle className="text-sm font-medium text-foreground">Recent Project Updates</CardTitle>
+        <CardTitle className="text-lg font-medium text-foreground">Recent Project Updates</CardTitle>
       </CardHeader>
-      <CardContent className="flex-1 min-h-0 space-y-2 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] p-5 pr-4 text-sm">
+      <CardContent className="flex-1 min-h-0 space-y-2 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] pb-5 pr-4 text-sm">
         {sortedLogs.map((log) => (
           <div
             key={log.id}

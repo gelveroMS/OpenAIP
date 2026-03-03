@@ -55,7 +55,7 @@ export default function CommentsView({
       {!loading && !error ? <FeedbackKpiRow counts={kpiCounts} /> : null}
 
       <div className="rounded-2xl p-5">
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[120px_160px_120px_120px_minmax(0,1fr)] lg:items-end">
+        <div className="grid grid-cols-1 gap-4 lg:ml-auto lg:w-fit lg:grid-cols-[120px_160px_120px_120px_420px] lg:items-end">
           <div className="space-y-2">
             <div className="text-xs text-slate-500">Year</div>
             <Select value={year} onValueChange={setYear}>
@@ -125,7 +125,7 @@ export default function CommentsView({
               </SelectContent>
             </Select>
           </div>
-          <div className="min-w-0 space-y-2">
+          <div className="w-full space-y-2 lg:w-[420px]">
             <div className="text-xs text-slate-500">Search</div>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -133,7 +133,7 @@ export default function CommentsView({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search by commenter name, comment, or project..."
-                className="h-11 border-slate-200 bg-white pl-9"
+                className="h-11 w-full border-slate-200 bg-white pl-9"
               />
             </div>
           </div>

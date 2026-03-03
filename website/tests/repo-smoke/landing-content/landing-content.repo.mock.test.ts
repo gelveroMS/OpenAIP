@@ -37,6 +37,12 @@ export async function runLandingContentRepoMockTests() {
   );
   assert(vm.feedback.responseRate === 94, "Expected feedback response rate to be 94");
   assert(vm.feedback.avgResponseTimeDays === 2.3, "Expected average response time to be 2.3 days");
+  assert(vm.feedback.categorySummary.length === 4, "Expected 4 feedback category summary rows");
+  assert(
+    vm.feedback.categorySummary.map((item) => item.key).join(",") ===
+      "commend,suggestion,concern,question",
+    "Expected feedback category summary rows in fixed display order"
+  );
   assert(!!vm.chatPreview.pillLabel, "Expected chat preview pill label");
   assert(!!vm.chatPreview.title, "Expected chat preview title");
   assert(!!vm.chatPreview.subtitle, "Expected chat preview subtitle");

@@ -1,4 +1,5 @@
 import type { AipStatus, ProjectCategory } from "@/lib/contracts/databasev2/enums";
+import type { FeedbackCategorySummaryItem } from "@/lib/constants/feedback-category-summary";
 import type {
   DashboardFeedback,
   DashboardProject,
@@ -34,7 +35,7 @@ export type DashboardViewModel = {
   topFundedFiltered: DashboardProject[];
   citizenFeedbackCount: number;
   awaitingReplyCount: number;
-  feedbackTrend: Array<{ dayLabel: string; isoDate: string; count: number }>;
+  feedbackCategorySummary: FeedbackCategorySummaryItem[];
   feedbackTargets: Array<{ label: string; value: number }>;
   statusDistribution: Array<{ status: AipStatus; count: number }>;
   pendingReviewAging: Array<{ bucket: string; count: number }>;

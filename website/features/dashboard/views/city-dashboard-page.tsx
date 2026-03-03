@@ -88,10 +88,10 @@ export function CityDashboardPage({
                 <h2 className="text-4xl font-semibold text-slate-900">City AIP Status</h2>
               </div>
               <AipCoverageCard selectedAip={data.selectedAip} />
-              <AipsByYearTable rows={data.allAips} years={data.availableFiscalYears} basePath="/city" />
+              <AipsByYearTable rows={data.allAips} basePath="/city" />
               <RecentActivityFeed logs={recentActivityLogs} auditHref="/city/audit" compact />
             </div>
-            <CitizenEngagementPulseColumn newThisWeek={vm.newThisWeek} awaitingReply={vm.awaitingReplyCount} lguNotesPosted={vm.lguNotesPosted} feedbackTrend={vm.feedbackTrend} feedbackTargets={vm.feedbackTargets} recentFeedback={vm.recentCitizenFeedback} replyAction={replyCityFeedbackAction} />
+            <CitizenEngagementPulseColumn selectedFiscalYear={data.selectedFiscalYear} newThisWeek={vm.newThisWeek} awaitingReply={vm.awaitingReplyCount} lguNotesPosted={vm.lguNotesPosted} feedbackCategorySummary={vm.feedbackCategorySummary} feedbackTargets={vm.feedbackTargets} recentFeedback={vm.recentCitizenFeedback} replyAction={replyCityFeedbackAction} />
           </div>
 
           <div className="flex justify-end">

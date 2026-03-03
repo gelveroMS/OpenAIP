@@ -39,6 +39,11 @@ export async function runLandingContentViewSmokeTests() {
     "Infrastructure Development",
     "Total Infrastructure Budget",
     "Your Voice Matters.",
+    "Feedback Category Summary",
+    "Commend",
+    "Suggestion",
+    "Concern",
+    "Question",
     "Ask Questions, Get Answers",
   ]);
 }

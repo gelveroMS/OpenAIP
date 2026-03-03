@@ -1,6 +1,11 @@
 import "server-only";
 
 import { DBV2_SECTOR_CODES, getSectorLabel, type DashboardSectorCode } from "@/lib/constants/dashboard";
+import {
+  createFeedbackCategorySummary,
+  isFeedbackCategorySummaryKey,
+  type FeedbackCategorySummaryItem,
+} from "@/lib/constants/feedback-category-summary";
 import type {
   LandingContentQuery,
   LandingContentResult,
@@ -89,6 +94,7 @@ type ScopeYearMetrics = {
 type FeedbackMetrics = {
   months: string[];
   series: Array<{ key: string; label: string; points: number[] }>;
+  categorySummary: FeedbackCategorySummaryItem[];
   responseRate: number;
   avgResponseTimeDays: number;
   activeUsers: number;
@@ -851,6 +857,7 @@ function buildFeedbackMetrics(input: {
   const currentSeries = [0, 0, 0, 0, 0, 0];
   const priorSeries = [0, 0, 0, 0, 0, 0];
   const lguReplyDateByParentId = new Map<string, Date>();
+  const categoryCounts: Partial<Record<FeedbackCategorySummaryItem["key"], number>> = {};
 
   const fiscalYearByFeedbackId = new Map<string, number>();
   for (const row of input.feedbackRows) {
@@ -900,6 +907,9 @@ function buildFeedbackMetrics(input: {
 
     if (fiscalYear === input.selectedFiscalYear) {
       currentSeries[monthIndex] += 1;
+      if (isFeedbackCategorySummaryKey(row.kind)) {
+        categoryCounts[row.kind] = (categoryCounts[row.kind] ?? 0) + 1;
+      }
       currentRootCitizenRows.push(row);
     } else if (fiscalYear === input.previousFiscalYear) {
       priorSeries[monthIndex] += 1;
@@ -938,6 +948,7 @@ function buildFeedbackMetrics(input: {
         points: currentSeries,
       },
     ],
+    categorySummary: createFeedbackCategorySummary(categoryCounts),
     responseRate,
     avgResponseTimeDays,
     activeUsers: activeCitizenAuthors.size,
@@ -1090,6 +1101,7 @@ export function createSupabaseLandingContentRepo(): LandingContentRepo {
                   points: [0, 0, 0, 0, 0, 0],
                 },
               ],
+              categorySummary: createFeedbackCategorySummary({}),
               responseRate: 0,
               avgResponseTimeDays: 0,
               activeUsers: 0,
@@ -1250,6 +1262,7 @@ export function createSupabaseLandingContentRepo(): LandingContentRepo {
           subtitle: content.feedback.subtitle,
           months: feedbackMetrics.months,
           series: feedbackMetrics.series,
+          categorySummary: feedbackMetrics.categorySummary,
           responseRate: feedbackMetrics.responseRate,
           avgResponseTimeDays: feedbackMetrics.avgResponseTimeDays,
         },

@@ -64,6 +64,12 @@ function buildResult(overrides?: Partial<LandingContentResult>): LandingContentR
       feedback: {
         months: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
         series: [],
+        categorySummary: [
+          { key: "commend", label: "Commend", count: 0, percentage: 0 },
+          { key: "suggestion", label: "Suggestion", count: 0, percentage: 0 },
+          { key: "concern", label: "Concern", count: 0, percentage: 0 },
+          { key: "question", label: "Question", count: 0, percentage: 0 },
+        ],
         responseRate: 0,
         avgResponseTimeDays: 0,
       },
@@ -115,6 +121,7 @@ describe("citizen dashboard API route", () => {
 
     expect(response.status).toBe(200);
     expect(payload.has_data).toBe(true);
+    expect(payload.vm.feedback.categorySummary).toHaveLength(4);
     expect(mockGetLandingContent).toHaveBeenCalledWith({
       scopeType: null,
       scopeId: null,

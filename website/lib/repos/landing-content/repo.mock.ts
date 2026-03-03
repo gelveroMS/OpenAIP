@@ -5,6 +5,7 @@ import type {
   LandingScopeType,
   ProjectCardVM,
 } from "@/lib/domain/landing-content";
+import { createFeedbackCategorySummary } from "@/lib/constants/feedback-category-summary";
 import type { LandingContentRepo } from "./repo";
 
 const MOCK_SCOPE_IDS = {
@@ -371,6 +372,16 @@ function buildLandingContent(input: {
           points: input.hasData ? [102, 172, 86, 124, 82, 140] : [0, 0, 0, 0, 0, 0],
         },
       ],
+      categorySummary: createFeedbackCategorySummary(
+        input.hasData
+          ? {
+              commend: 18,
+              suggestion: 14,
+              concern: 6,
+              question: 31,
+            }
+          : {}
+      ),
       responseRate: input.hasData ? 94 : 0,
       avgResponseTimeDays: input.hasData ? 2.3 : 0,
     },

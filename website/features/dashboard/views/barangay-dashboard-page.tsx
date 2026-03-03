@@ -94,10 +94,10 @@ export function BarangayDashboardPage({
                 <h2 className="text-xl font-semibold text-slate-900">Barangay AIP Status</h2>
               </div>
               <AipCoverageCard selectedAip={data.selectedAip} />
-              <AipsByYearTable rows={data.allAips} years={data.availableFiscalYears} basePath="/barangay" />
+              <AipsByYearTable rows={data.allAips} basePath="/barangay" />
               <RecentActivityFeed logs={recentActivityLogs} auditHref="/barangay/audit" compact />
             </div>
-            <CitizenEngagementPulseColumn newThisWeek={vm.newThisWeek} awaitingReply={vm.awaitingReplyCount} lguNotesPosted={vm.lguNotesPosted} feedbackTrend={vm.feedbackTrend} feedbackTargets={vm.feedbackTargets} recentFeedback={vm.recentCitizenFeedback} replyAction={replyBarangayFeedbackAction} />
+            <CitizenEngagementPulseColumn selectedFiscalYear={data.selectedFiscalYear} newThisWeek={vm.newThisWeek} awaitingReply={vm.awaitingReplyCount} lguNotesPosted={vm.lguNotesPosted} feedbackCategorySummary={vm.feedbackCategorySummary} feedbackTargets={vm.feedbackTargets} recentFeedback={vm.recentCitizenFeedback} replyAction={replyBarangayFeedbackAction} />
           </div>
         </>
       )}

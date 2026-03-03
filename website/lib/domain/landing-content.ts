@@ -1,3 +1,5 @@
+import type { FeedbackCategorySummaryItem } from "@/lib/constants/feedback-category-summary";
+
 export type LandingCtaTarget =
   | { type: "href"; value: string }
   | { type: "action"; value: string };
@@ -98,6 +100,7 @@ export type FeedbackSnapshotVM = {
   subtitle?: string;
   months: string[];
   series: FeedbackSeriesVM[];
+  categorySummary: FeedbackCategorySummaryItem[];
   responseRate: number;
   avgResponseTimeDays: number;
 };

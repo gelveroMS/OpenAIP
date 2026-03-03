@@ -66,6 +66,15 @@ export async function runFeedbackRouteTargetTests() {
     tableSector: "all",
   });
 
+  assert(
+    barangayVm.feedbackCategorySummary.length === 4,
+    "Expected barangay dashboard feedback category summary to contain four rows."
+  );
+  assert(
+    cityVm.feedbackCategorySummary.length === 4,
+    "Expected city dashboard feedback category summary to contain four rows."
+  );
+
   const barangayAwaitingReply = barangayVm.workingOnItems.find(
     (item) => item.id === "awaiting_reply"
   );
