@@ -1,0 +1,79 @@
+services:
+  - type: web
+    name: openaip-pipeline-api
+    runtime: python
+    plan: free
+    branch: main
+    autoDeploy: true
+    buildCommand: cd aip-intelligence-pipeline && pip install .
+    startCommand: cd aip-intelligence-pipeline && uvicorn openaip_pipeline.api.app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: SUPABASE_STORAGE_ARTIFACT_BUCKET
+        value: aip-artifacts
+      - key: PIPELINE_HMAC_SECRET
+        sync: false
+      - key: PIPELINE_RUNS_HMAC_SECRET
+        sync: false
+      - key: PIPELINE_RUNS_ALLOWED_AUDIENCES
+        value: website-backend
+      - key: PIPELINE_MODEL
+        value: gpt-5.2
+      - key: PIPELINE_EMBEDDING_MODEL
+        value: text-embedding-3-large
+      - key: PIPELINE_ENABLE_RAG
+        value: "false"
+      - key: PIPELINE_DEV_ROUTES
+        value: "false"
+
+  - type: worker
+    name: openaip-pipeline-worker
+    runtime: python
+    plan: free
+    branch: main
+    autoDeploy: true
+    buildCommand: cd aip-intelligence-pipeline && pip install .
+    startCommand: cd aip-intelligence-pipeline && openaip-worker
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: SUPABASE_STORAGE_ARTIFACT_BUCKET
+        value: aip-artifacts
+      - key: PIPELINE_HMAC_SECRET
+        sync: false
+      - key: PIPELINE_RUNS_HMAC_SECRET
+        sync: false
+      - key: PIPELINE_RUNS_ALLOWED_AUDIENCES
+        value: website-backend
+      - key: PIPELINE_WORKER_POLL_SECONDS
+        value: "3"
+      - key: PIPELINE_WORKER_RUN_ONCE
+        value: "false"
+      - key: PIPELINE_EXTRACT_MAX_PAGES
+        value: "200"
+      - key: PIPELINE_PARSE_TIMEOUT_SECONDS
+        value: "20"
+      - key: PIPELINE_EXTRACT_TIMEOUT_SECONDS
+        value: "1800"
+      - key: PIPELINE_EMBED_TIMEOUT_SECONDS
+        value: "300"
+      - key: PIPELINE_RETRY_FAILURE_THRESHOLD
+        value: "5"
+      - key: PIPELINE_RETRY_FAILURE_WINDOW_SECONDS
+        value: "21600"
+      - key: PIPELINE_SUPABASE_HTTP_TIMEOUT_SECONDS
+        value: "120"
+      - key: PIPELINE_SUPABASE_DOWNLOAD_TIMEOUT_SECONDS
+        value: "120"
+      - key: PIPELINE_SOURCE_PDF_MAX_BYTES
+        value: "15728640"

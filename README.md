@@ -20,6 +20,7 @@ OpenAIP is a monorepo for a role-based LGU web platform and an AI pipeline that 
 - [Storage / File Handling](#storage--file-handling)
 - [Testing & Quality](#testing--quality)
 - [Deployment](#deployment)
+- [Deployment Guide](#deployment-guide)
 - [Security](#security)
 - [Observability](#observability)
 - [Troubleshooting](#troubleshooting)
@@ -603,6 +604,9 @@ Current test coverage in repo includes:
 - UI/component and hook tests under `website/features/**/*.test.ts(x)`
 - Repo smoke checks under `website/tests/repo-smoke/**`
 - Pipeline smoke/resource/rules/worker-sanitization tests under `aip-intelligence-pipeline/tests/**`
+
+## Deployment Guide
+- For the full UI-first production + preview deployment runbook (Vercel website + Render pipeline + Supabase), see [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md).
 
 ## Deployment
 Website (Next.js):
