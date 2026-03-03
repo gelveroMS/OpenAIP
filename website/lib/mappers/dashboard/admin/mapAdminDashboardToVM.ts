@@ -78,7 +78,7 @@ export function mapAdminDashboardToVM({
         path: `/admin/account-administration?${baseQuery}`,
       },
       {
-        title: "Flagged Comments",
+        title: "Flagged Feedback",
         value: formatNumber(safeSummary.flaggedComments),
         deltaLabel: safeSummary.deltaLabels.flaggedComments,
         iconClassName: "bg-amber-50 text-amber-600",

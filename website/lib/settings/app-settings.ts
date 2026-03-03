@@ -16,14 +16,6 @@ export type ChatbotRateLimitSetting = {
   updatedBy?: string | null;
 };
 
-export type ChatbotSystemPolicySetting = {
-  isEnabled: boolean;
-  retentionDays: number;
-  userDisclaimer: string;
-  updatedAt?: string;
-  updatedBy?: string | null;
-};
-
 export type SecuritySettingsValue = {
   passwordPolicy: {
     minLength: number;
@@ -44,11 +36,6 @@ export type SecuritySettingsValue = {
   };
 };
 
-export type NotificationSettingsValue = {
-  reviewNotificationsEnabled: boolean;
-  submissionAlertsEnabled: boolean;
-};
-
 export type SystemBannerDraftValue = {
   title?: string | null;
   message: string;
@@ -56,6 +43,20 @@ export type SystemBannerDraftValue = {
   startAt?: string | null;
   endAt?: string | null;
 };
+
+export type SystemBannerPublishedValue = SystemBannerDraftValue & {
+  publishedAt: string;
+};
+
+export type LoginAttemptStateEntryValue = {
+  failedCount: number;
+  firstFailedAt: string | null;
+  lastFailedAt: string | null;
+  lockedUntil: string | null;
+  updatedAt: string;
+};
+
+export type LoginAttemptStateValue = Record<string, LoginAttemptStateEntryValue>;
 
 export type BlockedUserSetting = {
   blockedUntil: string;
@@ -150,11 +151,11 @@ export type CitizenDashboardContentValue = {
 export type AppSettingsMap = {
   "controls.comment_rate_limit": CommentRateLimitSetting;
   "controls.chatbot_rate_limit": ChatbotRateLimitSetting;
-  "controls.chatbot_policy": ChatbotSystemPolicySetting;
   "controls.blocked_users": BlockedUsersSetting;
   "system.security_settings": SecuritySettingsValue;
-  "system.notification_settings": NotificationSettingsValue;
   "system.banner_draft": SystemBannerDraftValue;
+  "system.banner_published": SystemBannerPublishedValue | null;
+  "system.login_attempt_state": LoginAttemptStateValue;
   "content.citizen_about_us": CitizenAboutUsContentValue;
   "content.citizen_dashboard": CitizenDashboardContentValue;
 };
@@ -167,12 +168,6 @@ const DEFAULT_SETTINGS: AppSettingsMap = {
   "controls.chatbot_rate_limit": {
     maxRequests: 20,
     timeWindow: "per_hour",
-  },
-  "controls.chatbot_policy": {
-    isEnabled: true,
-    retentionDays: 90,
-    userDisclaimer:
-      "This disclaimer will be shown to users before they interact with the chatbot.",
   },
   "controls.blocked_users": {},
   "system.security_settings": {
@@ -194,10 +189,6 @@ const DEFAULT_SETTINGS: AppSettingsMap = {
       lockoutUnit: "minutes",
     },
   },
-  "system.notification_settings": {
-    reviewNotificationsEnabled: true,
-    submissionAlertsEnabled: true,
-  },
   "system.banner_draft": {
     title: null,
     message: "",
@@ -205,6 +196,8 @@ const DEFAULT_SETTINGS: AppSettingsMap = {
     startAt: null,
     endAt: null,
   },
+  "system.banner_published": null,
+  "system.login_attempt_state": {},
   "content.citizen_about_us": {
     referenceDocs: [
       {

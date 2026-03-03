@@ -43,9 +43,9 @@ export default function ProjectUpdatesFiltersRow({
           <Input
             value={query}
             onChange={(e) => onQueryChange(e.target.value)}
-            placeholder="Search by name or email"
+            placeholder="Search by title, caption, uploader, or LGU"
             className="h-11 border-slate-200 bg-slate-50 pl-9 text-[13.5px]"
-            aria-label="Search by name or email"
+            aria-label="Search updates"
           />
         </div>
 

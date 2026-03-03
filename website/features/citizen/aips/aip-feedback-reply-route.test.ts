@@ -9,9 +9,24 @@ const mockSanitizeKind = vi.fn();
 const mockSanitizeBody = vi.fn();
 const mockHydrateAipFeedbackItems = vi.fn();
 const mockToErrorResponse = vi.fn();
+const mockAssertFeedbackUsageAllowed = vi.fn();
 
 vi.mock("@/lib/supabase/server", () => ({
   supabaseServer: () => mockSupabaseServer(),
+}));
+
+class MockFeedbackUsageError extends Error {
+  status: 403 | 429;
+
+  constructor(status: 403 | 429, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+vi.mock("@/lib/feedback/usage-guards", () => ({
+  assertFeedbackUsageAllowed: (...args: unknown[]) => mockAssertFeedbackUsageAllowed(...args),
+  isFeedbackUsageError: (error: unknown) => error instanceof MockFeedbackUsageError,
 }));
 
 class MockCitizenAipFeedbackApiError extends Error {
@@ -60,6 +75,7 @@ describe("POST /api/citizen/aips/[aipId]/feedback/reply", () => {
     mockToErrorResponse.mockImplementation(
       () => new Response(JSON.stringify({ error: "mock error" }), { status: 500 })
     );
+    mockAssertFeedbackUsageAllowed.mockResolvedValue(undefined);
   });
 
   it("creates an AIP feedback reply anchored to the root thread", async () => {
@@ -127,7 +143,7 @@ describe("POST /api/citizen/aips/[aipId]/feedback/reply", () => {
     const response = await POST(
       new Request("http://localhost", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", origin: "http://localhost" },
         body: JSON.stringify({
           parentFeedbackId: "fb-parent",
           kind: "question",
@@ -207,7 +223,7 @@ describe("POST /api/citizen/aips/[aipId]/feedback/reply", () => {
     const response = await POST(
       new Request("http://localhost", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", origin: "http://localhost" },
         body: JSON.stringify({
           parentFeedbackId: "fb-parent",
           kind: "question",
@@ -218,5 +234,44 @@ describe("POST /api/citizen/aips/[aipId]/feedback/reply", () => {
     );
 
     expect(response.status).toBe(403);
+  });
+
+  it("returns 429 when reply guard reports comment rate limit", async () => {
+    mockSupabaseServer.mockResolvedValue(createInsertClient({}));
+    mockResolveAipById.mockResolvedValue({ id: "aip-1", status: "published" });
+    mockRequireCitizenActor.mockResolvedValue({ userId: "citizen-1" });
+    mockSanitizeKind.mockReturnValue("question");
+    mockSanitizeBody.mockReturnValue("Following up.");
+    mockAssertFeedbackUsageAllowed.mockRejectedValueOnce(
+      new MockFeedbackUsageError(429, "Comment rate limit exceeded. Please try again later.")
+    );
+    mockToErrorResponse.mockImplementation(
+      (error: unknown) =>
+        new Response(
+          JSON.stringify({ error: error instanceof Error ? error.message : "error" }),
+          {
+            status:
+              error instanceof MockCitizenAipFeedbackApiError ? error.status : 500,
+          }
+        )
+    );
+
+    const { POST } = await import(
+      "@/app/api/citizen/aips/[aipId]/feedback/reply/route"
+    );
+    const response = await POST(
+      new Request("http://localhost", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "http://localhost" },
+        body: JSON.stringify({
+          parentFeedbackId: "fb-parent",
+          kind: "question",
+          body: "Following up.",
+        }),
+      }),
+      { params: Promise.resolve({ aipId: "aip-1" }) }
+    );
+
+    expect(response.status).toBe(429);
   });
 });

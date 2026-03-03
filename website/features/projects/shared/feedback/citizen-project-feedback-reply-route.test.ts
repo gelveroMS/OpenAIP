@@ -9,9 +9,24 @@ const mockSanitizeKind = vi.fn();
 const mockSanitizeBody = vi.fn();
 const mockHydrateProjectFeedbackItems = vi.fn();
 const mockToErrorResponse = vi.fn();
+const mockAssertFeedbackUsageAllowed = vi.fn();
 
 vi.mock("@/lib/supabase/server", () => ({
   supabaseServer: () => mockSupabaseServer(),
+}));
+
+class MockFeedbackUsageError extends Error {
+  status: 403 | 429;
+
+  constructor(status: 403 | 429, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+vi.mock("@/lib/feedback/usage-guards", () => ({
+  assertFeedbackUsageAllowed: (...args: unknown[]) => mockAssertFeedbackUsageAllowed(...args),
+  isFeedbackUsageError: (error: unknown) => error instanceof MockFeedbackUsageError,
 }));
 
 class MockCitizenFeedbackApiError extends Error {
@@ -60,6 +75,7 @@ describe("POST /api/citizen/feedback/reply", () => {
     mockToErrorResponse.mockImplementation(
       () => new Response(JSON.stringify({ error: "mock error" }), { status: 500 })
     );
+    mockAssertFeedbackUsageAllowed.mockResolvedValue(undefined);
   });
 
   it("creates project feedback reply anchored to citizen root", async () => {
@@ -143,7 +159,7 @@ describe("POST /api/citizen/feedback/reply", () => {
     const response = await POST(
       new Request("http://localhost", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", origin: "http://localhost" },
         body: JSON.stringify({
           projectId: "project-1",
           parentFeedbackId: "fb-parent",
@@ -217,7 +233,44 @@ describe("POST /api/citizen/feedback/reply", () => {
     const response = await POST(
       new Request("http://localhost", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", origin: "http://localhost" },
+        body: JSON.stringify({
+          projectId: "project-1",
+          parentFeedbackId: "fb-parent",
+          kind: "question",
+          body: "Following up.",
+        }),
+      })
+    );
+
+    expect(response.status).toBe(403);
+  });
+
+  it("returns 403 when project reply guard reports blocked user", async () => {
+    mockSupabaseServer.mockResolvedValue(createInsertClient({}));
+    mockResolveProjectByIdOrRef.mockResolvedValue({ id: "project-1", aipStatus: "published" });
+    mockRequireCitizenActor.mockResolvedValue({ userId: "citizen-1" });
+    mockSanitizeKind.mockReturnValue("question");
+    mockSanitizeBody.mockReturnValue("Following up.");
+    mockAssertFeedbackUsageAllowed.mockRejectedValueOnce(
+      new MockFeedbackUsageError(403, "Your account is currently blocked from posting feedback.")
+    );
+    mockToErrorResponse.mockImplementation(
+      (error: unknown) =>
+        new Response(
+          JSON.stringify({ error: error instanceof Error ? error.message : "error" }),
+          {
+            status:
+              error instanceof MockCitizenFeedbackApiError ? error.status : 500,
+          }
+        )
+    );
+
+    const { POST } = await import("@/app/api/citizen/feedback/reply/route");
+    const response = await POST(
+      new Request("http://localhost", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "http://localhost" },
         body: JSON.stringify({
           projectId: "project-1",
           parentFeedbackId: "fb-parent",

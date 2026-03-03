@@ -98,6 +98,9 @@ type ProfileStatusPayload = {
   ok?: boolean;
   isComplete?: boolean;
   userId?: string;
+  isBlocked?: boolean;
+  blockedUntil?: string | null;
+  blockedReason?: string | null;
 };
 
 export function useCitizenChatbot() {
@@ -111,6 +114,9 @@ export function useCitizenChatbot() {
   const [isAuthResolved, setIsAuthResolved] = useState(false);
   const [isProfileResolved, setIsProfileResolved] = useState(false);
   const [isProfileComplete, setIsProfileComplete] = useState(false);
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [blockedUntil, setBlockedUntil] = useState<string | null>(null);
+  const [blockedReason, setBlockedReason] = useState<string | null>(null);
   const [sessions, setSessions] = useState<CitizenChatSession[]>([]);
   const [messagesBySession, setMessagesBySession] = useState<Record<string, CitizenChatMessage[]>>({});
   const [loadedSessionIds, setLoadedSessionIds] = useState<Record<string, true>>({});
@@ -149,6 +155,9 @@ export function useCitizenChatbot() {
   const clearAuthDependentState = useCallback(() => {
     setUserId(null);
     setIsProfileComplete(false);
+    setIsBlocked(false);
+    setBlockedUntil(null);
+    setBlockedReason(null);
     setSessions([]);
     setMessagesBySession({});
     setLoadedSessionIds({});
@@ -184,6 +193,13 @@ export function useCitizenChatbot() {
 
       setUserId(payload.userId);
       setIsProfileComplete(payload.isComplete === true);
+      setIsBlocked(payload.isBlocked === true);
+      setBlockedUntil(typeof payload.blockedUntil === "string" ? payload.blockedUntil : null);
+      setBlockedReason(
+        typeof payload.blockedReason === "string" && payload.blockedReason.trim().length > 0
+          ? payload.blockedReason.trim()
+          : null
+      );
       setErrorState("none");
       setErrorMessage(null);
     } catch {
@@ -332,7 +348,9 @@ export function useCitizenChatbot() {
     ? "Sign in to use the AI Assistant."
     : composerMode === "complete_profile"
       ? "Complete your profile to use the AI Assistant."
-      : "Ask about budgets, sectors, or projects...";
+      : isBlocked
+        ? "You are temporarily blocked from using the AI Assistant."
+        : "Ask about budgets, sectors, or projects...";
 
   const handleSelectSession = useCallback((sessionId: string) => {
     setActiveSessionId(sessionId);
@@ -427,6 +445,13 @@ export function useCitizenChatbot() {
       openAuthModal(true);
       return;
     }
+    if (isBlocked) {
+      const reasonSuffix = blockedReason ? ` Reason: ${blockedReason}.` : "";
+      const untilSuffix = blockedUntil ? ` Blocked until ${blockedUntil}.` : "";
+      setErrorState("retrieval_failed");
+      setErrorMessage(`Your account is currently blocked from chatbot usage.${untilSuffix}${reasonSuffix}`);
+      return;
+    }
 
     const content = messageInput.trim();
     if (!content) return;
@@ -455,12 +480,12 @@ export function useCitizenChatbot() {
       if (!sessionId) {
         throw new Error("Failed to create chat session.");
       }
-      const currentSessionId = sessionId;
+      const resolvedSessionId = sessionId;
 
       optimisticId = `temp_user_${Date.now()}`;
       const optimisticMessage: CitizenChatMessage = {
         id: optimisticId,
-        sessionId: currentSessionId,
+        sessionId: resolvedSessionId,
         role: "user",
         content,
         citations: null,
@@ -471,14 +496,14 @@ export function useCitizenChatbot() {
       setMessageInput("");
       setMessagesBySession((prev) => ({
         ...prev,
-        [currentSessionId]: [...(prev[currentSessionId] ?? []), optimisticMessage],
+        [resolvedSessionId]: [...(prev[resolvedSessionId] ?? []), optimisticMessage],
       }));
 
-      const persistedUser = await repo.appendUserMessage(currentSessionId, content);
+      const persistedUser = await repo.appendUserMessage(resolvedSessionId, content);
 
       setMessagesBySession((prev) => ({
         ...prev,
-        [currentSessionId]: (prev[currentSessionId] ?? []).map((msg) =>
+        [resolvedSessionId]: (prev[resolvedSessionId] ?? []).map((msg) =>
           msg.id === optimisticId ? persistedUser : msg
         ),
       }));
@@ -486,7 +511,7 @@ export function useCitizenChatbot() {
       setSessions((prev) =>
         sortSessionsByUpdatedAt(
           prev.map((session) =>
-            session.id === currentSessionId
+            session.id === resolvedSessionId
               ? {
                   ...session,
                   lastMessageAt: persistedUser.createdAt,
@@ -498,7 +523,7 @@ export function useCitizenChatbot() {
       );
 
       const reply = await requestAssistantReply({
-        sessionId: currentSessionId,
+        sessionId: resolvedSessionId,
         userMessage: content,
       });
 
@@ -519,13 +544,13 @@ export function useCitizenChatbot() {
 
       setMessagesBySession((prev) => ({
         ...prev,
-        [currentSessionId]: [...(prev[currentSessionId] ?? []), assistantMessage],
+        [resolvedSessionId]: [...(prev[resolvedSessionId] ?? []), assistantMessage],
       }));
 
       setSessions((prev) =>
         sortSessionsByUpdatedAt(
           prev.map((session) =>
-            session.id === currentSessionId
+            session.id === resolvedSessionId
               ? {
                   ...session,
                   lastMessageAt: assistantMessage.createdAt,
@@ -537,10 +562,12 @@ export function useCitizenChatbot() {
       );
     } catch (error) {
       if (sessionId && optimisticId) {
-        const failedSessionId = sessionId;
+        const rollbackSessionId = sessionId;
         setMessagesBySession((prev) => ({
           ...prev,
-          [failedSessionId]: (prev[failedSessionId] ?? []).filter((msg) => msg.id !== optimisticId),
+          [rollbackSessionId]: (prev[rollbackSessionId] ?? []).filter(
+            (msg) => msg.id !== optimisticId
+          ),
         }));
       }
 
@@ -554,7 +581,17 @@ export function useCitizenChatbot() {
     } finally {
       setIsSending(false);
     }
-  }, [activeSessionId, isProfileComplete, messageInput, openAuthModal, repo, userId]);
+  }, [
+    activeSessionId,
+    blockedReason,
+    blockedUntil,
+    isBlocked,
+    isProfileComplete,
+    messageInput,
+    openAuthModal,
+    repo,
+    userId,
+  ]);
 
   const handleComposerPrimaryAction = useCallback(() => {
     if (composerMode === "sign_in") {
@@ -578,7 +615,7 @@ export function useCitizenChatbot() {
     errorState,
     exampleQueries: EXAMPLE_QUERIES,
     isBootstrapping: !isAuthResolved || !isProfileResolved || isBootstrapping,
-    isComposerDisabled: composerMode === "send" ? isSending : false,
+    isComposerDisabled: composerMode === "send" ? isSending || isBlocked : false,
     isSending,
     messageInput,
     messages,

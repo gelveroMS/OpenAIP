@@ -21,6 +21,7 @@ export type {
   AiFeedbackRow,
 } from "./rows/feedback";
 export type { ChatSessionRow, ChatMessageRow } from "./rows/chat";
+export type { ChatRateEventRow, ChatRateEventStatus } from "./rows/chat_rate_events";
 
 export type { ProfileRow } from "./rows/profiles";
 export type { AipRow } from "./rows/aips";
@@ -35,3 +36,6 @@ export type { ActivityLogRow } from "./rows/activity_log";
 export type { UploadedFileRow } from "./rows/uploaded_files";
 export type { ExtractionRunRow } from "./rows/extraction_runs";
 export type { ExtractionArtifactRow } from "./rows/extraction_artifacts";
+export type { NotificationRow, NotificationScopeType, NotificationEntityType } from "./rows/notifications";
+export type { EmailOutboxRow, EmailOutboxStatus } from "./rows/email_outbox";
+export type { NotificationPreferenceRow } from "./rows/notification_preferences";

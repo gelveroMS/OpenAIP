@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCitizenAboutUsReferenceDocById } from "@/lib/content/citizen-about-us";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { createCitizenReferenceSignedUrl } from "@/lib/supabase/privileged-ops";
 
 export const dynamic = "force-dynamic";
 
@@ -29,16 +29,17 @@ export async function GET(
       return NextResponse.redirect(doc.externalUrl, 307);
     }
 
-    const admin = supabaseAdmin();
-    const { data, error } = await admin.storage
-      .from(doc.bucketId)
-      .createSignedUrl(doc.objectName, SIGNED_URL_TTL_SECONDS);
-
-    if (error || !data?.signedUrl) {
-      return upstreamFailureResponse(error?.message);
+    const signedUrl = await createCitizenReferenceSignedUrl({
+      actor: null,
+      bucketId: doc.bucketId,
+      objectName: doc.objectName,
+      ttlSeconds: SIGNED_URL_TTL_SECONDS,
+    });
+    if (!signedUrl.signedUrl) {
+      return upstreamFailureResponse(signedUrl.errorMessage ?? undefined);
     }
 
-    return NextResponse.redirect(data.signedUrl, 307);
+    return NextResponse.redirect(signedUrl.signedUrl, 307);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unexpected error while loading reference document.";

@@ -2,10 +2,10 @@ import type { SystemAdministrationRepo } from "./types";
 
 type SystemAdministrationState = {
   securitySettings: Awaited<ReturnType<SystemAdministrationRepo["getSecuritySettings"]>>;
-  notificationSettings: Awaited<
-    ReturnType<SystemAdministrationRepo["getNotificationSettings"]>
-  >;
   systemBannerDraft: Awaited<ReturnType<SystemAdministrationRepo["getSystemBannerDraft"]>>;
+  systemBannerPublished: Awaited<
+    ReturnType<SystemAdministrationRepo["getSystemBannerPublished"]>
+  >;
   auditLogs: Awaited<ReturnType<SystemAdministrationRepo["listAuditLogs"]>>;
 };
 
@@ -49,29 +49,25 @@ export function createSupabaseSystemAdministrationRepo(): SystemAdministrationRe
       }>("update_security_settings", { next, meta });
       return payload.securitySettings;
     },
-    async getNotificationSettings() {
-      return (await getState()).notificationSettings;
-    },
-    async updateNotificationSettings(next, meta) {
-      const payload = await postAction<{
-        notificationSettings: Awaited<
-          ReturnType<SystemAdministrationRepo["getNotificationSettings"]>
-        >;
-      }>("update_notification_settings", { next, meta });
-      return payload.notificationSettings;
-    },
     async getSystemBannerDraft() {
       return (await getState()).systemBannerDraft;
     },
+    async getSystemBannerPublished() {
+      return (await getState()).systemBannerPublished;
+    },
     async publishSystemBanner(draft, meta) {
       const payload = await postAction<{
-        systemBanner: Awaited<ReturnType<SystemAdministrationRepo["publishSystemBanner"]>>;
+        systemBannerPublished: Awaited<
+          ReturnType<SystemAdministrationRepo["publishSystemBanner"]>
+        >;
       }>("publish_system_banner", { draft, meta });
-      return payload.systemBanner;
+      return payload.systemBannerPublished;
+    },
+    async unpublishSystemBanner(meta) {
+      return postAction<{ unpublished: true }>("unpublish_system_banner", { meta });
     },
     async listAuditLogs() {
       return (await getState()).auditLogs;
     },
   };
 }
-

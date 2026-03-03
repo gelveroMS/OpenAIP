@@ -5,9 +5,8 @@ import { createSupabaseSystemAdministrationRepo } from "./repo.supabase";
 export type {
   SystemAdministrationRepo,
   SecuritySettings,
-  NotificationSettings,
   SystemBannerDraft,
-  SystemBanner,
+  SystemBannerPublished,
   SystemAdministrationAuditLog,
 } from "./types";
 

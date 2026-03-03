@@ -34,6 +34,7 @@ export default function KpiCard({
 }) {
   const isNegative = deltaLabel.trim().startsWith("-");
   const TrendIcon = isNegative ? ArrowDownRight : ArrowUpRight;
+  const showDelta = deltaLabel.trim().length > 0;
   return (
     <Card className="border-slate-200 py-0 shadow-none">
       <CardContent className="p-5 space-y-3">
@@ -49,10 +50,14 @@ export default function KpiCard({
           <div className="text-[35px] leading-9 font-semibold text-slate-900">{value}</div>
           <div className="mt-1 text-[13px] text-slate-600">{title}</div>
         </div>
-        <div className="flex items-center gap-1 text-[12px] text-slate-500">
-          <TrendIcon className={cn("h-3.5 w-3.5", isNegative ? "text-rose-500" : "text-emerald-500")} />
-          <span>{deltaLabel}</span>
-        </div>
+        {showDelta && (
+          <div className="flex items-center gap-1 text-[12px] text-slate-500">
+            <TrendIcon
+              className={cn("h-3.5 w-3.5", isNegative ? "text-rose-500" : "text-emerald-500")}
+            />
+            <span>{deltaLabel}</span>
+          </div>
+        )}
         {onCtaClick ? (
           <Button
             variant="outline"

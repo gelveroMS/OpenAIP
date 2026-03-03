@@ -1,6 +1,5 @@
 'use client'
 
-import { supabaseBrowser } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import type { AuthParameters } from '@/types'
 import {
@@ -28,38 +27,40 @@ export function LoginForm({role, baseURL}:AuthParameters) {
   const router = useRouter()
 
   const rolePath = getRolePath(baseURL, role);
-  const isStaffRole = role !== 'citizen'
+  const isStaffRole = role === "admin" || role === "city" || role === "barangay"
   const roleBadgeLabel =
     role === 'city' ? 'City Official' : role === 'barangay' ? 'Barangay Official' : 'Admin'
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
-    const supabase = supabaseBrowser()
     setIsLoading(true)
     setError(null)
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
-      if (error) throw error
+      const endpoint = isStaffRole ? "/auth/staff-sign-in" : "/auth/sign-in";
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          email,
+          password,
+          ...(isStaffRole ? { role } : {}),
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { ok?: boolean; error?: { message?: string } }
+        | null;
 
-      // check if user role matches the referrer role
-      const {data: signedInRole, error: roleError} = await supabase.rpc('current_role');
-      if (roleError) throw roleError
+      if (!response.ok || payload?.ok === false) {
+        throw new Error(payload?.error?.message ?? "An error occurred");
+      }
 
-      console.log(role, signedInRole)
-
-      const routeRole = toRouteRole(signedInRole);
-
-      if(routeRole !== role) {
-        await supabase.auth.signOut();
-        throw new Error('Role Validation Failed.')
-      }; 
-
-      // route to redirect to an authenticated route. The user already has an active session.
-      router.push(`/${role ===  'citizen' ? '' : role}`);
+      const targetPath = `/${isStaffRole ? role : ""}`;
+      // Refresh the App Router tree after auth so RSC/cached payloads re-read fresh auth cookies.
+      router.replace(targetPath);
+      router.refresh();
 
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : 'An error occurred')

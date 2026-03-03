@@ -63,6 +63,16 @@ export default function SessionTimeoutCard({
             </SelectContent>
           </Select>
         </div>
+        <div className="space-y-2">
+          <div className="text-xs text-slate-500">Warning Minutes Before Auto-Logout</div>
+          <Input
+            type="number"
+            min={0}
+            value={policy.warningMinutes}
+            onChange={(event) => update({ warningMinutes: Number(event.target.value) })}
+            className="h-10"
+          />
+        </div>
 
         <div className="rounded-lg bg-slate-50 px-4 py-3 text-[11px] text-slate-500">
           Current Setting: {policy.timeoutValue} {policy.timeUnit}. Users will be automatically logged

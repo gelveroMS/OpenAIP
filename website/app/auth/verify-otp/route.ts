@@ -10,6 +10,8 @@ import {
   getCitizenProfileByUserId,
   isCitizenProfileComplete,
 } from "@/lib/auth/citizen-profile-completion";
+import { applySessionPolicyCookies } from "@/lib/security/session-cookies.server";
+import { getSecuritySettings } from "@/lib/security/security-settings.server";
 
 type VerifyOtpRequestBody = {
   email?: unknown;
@@ -58,9 +60,12 @@ export async function POST(request: Request) {
       return fail("This verification flow is only for citizen accounts.", 403);
     }
 
-    return ok({
+    const settings = await getSecuritySettings();
+    const response = ok({
       next: isCitizenProfileComplete(profile) ? "redirect" : "complete_profile",
     });
+    applySessionPolicyCookies(response, settings);
+    return response;
   } catch (error) {
     return fail(
       error instanceof Error ? error.message : "Unable to verify OTP code.",

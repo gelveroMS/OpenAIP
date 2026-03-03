@@ -1,8 +1,28 @@
-import { type NextRequest } from "next/server"
-import { updateSession } from "@/lib/supabase/proxy"
+import { type NextRequest } from "next/server";
+import {
+  createCspNonce,
+  CSP_NONCE_HEADER,
+  NEXT_NONCE_HEADER,
+  withSecurityHeaders,
+} from "@/lib/security/csp";
+import { updateSession } from "@/lib/supabase/proxy";
 
 export async function proxy(request: NextRequest) {
-  return await updateSession(request)
+  const nonce = createCspNonce();
+  const extraHeaders = new Headers();
+  extraHeaders.set(CSP_NONCE_HEADER, nonce);
+  extraHeaders.set(NEXT_NONCE_HEADER, nonce);
+
+  const response = await updateSession(request, {
+    extraHeaders,
+  });
+
+  withSecurityHeaders(response, {
+    isProduction: process.env.NODE_ENV === "production",
+    nonce,
+  });
+
+  return response;
 }
 
 export const config = {
@@ -16,4 +36,4 @@ export const config = {
      */
     "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
-}
+};

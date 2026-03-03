@@ -113,10 +113,10 @@ export const deriveSummary = (
     flaggedComments,
     reviewBacklog,
     deltaLabels: {
-      totalLgus: "+3% vs last period",
-      activeUsers: "+12% vs last period",
-      flaggedComments: "+5 new this week",
-      reviewBacklog: "3 aging items",
+      totalLgus: "",
+      activeUsers: "",
+      flaggedComments: "",
+      reviewBacklog: "",
     },
     elevatedFlags: {
       flaggedComments: flaggedComments > 10,

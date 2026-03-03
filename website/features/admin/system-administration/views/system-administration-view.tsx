@@ -3,20 +3,19 @@
 import { useEffect, useMemo, useState } from "react";
 import SecurityNoticeBanner from "../components/SecurityNoticeBanner";
 import SecuritySettingsSection from "../components/SecuritySettingsSection";
-import NotificationSettingsSection from "../components/NotificationSettingsSection";
 import SystemBannerSection from "../components/SystemBannerSection";
 import { getSystemAdministrationRepo } from "@/lib/repos/system-administration/repo";
 import type {
-  NotificationSettings,
   SecuritySettings,
   SystemBannerDraft,
+  SystemBannerPublished,
 } from "@/lib/repos/system-administration/types";
 
 export default function SystemAdministrationView() {
   const repo = useMemo(() => getSystemAdministrationRepo(), []);
   const [securitySettings, setSecuritySettings] = useState<SecuritySettings | null>(null);
-  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings | null>(null);
   const [bannerDraft, setBannerDraft] = useState<SystemBannerDraft | null>(null);
+  const [bannerPublished, setBannerPublished] = useState<SystemBannerPublished | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,15 +25,15 @@ export default function SystemAdministrationView() {
       setLoading(true);
       setError(null);
       try {
-        const [security, notifications, banner] = await Promise.all([
+        const [security, bannerDraftData, bannerPublishedData] = await Promise.all([
           repo.getSecuritySettings(),
-          repo.getNotificationSettings(),
           repo.getSystemBannerDraft(),
+          repo.getSystemBannerPublished(),
         ]);
         if (!isActive) return;
         setSecuritySettings(security);
-        setNotificationSettings(notifications);
-        setBannerDraft(banner);
+        setBannerDraft(bannerDraftData);
+        setBannerPublished(bannerPublishedData);
       } catch (err) {
         if (!isActive) return;
         setError(err instanceof Error ? err.message : "Failed to load system administration data.");
@@ -55,19 +54,20 @@ export default function SystemAdministrationView() {
     setSecuritySettings(updated);
   };
 
-  const handleSaveNotifications = async (next: NotificationSettings) => {
-    const updated = await repo.updateNotificationSettings(next, {
+  const handlePublishBanner = async (draft: SystemBannerDraft) => {
+    const published = await repo.publishSystemBanner(draft, {
       performedBy: "Admin Maria Rodriguez",
     });
-    setNotificationSettings(updated);
-  };
-
-  const handlePublishBanner = async (draft: SystemBannerDraft) => {
-    await repo.publishSystemBanner(draft, { performedBy: "Admin Maria Rodriguez" });
     setBannerDraft(draft);
+    setBannerPublished(published);
   };
 
-  if (!securitySettings || !notificationSettings || !bannerDraft) {
+  const handleUnpublishBanner = async () => {
+    await repo.unpublishSystemBanner({ performedBy: "Admin Maria Rodriguez" });
+    setBannerPublished(null);
+  };
+
+  if (!securitySettings || !bannerDraft) {
     return (
       <div className="space-y-6 text-[13.5px] text-slate-700">
         <div>
@@ -100,24 +100,17 @@ export default function SystemAdministrationView() {
       <SecurityNoticeBanner />
 
       <SecuritySettingsSection
-        key={`security-${JSON.stringify(securitySettings)}`}
         settings={securitySettings}
         loading={loading}
         onSave={handleSaveSecurity}
       />
 
-      <NotificationSettingsSection
-        key={`notifications-${JSON.stringify(notificationSettings)}`}
-        settings={notificationSettings}
-        loading={loading}
-        onSave={handleSaveNotifications}
-      />
-
       <SystemBannerSection
-        key={`banner-${JSON.stringify(bannerDraft)}`}
         draft={bannerDraft}
+        published={bannerPublished}
         loading={loading}
         onPublish={handlePublishBanner}
+        onUnpublish={handleUnpublishBanner}
       />
     </div>
   );

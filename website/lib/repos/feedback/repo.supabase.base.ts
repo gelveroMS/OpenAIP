@@ -51,6 +51,9 @@ type SupabaseQueryLike = {
 
 type SupabaseClientLike = {
   from: (table: string) => SupabaseQueryLike;
+  schema?: (name: string) => {
+    from: (table: string) => any;
+  };
   rpc?: (fn: string, args: Record<string, unknown>) => Promise<SupabaseQueryResult>;
   auth?: {
     getUser: () => Promise<{
@@ -758,7 +761,12 @@ async function insertFeedbackRow(
     is_public: boolean;
   }
 ): Promise<FeedbackSelectRow> {
-  const rateLimit = await resolveCommentRateLimit(client);
+  const isBlocked = await isAuthorBlockedFromSettings(client, payload.author_id);
+  if (isBlocked) {
+    throw new Error("Your account is currently blocked from posting feedback.");
+  }
+
+  const rateLimit = await resolveCommentRateLimitFromSettings(client);
   const recentCount = await countRecentFeedbackByAuthor(client, {
     authorId: payload.author_id,
     timeWindow: rateLimit.timeWindow,
@@ -796,37 +804,70 @@ async function insertFeedbackRow(
   return inserted;
 }
 
-async function resolveCommentRateLimit(client: SupabaseClientLike): Promise<{
+async function readAppSettingRaw(
+  client: SupabaseClientLike,
+  key: string
+): Promise<string | null> {
+  if (typeof client.schema !== "function") {
+    return null;
+  }
+
+  try {
+    const { data, error } = await client
+      .schema("app")
+      .from("settings")
+      .select("value")
+      .eq("key", key)
+      .maybeSingle();
+
+    if (error) return null;
+    return typeof data?.value === "string" ? data.value : null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveCommentRateLimitFromSettings(client: SupabaseClientLike): Promise<{
   maxComments: number;
   timeWindow: "hour" | "day";
 }> {
+  const raw = await readAppSettingRaw(client, "controls.comment_rate_limit");
+  if (!raw) {
+    return { maxComments: 5, timeWindow: "hour" };
+  }
+
   try {
-    const { data, error } = await client
-      .from("activity_log")
-      .select("metadata,created_at")
-      .eq("action", "comment_rate_limit_updated")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    const row = (data as { metadata?: unknown } | null) ?? null;
-
-    if (error || !row || !row.metadata || typeof row.metadata !== "object") {
-      return { maxComments: 5, timeWindow: "hour" };
-    }
-
-    const metadata = row.metadata as Record<string, unknown>;
-    const maxCommentsRaw = metadata.max_comments;
-    const timeWindowRaw = metadata.time_window;
+    const parsed = JSON.parse(raw) as Partial<{
+      maxComments: number;
+      timeWindow: "hour" | "day";
+    }>;
     const maxComments =
-      typeof maxCommentsRaw === "number" && Number.isFinite(maxCommentsRaw)
-        ? Math.max(1, Math.floor(maxCommentsRaw))
+      typeof parsed.maxComments === "number" && Number.isFinite(parsed.maxComments)
+        ? Math.max(1, Math.floor(parsed.maxComments))
         : 5;
-    const timeWindow = timeWindowRaw === "day" ? "day" : "hour";
-
+    const timeWindow = parsed.timeWindow === "day" ? "day" : "hour";
     return { maxComments, timeWindow };
   } catch {
     return { maxComments: 5, timeWindow: "hour" };
+  }
+}
+
+async function isAuthorBlockedFromSettings(
+  client: SupabaseClientLike,
+  userId: string
+): Promise<boolean> {
+  const raw = await readAppSettingRaw(client, "controls.blocked_users");
+  if (!raw) return false;
+
+  try {
+    const parsed = JSON.parse(raw) as Record<string, { blockedUntil?: string | null }>;
+    const blockedUntil = parsed?.[userId]?.blockedUntil;
+    if (typeof blockedUntil !== "string" || blockedUntil.length === 0) return false;
+    const blockedUntilMs = new Date(blockedUntil).getTime();
+    if (!Number.isFinite(blockedUntilMs)) return false;
+    return blockedUntilMs > Date.now();
+  } catch {
+    return false;
   }
 }
 

@@ -1,6 +1,7 @@
 import type { Json } from "@/lib/contracts/databasev2";
 import { CitizenChatRepoErrors } from "./types";
 import type { CitizenChatMessage, CitizenChatRepo, CitizenChatSession } from "./repo";
+import type { Json } from "@/lib/contracts/databasev2";
 
 let sessionSequence = 1;
 let messageSequence = 1;
@@ -52,11 +53,12 @@ export function createMockCitizenChatRepo(): CitizenChatRepo {
       payload?: { title?: string; context?: { [key: string]: Json } }
     ): Promise<CitizenChatSession> {
       const now = new Date().toISOString();
+      const context = (payload?.context ?? {}) as Json;
       const session: CitizenChatSession = {
         id: nextSessionId(),
         userId,
         title: payload?.title ?? null,
-        context: payload?.context ?? {},
+        context,
         lastMessageAt: null,
         createdAt: now,
         updatedAt: now,

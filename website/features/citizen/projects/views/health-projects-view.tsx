@@ -68,6 +68,7 @@ export default function HealthProjectsView({ projects }: HealthProjectsViewProps
           <HealthProjectCard
             key={project.id}
             project={project}
+            useLogoFallback
             actionSlot={
               <Button className="bg-[#022437] hover:bg-[#022437]/90 text-white" asChild>
                 <Link href={`/projects/health/${project.id}`}>View Details</Link>

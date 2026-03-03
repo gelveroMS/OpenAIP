@@ -1,10 +1,12 @@
 import { supabaseServer } from '@/lib/supabase/server'
+import { getRequestNonce } from '@/lib/security/csp'
 import { type EmailOtpType } from '@supabase/supabase-js'
 import { redirect } from 'next/navigation'
 import { type NextRequest } from 'next/server'
 
-function redirectWithHashPreserved(next: string) {
+function redirectWithHashPreserved(next: string, nonce: string | null) {
   const safeNextJson = JSON.stringify(next)
+  const nonceAttr = nonce ? ` nonce="${nonce}"` : ''
   return new Response(
     `<!doctype html>
 <html lang="en">
@@ -15,7 +17,7 @@ function redirectWithHashPreserved(next: string) {
   </head>
   <body>
     <p>Redirecting...</p>
-    <script>
+    <script${nonceAttr}>
       (function () {
         var next = ${safeNextJson};
         var hash = window.location.hash || "";
@@ -58,5 +60,5 @@ export async function GET(request: NextRequest) {
 
   // Hash-based callbacks (e.g. #access_token=...) are not visible to route handlers.
   // Return an HTML bridge so the browser can forward the fragment to `next`.
-  return redirectWithHashPreserved(next)
+  return redirectWithHashPreserved(next, getRequestNonce(request))
 }

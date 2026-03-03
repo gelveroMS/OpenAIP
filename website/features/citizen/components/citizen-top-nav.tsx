@@ -20,6 +20,7 @@ import {
   setReturnToInSessionStorage,
 } from '@/features/citizen/auth/utils/auth-query';
 import { CITIZEN_NAV } from '@/features/citizen/constants/nav';
+import NotificationsBell from '@/features/notifications/components/notifications-bell';
 import { cn } from '@/lib/ui/utils';
 
 function isActivePath(pathname: string, href: string) {
@@ -79,6 +80,7 @@ export default function CitizenTopNav() {
 
   const accountTrigger = profile ? (
     <>
+      <NotificationsBell href="/notifications" />
       <div className="text-right leading-tight">
         <div className="text-sm font-semibold text-slate-900">{profile.fullName}</div>
         <div className="text-xs text-slate-500">{profile.barangay}</div>
@@ -259,7 +261,11 @@ export default function CitizenTopNav() {
 
               <div className="mt-6 border-t border-slate-200 pt-6">
                 {isSignedIn ? (
-                  <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-3">
+                  <div className="space-y-3 rounded-lg border border-slate-200 bg-white px-3 py-3">
+                  <div className="flex items-center justify-end">
+                    <NotificationsBell href="/notifications" className="h-9 w-9" />
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-slate-900">{profile?.fullName}</p>
                       <p className="truncate text-xs text-slate-500">{profile?.barangay}</p>
@@ -274,7 +280,8 @@ export default function CitizenTopNav() {
                     >
                       <User className="h-4 w-4 text-white" />
                     </button>
-                  </div>
+                    </div>
+                </div>
                 ) : (
                   <Button asChild className="w-full bg-[#0E7490] text-white hover:bg-[#0C6078]">
                     <Link href={signInHref} onClick={handleSignInClick}>

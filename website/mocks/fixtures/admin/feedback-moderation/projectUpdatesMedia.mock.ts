@@ -2,7 +2,6 @@ import type { ActivityLogRow, RoleType, Json } from "@/lib/contracts/databasev2"
 import { PROJECT_IDS } from "@/mocks/fixtures/shared/id-contract.fixture";
 import { FEEDBACK_MODERATION_DATASET } from "@/mocks/fixtures/admin/feedback-moderation/feedbackModeration.mock";
 import type {
-  ProjectUpdateRecord,
   ModerationActionRecord,
 } from "@/lib/repos/feedback-moderation-project-updates/types";
 
@@ -36,7 +35,7 @@ const makeUpdateLog = (input: {
 
 const makeModerationAction = (input: {
   id: string;
-  action: "project_update_flagged" | "project_update_removed";
+  action: "project_update_hidden" | "project_update_unhidden";
   updateLogId: string;
   createdAt: string;
   reason: string;
@@ -46,7 +45,7 @@ const makeModerationAction = (input: {
   actor_id: ADMIN_ID,
   actor_role: "admin",
   action: input.action,
-  entity_table: "activity_log",
+  entity_table: "project_updates",
   entity_id: input.updateLogId,
   region_id: null,
   province_id: null,
@@ -60,7 +59,7 @@ const makeModerationAction = (input: {
   created_at: input.createdAt,
 });
 
-export const PROJECT_UPDATE_LOGS: ProjectUpdateRecord[] = [
+export const PROJECT_UPDATE_LOGS: ActivityLogRow[] = [
   makeUpdateLog({
     id: "update_log_001",
     actorId: "profile_juan",
@@ -130,7 +129,7 @@ export const PROJECT_UPDATE_LOGS: ProjectUpdateRecord[] = [
 export const PROJECT_UPDATE_ACTIONS: ModerationActionRecord[] = [
   makeModerationAction({
     id: "update_action_001",
-    action: "project_update_removed",
+    action: "project_update_hidden",
     updateLogId: "update_log_002",
     createdAt: "2026-02-09T12:10:00.000Z",
     reason: "Contains personal identifiers and signatures of participants.",
@@ -138,10 +137,10 @@ export const PROJECT_UPDATE_ACTIONS: ModerationActionRecord[] = [
   }),
   makeModerationAction({
     id: "update_action_002",
-    action: "project_update_flagged",
+    action: "project_update_hidden",
     updateLogId: "update_log_003",
     createdAt: "2026-02-13T11:30:00.000Z",
-    reason: "Requires official review due to unclear policy compliance.",
+    reason: "Contains policy-sensitive imagery pending correction.",
     violationCategory: "Inappropriate Images",
   }),
 ];

@@ -71,6 +71,11 @@ export default function InfrastructureProjectDetailPageView({
       description: u.description,
       progressPercent: u.progressPercent ?? 0,
       photoUrls: u.photoUrls,
+      attendanceCount: u.attendanceCount,
+      isHidden: u.isHidden,
+      isRedacted: u.isRedacted,
+      hiddenReason: u.hiddenReason ?? null,
+      violationCategory: u.violationCategory ?? null,
     })
   );
 
@@ -94,7 +99,7 @@ export default function InfrastructureProjectDetailPageView({
         aipYear={aipYear}
         project={project}
         scope={scope}
-        useLogoFallback={scope === "barangay"}
+        useLogoFallback={scope === "barangay" || scope === "citizen"}
       />
 
       {/* ✅ Shared updates UI (timeline + form) */}

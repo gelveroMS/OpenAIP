@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { SecuritySettings } from "@/lib/repos/system-administration/types";
 import PasswordPolicyCard from "./PasswordPolicyCard";
@@ -22,18 +22,33 @@ export default function SecuritySettingsSection({
   const [loginAttemptLimits, setLoginAttemptLimits] = useState(settings.loginAttemptLimits);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const isValid =
-    passwordPolicy.minLength >= 6 &&
-    sessionTimeout.timeoutValue >= 1 &&
-    loginAttemptLimits.maxAttempts >= 1 &&
-    loginAttemptLimits.lockoutDuration >= 1;
-
-  const handleConfirm = async () => {
-    await onSave({
+  const localSettings: SecuritySettings = useMemo(
+    () => ({
       passwordPolicy,
       sessionTimeout,
       loginAttemptLimits,
-    });
+    }),
+    [passwordPolicy, sessionTimeout, loginAttemptLimits]
+  );
+
+  const timeoutMinutes =
+    sessionTimeout.timeUnit === "minutes"
+      ? sessionTimeout.timeoutValue
+      : sessionTimeout.timeUnit === "hours"
+        ? sessionTimeout.timeoutValue * 60
+        : sessionTimeout.timeoutValue * 24 * 60;
+
+  const isValid =
+    passwordPolicy.minLength >= 6 &&
+    sessionTimeout.timeoutValue >= 1 &&
+    sessionTimeout.warningMinutes >= 0 &&
+    sessionTimeout.warningMinutes < timeoutMinutes &&
+    loginAttemptLimits.maxAttempts >= 1 &&
+    loginAttemptLimits.lockoutDuration >= 1;
+  const hasChanges = JSON.stringify(localSettings) !== JSON.stringify(settings);
+
+  const handleConfirm = async () => {
+    await onSave(localSettings);
     setConfirmOpen(false);
   };
 
@@ -56,7 +71,7 @@ export default function SecuritySettingsSection({
         <Button
           className="bg-[#0E5D6F] text-white hover:bg-[#0E5D6F]/90"
           onClick={() => setConfirmOpen(true)}
-          disabled={!isValid || loading}
+          disabled={!isValid || !hasChanges || loading}
         >
           Save Security Settings
         </Button>
@@ -71,7 +86,7 @@ export default function SecuritySettingsSection({
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
         onConfirm={handleConfirm}
-        confirmDisabled={!isValid || loading}
+        confirmDisabled={!isValid || !hasChanges || loading}
       />
     </div>
   );

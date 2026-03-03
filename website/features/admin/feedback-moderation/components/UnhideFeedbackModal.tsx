@@ -33,9 +33,9 @@ export default function UnhideFeedbackModal({
           <Alert className="border-sky-200 bg-sky-50 text-sky-900">
             <Info className="h-4 w-4 text-sky-600" />
             <AlertDescription className="text-sky-800">
-              <div className="font-medium">Restore Comment Visibility</div>
+              <div className="font-medium">Restore Feedback Visibility</div>
               <div className="mt-2 text-sm">
-                The comment will be restored to public visibility. Citizens will be able to see the original comment text. This action is audit-logged for accountability.
+                The feedback will be restored to public visibility. Citizens will be able to see the original feedback text. This action is audit-logged for accountability.
               </div>
             </AlertDescription>
           </Alert>
@@ -47,7 +47,7 @@ export default function UnhideFeedbackModal({
             <Textarea
               value={reason}
               onChange={(event) => onReasonChange(event.target.value)}
-              placeholder="Explain why this comment should be restored to public visibility..."
+              placeholder="Explain why this feedback should be restored to public visibility..."
               className="min-h-[120px]"
             />
           </div>

@@ -2,6 +2,7 @@
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { User } from "lucide-react";
 import type { AuditEntryVM, FlaggedUserRowVM } from "@/lib/repos/usage-controls/types";
 
@@ -18,13 +19,29 @@ export default function UserAuditHistoryDialog({
   onOpenChange,
   user,
   entries,
+  total,
+  offset,
+  hasNext,
+  loading,
+  error,
+  onPrevious,
+  onNext,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   user: FlaggedUserRowVM | null;
   entries: AuditEntryVM[];
+  total: number;
+  offset: number;
+  hasNext: boolean;
+  loading: boolean;
+  error: string | null;
+  onPrevious: () => void;
+  onNext: () => void;
 }) {
   if (!user) return null;
+  const start = total === 0 ? 0 : offset + 1;
+  const end = Math.min(offset + entries.length, total);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -55,10 +72,19 @@ export default function UserAuditHistoryDialog({
             </div>
           </div>
 
-          <div className="text-xs text-slate-500">Showing {entries.length} audit entries</div>
+          <div className="text-xs text-slate-500">
+            {loading ? "Loading audit entries..." : `Showing ${start}-${end} of ${total} audit entries`}
+          </div>
+
+          {error && (
+            <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-700">
+              {error}
+            </div>
+          )}
 
           <div className="space-y-3">
-            {entries.map((entry) => (
+            {!loading &&
+              entries.map((entry) => (
               <div key={entry.id} className="rounded-lg border border-slate-200 p-4">
                 <div className="flex items-center justify-between">
                   <div className="font-semibold text-slate-900">{entry.title}</div>
@@ -86,7 +112,21 @@ export default function UserAuditHistoryDialog({
                   </div>
                 )}
               </div>
-            ))}
+              ))}
+            {!loading && entries.length === 0 && !error && (
+              <div className="rounded-lg border border-dashed border-slate-300 px-4 py-6 text-center text-xs text-slate-500">
+                No audit entries found for this user.
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between">
+            <Button variant="outline" onClick={onPrevious} disabled={loading || offset <= 0}>
+              Previous
+            </Button>
+            <Button variant="outline" onClick={onNext} disabled={loading || !hasNext}>
+              Next
+            </Button>
           </div>
 
           <div className="rounded-lg bg-slate-50 px-4 py-3 text-[11px] text-slate-500">

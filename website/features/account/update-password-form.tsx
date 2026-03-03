@@ -22,8 +22,36 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useRouter } from 'next/navigation'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { AuthParameters } from '@/types'
+import { validatePasswordWithPolicy } from "@/lib/security/password-policy";
+
+function readTokensFromHash() {
+  if (typeof window === "undefined" || !window.location.hash) return null
+  const params = new URLSearchParams(window.location.hash.slice(1))
+  const accessToken = params.get("access_token")
+  const refreshToken = params.get("refresh_token")
+  if (!accessToken || !refreshToken) return null
+  return { accessToken, refreshToken }
+}
+
+function readCodeFromQuery() {
+  if (typeof window === "undefined") return null
+  return new URLSearchParams(window.location.search).get("code")
+}
+
+function scrubSensitiveAuthParams() {
+  if (typeof window === "undefined") return
+  const searchParams = new URLSearchParams(window.location.search)
+  const hadCode = searchParams.has("code")
+  const hadType = searchParams.has("type")
+  if (hadCode) searchParams.delete("code")
+  if (hadType) searchParams.delete("type")
+  if (!hadCode && !hadType) return
+  const nextSearch = searchParams.toString()
+  const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`
+  window.history.replaceState(null, "", nextUrl)
+}
 
 /**
  * UpdatePasswordForm Component
@@ -41,37 +69,17 @@ export function UpdatePasswordForm({role}:AuthParameters) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [passwordPolicy, setPasswordPolicy] = useState<{
+    minLength: number;
+    requireUppercase: boolean;
+    requireLowercase: boolean;
+    requireNumbers: boolean;
+    requireSpecialCharacters: boolean;
+  } | null>(null)
   const router = useRouter()
   const supabase = useMemo(() => supabaseBrowser(), [])
 
-  function readTokensFromHash() {
-    if (typeof window === "undefined" || !window.location.hash) return null
-    const params = new URLSearchParams(window.location.hash.slice(1))
-    const accessToken = params.get("access_token")
-    const refreshToken = params.get("refresh_token")
-    if (!accessToken || !refreshToken) return null
-    return { accessToken, refreshToken }
-  }
-
-  function readCodeFromQuery() {
-    if (typeof window === "undefined") return null
-    return new URLSearchParams(window.location.search).get("code")
-  }
-
-  function scrubSensitiveAuthParams() {
-    if (typeof window === "undefined") return
-    const searchParams = new URLSearchParams(window.location.search)
-    const hadCode = searchParams.has("code")
-    const hadType = searchParams.has("type")
-    if (hadCode) searchParams.delete("code")
-    if (hadType) searchParams.delete("type")
-    if (!hadCode && !hadType) return
-    const nextSearch = searchParams.toString()
-    const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`
-    window.history.replaceState(null, "", nextUrl)
-  }
-
-  async function ensureInviteSession() {
+  const ensureInviteSession = useCallback(async () => {
     const { data } = await supabase.auth.getSession()
     if (data.session) return
 
@@ -94,13 +102,47 @@ export function UpdatePasswordForm({role}:AuthParameters) {
 
     // Drop sensitive tokens from the URL once session cookies are set.
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`)
-  }
+  }, [supabase])
 
   useEffect(() => {
     void ensureInviteSession().catch((err: unknown) => {
       setError(err instanceof Error ? err.message : "Failed to initialize auth session.")
     })
-  }, [])
+  }, [ensureInviteSession])
+
+  useEffect(() => {
+    let active = true;
+    const loadPolicy = async () => {
+      try {
+        const response = await fetch("/api/system/security-policy", {
+          cache: "no-store",
+        });
+        const payload = (await response.json().catch(() => null)) as
+          | {
+              securitySettings?: {
+                passwordPolicy?: {
+                  minLength: number;
+                  requireUppercase: boolean;
+                  requireLowercase: boolean;
+                  requireNumbers: boolean;
+                  requireSpecialCharacters: boolean;
+                };
+              };
+            }
+          | null;
+
+        if (!active) return;
+        if (!response.ok || !payload?.securitySettings?.passwordPolicy) return;
+        setPasswordPolicy(payload.securitySettings.passwordPolicy);
+      } catch {
+        // Ignore policy fetch errors; server route remains authoritative.
+      }
+    };
+    void loadPolicy();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -114,8 +156,26 @@ export function UpdatePasswordForm({role}:AuthParameters) {
         throw new Error("Auth session missing. Reopen the invite/reset link from your email.")
       }
 
-      const { error } = await supabase.auth.updateUser({ password })
-      if (error) throw error
+      if (passwordPolicy) {
+        const errors = validatePasswordWithPolicy(password, passwordPolicy);
+        if (errors.length > 0) {
+          throw new Error(errors[0]);
+        }
+      }
+
+      const response = await fetch("/auth/update-password", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ password }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { ok?: boolean; error?: { message?: string } }
+        | null;
+      if (!response.ok || payload?.ok === false) {
+        throw new Error(payload?.error?.message ?? "Unable to update password.");
+      }
       // Update this route to redirect to an authenticated route. The user already has an active session.
       router.push(role === 'citizen' ? '/' : `/${role}`);
     } catch (error: unknown) {

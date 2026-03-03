@@ -7,7 +7,7 @@ const BarangayAIPS = async () => {
   const aipRepo = getAipRepo({ defaultScope: "barangay" });
   const records = await aipRepo.listVisibleAips(
     { scope: "barangay", visibility: "my" },
-    actor
+    actor ?? undefined
   );
   return <AipManagementView scope="barangay" records={records} />;
 };

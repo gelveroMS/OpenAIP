@@ -2,6 +2,13 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ShieldAlert } from "lucide-react";
 import type { LoginAttemptPolicy } from "@/lib/repos/system-administration/types";
 
@@ -47,6 +54,21 @@ export default function LoginAttemptLimitsCard({
             onChange={(event) => update({ lockoutDuration: Number(event.target.value) })}
             className="h-10"
           />
+        </div>
+        <div className="space-y-2">
+          <div className="text-xs text-slate-500">Lockout Unit</div>
+          <Select
+            value={policy.lockoutUnit}
+            onValueChange={(value) => update({ lockoutUnit: value as LoginAttemptPolicy["lockoutUnit"] })}
+          >
+            <SelectTrigger className="h-10">
+              <SelectValue placeholder="Select unit" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="minutes">Minutes</SelectItem>
+              <SelectItem value="hours">Hours</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="rounded-lg bg-slate-50 px-4 py-3 text-[11px] text-slate-500">

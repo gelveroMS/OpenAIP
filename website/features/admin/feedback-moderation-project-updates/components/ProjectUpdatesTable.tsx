@@ -22,11 +22,9 @@ import type { ProjectUpdateRowModel, ProjectUpdateStatus } from "@/lib/repos/fee
 
 const statusBadgeClass = (status: ProjectUpdateStatus) => {
   switch (status) {
-    case "Active":
+    case "Visible":
       return "border-emerald-200 bg-emerald-50 text-emerald-700";
-    case "Flagged":
-      return "border-amber-200 bg-amber-50 text-amber-700";
-    case "Removed":
+    case "Hidden":
       return "border-rose-200 bg-rose-50 text-rose-700";
     default:
       return "border-slate-200 bg-slate-50 text-slate-600";
@@ -36,13 +34,13 @@ const statusBadgeClass = (status: ProjectUpdateStatus) => {
 export default function ProjectUpdatesTable({
   rows,
   onViewPreview,
-  onRemove,
-  onFlag,
+  onHide,
+  onUnhide,
 }: {
   rows: ProjectUpdateRowModel[];
   onViewPreview: (id: string) => void;
-  onRemove: (id: string) => void;
-  onFlag: (id: string) => void;
+  onHide: (id: string) => void;
+  onUnhide: (id: string) => void;
 }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -108,25 +106,26 @@ export default function ProjectUpdatesTable({
                     >
                       View Preview
                     </DropdownMenuItem>
-                    {row.status !== "Removed" ? (
+                    {row.status !== "Hidden" ? (
                       <DropdownMenuItem
                         onSelect={(event) => {
                           event.preventDefault();
-                          onRemove(row.id);
+                          onHide(row.id);
                         }}
                         className="text-rose-600 focus:text-rose-600"
                       >
-                        Remove Update
+                        Hide Update
                       </DropdownMenuItem>
-                    ) : null}
-                    <DropdownMenuItem
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        onFlag(row.id);
-                      }}
-                    >
-                      Flag for Official Review
-                    </DropdownMenuItem>
+                    ) : (
+                      <DropdownMenuItem
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          onUnhide(row.id);
+                        }}
+                      >
+                        Unhide Update
+                      </DropdownMenuItem>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </TableCell>

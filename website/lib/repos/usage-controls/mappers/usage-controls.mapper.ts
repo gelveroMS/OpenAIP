@@ -1,4 +1,10 @@
-import type { ActivityLogRow, ChatMessageRow, Json } from "@/lib/contracts/databasev2";
+import type {
+  ActivityLogRow,
+  ChatMessageRow,
+  ChatRateEventRow,
+  Json,
+} from "@/lib/contracts/databasev2";
+import type { BlockedUsersSetting } from "@/lib/settings/app-settings";
 import type {
   FeedbackRecord,
   FlaggedUserRowVM,
@@ -7,7 +13,6 @@ import type {
   AuditEntryVM,
   ChatbotMetrics,
   ChatbotRateLimitPolicy,
-  ChatbotSystemPolicy,
 } from "@/lib/repos/usage-controls/types";
 
 const getMetadataString = (metadata: Json, key: string): string | null => {
@@ -60,6 +65,7 @@ export function mapFlaggedUsers(input: {
   profiles: ProfileRecord[];
   feedback: FeedbackRecord[];
   activity: ActivityLogRow[];
+  blockedUsers: BlockedUsersSetting;
 }): FlaggedUserRowVM[] {
   const feedbackById = new Map(input.feedback.map((row) => [row.id, row]));
   const hiddenLogs = input.activity.filter((log) => log.action === "feedback_hidden");
@@ -96,13 +102,19 @@ export function mapFlaggedUsers(input: {
         userLogs.filter((log) => log.action === "user_blocked" || log.action === "user_unblocked")
       );
 
-      const isBlocked = latestUserLog?.action === "user_blocked";
+      const blockedSetting = input.blockedUsers[profile.id];
+      const blockedUntilRaw = blockedSetting?.blockedUntil ?? null;
+      const blockedUntilMs = blockedUntilRaw ? new Date(blockedUntilRaw).getTime() : Number.NaN;
+      const isBlocked =
+        Boolean(blockedSetting) &&
+        Number.isFinite(blockedUntilMs) &&
+        blockedUntilMs > Date.now();
+      const blockedUntil = isBlocked ? blockedUntilRaw : null;
       const blockReason = isBlocked
-        ? getMetadataString(latestUserLog?.metadata, "reason")
-        : null;
-      const blockedUntil = isBlocked
-        ? getMetadataString(latestUserLog?.metadata, "blocked_until")
-        : null;
+        ? blockedSetting?.reason ?? null
+        : latestUserLog?.action === "user_blocked"
+          ? getMetadataString(latestUserLog.metadata, "reason")
+          : null;
 
       const reasonSummary =
         (lastHidden ? getMetadataString(lastHidden.metadata, "reason") : null) ??
@@ -139,7 +151,7 @@ const getAuditTitle = (action: string) => {
     case "user_unblocked":
       return "Account Unblocked";
     case "comment_rate_limit_updated":
-      return "Comment Rate Limit Updated";
+      return "Feedback Rate Limit Updated";
     default:
       return action;
   }
@@ -210,56 +222,104 @@ export function deriveChatbotRateLimitPolicy(
   };
 }
 
-export function deriveChatbotSystemPolicy(
-  activity: ActivityLogRow[]
-): ChatbotSystemPolicy {
-  const latest = getLatestLog(
-    activity.filter((log) => log.action === "chatbot_policy_updated")
-  );
-
-  const isEnabled =
-    (latest
-      ? (latest.metadata as Record<string, unknown>)?.is_enabled
-      : null) === false
-      ? false
-      : true;
-
-  const retentionDays =
-    (latest ? getMetadataNumber(latest.metadata, "retention_days") : null) ?? 90;
-
-  const userDisclaimer =
-    (latest ? getMetadataString(latest.metadata, "user_disclaimer") : null) ??
-    "This disclaimer will be shown to users before they interact with the chatbot.";
-
-  return {
-    isEnabled,
-    retentionDays,
-    userDisclaimer,
-    updatedAt: latest?.created_at ?? new Date().toISOString(),
-    updatedBy: latest ? getMetadataString(latest.metadata, "actor_name") : null,
-  };
+function isWithinWindow(
+  iso: string,
+  startInclusive: number,
+  endExclusive: number
+): boolean {
+  const time = new Date(iso).getTime();
+  return Number.isFinite(time) && time >= startInclusive && time < endExclusive;
 }
 
-export function deriveChatbotMetrics(
-  messages: ChatMessageRow[],
-  periodDays = 14
-): ChatbotMetrics {
-  const totalRequests = messages.length;
-  const errorCount = messages.filter((message) => {
-    if (!message.retrieval_meta || typeof message.retrieval_meta !== "object") return false;
-    return Boolean((message.retrieval_meta as Record<string, unknown>)?.is_error);
-  }).length;
+function calculateTrendPct(current: number, previous: number): number {
+  if (previous === 0) {
+    return current === 0 ? 0 : 100;
+  }
+  return ((current - previous) / previous) * 100;
+}
 
-  const errorRate = totalRequests === 0 ? 0 : errorCount / totalRequests;
+const FAILURE_REASONS = new Set(["pipeline_error", "validation_failed", "unknown"]);
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function isSystemFailureMessage(row: ChatMessageRow): boolean {
+  if (row.role !== "assistant") return false;
+  if (!row.retrieval_meta || typeof row.retrieval_meta !== "object" || Array.isArray(row.retrieval_meta)) {
+    return false;
+  }
+
+  const reason = (row.retrieval_meta as Record<string, unknown>).reason;
+  return typeof reason === "string" && FAILURE_REASONS.has(reason);
+}
+
+function parseYmdUtcStart(value: string | null | undefined): number | null {
+  if (!value) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const timestamp = Date.parse(`${value}T00:00:00.000Z`);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+export function deriveChatbotMetrics(input: {
+  chatRateEvents: ChatRateEventRow[];
+  chatMessages: ChatMessageRow[];
+  periodDays?: number;
+  dateFrom?: string | null;
+  dateTo?: string | null;
+}): ChatbotMetrics {
+  const defaultPeriodDays = input.periodDays ?? 14;
+  const dateFromStart = parseYmdUtcStart(input.dateFrom);
+  const dateToStart = parseYmdUtcStart(input.dateTo);
+  const hasExplicitWindow =
+    dateFromStart !== null && dateToStart !== null && dateToStart >= dateFromStart;
+  const explicitStart = hasExplicitWindow ? dateFromStart : 0;
+  const explicitEnd = hasExplicitWindow ? dateToStart : 0;
+
+  const periodDays = hasExplicitWindow
+    ? Math.max(1, Math.floor((explicitEnd - explicitStart) / DAY_MS) + 1)
+    : defaultPeriodDays;
+  const windowMs = periodDays * DAY_MS;
+
+  const currentStart = hasExplicitWindow ? explicitStart : Date.now() - windowMs;
+  const currentEndExclusive = hasExplicitWindow ? explicitEnd + DAY_MS : Date.now() + 1;
+  const previousStart = currentStart - windowMs;
+
+  const acceptedCurrent = input.chatRateEvents.filter(
+    (row) =>
+      row.event_status === "accepted" &&
+      isWithinWindow(row.created_at, currentStart, currentEndExclusive)
+  ).length;
+  const acceptedPrevious = input.chatRateEvents.filter(
+    (row) =>
+      row.event_status === "accepted" &&
+      isWithinWindow(row.created_at, previousStart, currentStart)
+  ).length;
+
+  const failuresCurrent = input.chatMessages.filter(
+    (row) =>
+      isSystemFailureMessage(row) &&
+      isWithinWindow(row.created_at, currentStart, currentEndExclusive)
+  ).length;
+  const failuresPrevious = input.chatMessages.filter(
+    (row) =>
+      isSystemFailureMessage(row) &&
+      isWithinWindow(row.created_at, previousStart, currentStart)
+  ).length;
+
+  const totalRequests = acceptedCurrent;
+  const previousTotalRequests = acceptedPrevious;
+  const errorRate = totalRequests === 0 ? 0 : failuresCurrent / totalRequests;
+  const previousErrorRate =
+    previousTotalRequests === 0 ? 0 : failuresPrevious / previousTotalRequests;
   const avgDailyRequests = periodDays > 0 ? totalRequests / periodDays : totalRequests;
+  const previousAvgDaily =
+    periodDays > 0 ? previousTotalRequests / periodDays : previousTotalRequests;
 
   return {
     totalRequests,
     errorRate,
     avgDailyRequests,
     periodDays,
-    trendTotalRequestsPct: 12.3,
-    trendErrorRatePct: -0.4,
-    trendAvgDailyPct: 8.1,
+    trendTotalRequestsPct: calculateTrendPct(totalRequests, previousTotalRequests),
+    trendErrorRatePct: calculateTrendPct(errorRate, previousErrorRate),
+    trendAvgDailyPct: calculateTrendPct(avgDailyRequests, previousAvgDaily),
   };
 }

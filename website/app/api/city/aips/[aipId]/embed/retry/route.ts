@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import {
+  dispatchEmbedCategorize,
+  toPrivilegedActorContext,
+} from "@/lib/supabase/privileged-ops";
 import { supabaseServer } from "@/lib/supabase/server";
 import { getActorContext } from "@/lib/domain/get-actor-context";
 import { isEmbedSkipNoArtifactMessage } from "@/lib/constants/embedding";
@@ -90,14 +93,17 @@ export async function POST(
       );
     }
 
-    const admin = supabaseAdmin();
-    const { data: dispatchRequestId, error: dispatchError } = await admin.rpc(
-      "dispatch_embed_categorize_for_aip",
-      { p_aip_id: aipId }
-    );
-
-    if (dispatchError) {
-      return NextResponse.json({ message: dispatchError.message }, { status: 500 });
+    let dispatchRequestId: unknown;
+    try {
+      dispatchRequestId = await dispatchEmbedCategorize({
+        actor: toPrivilegedActorContext(actor),
+        aipId,
+      });
+    } catch (error) {
+      return NextResponse.json(
+        { message: error instanceof Error ? error.message : "Failed to dispatch indexing." },
+        { status: 500 }
+      );
     }
     if (dispatchRequestId === null) {
       return NextResponse.json(

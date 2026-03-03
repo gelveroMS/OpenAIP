@@ -32,6 +32,24 @@ npm run dev
 - `NEXT_PUBLIC_USE_MOCKS`
   - `true` forces mock repositories
   - If unset, mock mode is enabled when `NEXT_PUBLIC_APP_ENV=dev`
+- `NEXT_PUBLIC_SITE_URL`
+  - Canonical site origin used by CSRF Origin/Referer checks for state-changing API routes
+  - Example: `https://openaip.example.gov`
+- `NEXT_PUBLIC_STAGING_URL`
+  - Optional staging origin allowed by CSRF Origin/Referer checks
+  - Leave blank when no staging domain is deployed
+- `AIP_UPLOAD_MAX_BYTES`
+  - Default: `15728640` (15MB)
+  - Max upload size for barangay/city AIP PDF upload routes
+- `AIP_UPLOAD_FAILURE_THRESHOLD`
+  - Default: `5`
+  - Number of recent failed extraction runs before uploader cooldown applies
+- `AIP_UPLOAD_FAILURE_WINDOW_MINUTES`
+  - Default: `60`
+  - Lookback window used to count failed runs for upload throttling
+- `AIP_UPLOAD_FAILURE_COOLDOWN_MINUTES`
+  - Default: `15`
+  - Cooldown period returned as HTTP `429` + `Retry-After` after repeated failures
 
 Repository selection is centralized in:
 - `lib/config/appEnv.ts`
@@ -55,6 +73,32 @@ npm run test:ui
 npx tsc --noEmit
 node scripts/repo-smoke/run.js
 ```
+
+## Admin Auth Regression Checklist
+
+1. Fresh admin sign-up/confirm (if applicable in your environment):
+   - Complete staff/admin sign-up and confirmation flow.
+   - Navigate to `/admin` and confirm dashboard data is visible immediately without manual refresh.
+2. Fresh admin sign-in:
+   - Sign in at `/admin/sign-in`.
+   - Confirm `/admin` dashboard data is visible immediately on first load without manual refresh.
+3. First client-side nav to dashboard:
+   - From any authenticated admin page, click `Dashboard` in the admin sidebar.
+   - Confirm dashboard data appears on first render without manual refresh.
+4. Role guard:
+   - Sign in as non-admin and request `/admin`.
+   - Confirm redirect to the unauthorized page.
+5. Refresh parity:
+   - Hard refresh `/admin` and confirm values remain consistent with first-load values.
+6. Console/runtime:
+   - Confirm no new client or server errors during the above scenarios.
+7. Session heartbeat scope:
+   - Visit a public route (for example `/`) while signed out.
+   - Confirm the server log is not spammed with repeated `POST /auth/session/activity`.
+   - Visit `/admin` while signed in and confirm heartbeat calls resume.
+8. Admin sign-up policy:
+   - Request `/admin/sign-up`.
+   - Confirm redirect to `/admin/sign-in`.
 
 ## Notes
 

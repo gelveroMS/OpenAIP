@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { User } from "lucide-react";
 import AdminAccountModal from "@/features/account/AdminAccountModal";
+import NotificationsBell from "@/features/notifications/components/notifications-bell";
 import type { AdminAccountProfile } from "@/features/account/types";
 
 type Props = {
@@ -17,6 +18,7 @@ export default function AdminTopbar({ name, roleLabel, accountProfile }: Props) 
   return (
     <header className="h-17 border-b border-slate-200 bg-white px-6 flex items-center justify-end">
       <div className="flex items-center gap-3">
+        <NotificationsBell href="/admin/notifications" />
         <div className="text-right leading-tight">
           <div className="text-sm font-medium text-slate-900">{name}</div>
           <div className="text-xs text-slate-500">{roleLabel}</div>

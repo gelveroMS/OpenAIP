@@ -51,6 +51,8 @@ type ProjectUpdateSelectRow = Pick<
   | "progress_percent"
   | "attendance_count"
   | "status"
+  | "hidden_reason"
+  | "hidden_violation_category"
   | "created_at"
 >;
 
@@ -60,6 +62,9 @@ type ProjectUpdateMediaSelectRow = Pick<
 >;
 
 type ProjectUpdateWithoutRef = Omit<ProjectUpdate, "projectRefCode">;
+
+const HIDDEN_PROJECT_UPDATE_PLACEHOLDER =
+  "This project update has been hidden due to policy violation.";
 
 const PROJECT_SELECT_COLUMNS = [
   "id",
@@ -196,25 +201,30 @@ async function loadDetailsByProjectIds(projectIds: string[]) {
   return { healthByProjectId, infraByProjectId };
 }
 
-async function loadUpdatesByProjectIds(projectIds: string[]) {
+async function loadUpdatesByProjectIds(projectIds: string[], options?: ProjectReadOptions) {
   const updatesByProjectId = new Map<string, ProjectUpdateWithoutRef[]>();
   if (projectIds.length === 0) {
     return updatesByProjectId;
   }
+  const showHiddenContent = hasBarangayScopeHint(options) || hasCityScopeHint(options);
 
   const client = await supabaseServer();
   const { data: updatesData, error: updatesError } = await client
     .from("project_updates")
-    .select("id,project_id,title,description,progress_percent,attendance_count,status,created_at")
+    .select(
+      "id,project_id,title,description,progress_percent,attendance_count,status,hidden_reason,hidden_violation_category,created_at"
+    )
     .in("project_id", projectIds)
+    .in("status", ["active", "hidden"])
     .order("created_at", { ascending: false });
   if (updatesError) {
     throw new Error(updatesError.message);
   }
 
   const updateRows = (updatesData ?? []) as ProjectUpdateSelectRow[];
-  const activeUpdateRows = updateRows.filter((row) => row.status === "active");
-  const updateIds = activeUpdateRows.map((row) => row.id);
+  const updateIds = updateRows
+    .filter((row) => row.status !== "hidden" || showHiddenContent)
+    .map((row) => row.id);
 
   const mediaByUpdateId = new Map<string, ProjectUpdateMediaSelectRow[]>();
   if (updateIds.length > 0) {
@@ -234,7 +244,30 @@ async function loadUpdatesByProjectIds(projectIds: string[]) {
     }
   }
 
-  for (const row of activeUpdateRows) {
+  for (const row of updateRows) {
+    const isHidden = row.status === "hidden";
+    const isRedacted = isHidden && !showHiddenContent;
+    if (isHidden && !showHiddenContent) {
+      const nextHiddenUpdate: ProjectUpdateWithoutRef = {
+        id: row.id,
+        title: row.title,
+        date: toDateLabel(row.created_at),
+        description: HIDDEN_PROJECT_UPDATE_PLACEHOLDER,
+        progressPercent: row.progress_percent,
+        attendanceCount: row.attendance_count ?? undefined,
+        photoUrls: undefined,
+        isHidden: true,
+        isRedacted: true,
+        hiddenReason: null,
+        violationCategory: null,
+      };
+
+      const hiddenList = updatesByProjectId.get(row.project_id) ?? [];
+      hiddenList.push(nextHiddenUpdate);
+      updatesByProjectId.set(row.project_id, hiddenList);
+      continue;
+    }
+
     const mediaRows = mediaByUpdateId.get(row.id) ?? [];
     const nextUpdate: ProjectUpdateWithoutRef = {
       id: row.id,
@@ -247,6 +280,10 @@ async function loadUpdatesByProjectIds(projectIds: string[]) {
         mediaRows.length > 0
           ? mediaRows.map((mediaRow) => toProjectUpdateMediaProxyUrl(mediaRow.id))
           : undefined,
+      isHidden,
+      isRedacted,
+      hiddenReason: isHidden ? row.hidden_reason : null,
+      violationCategory: isHidden ? row.hidden_violation_category : null,
     };
 
     const list = updatesByProjectId.get(row.project_id) ?? [];
@@ -450,7 +487,7 @@ async function listProjectsInternal(input?: {
   const aipIds = Array.from(new Set(rows.map((row) => row.aip_id)));
   const [details, updatesByProjectId, aipMeta] = await Promise.all([
     loadDetailsByProjectIds(projectIds),
-    loadUpdatesByProjectIds(projectIds),
+    loadUpdatesByProjectIds(projectIds, input?.options),
     loadAipMetaByAipIds(aipIds),
   ]);
 
@@ -524,7 +561,7 @@ async function getProjectByRefOrId(
 
   const [details, updatesByProjectId, aipMeta] = await Promise.all([
     loadDetailsByProjectIds([row.id]),
-    loadUpdatesByProjectIds([row.id]),
+    loadUpdatesByProjectIds([row.id], options),
     loadAipMetaByAipIds([row.aip_id]),
   ]);
   return mapProjectToUiModel(

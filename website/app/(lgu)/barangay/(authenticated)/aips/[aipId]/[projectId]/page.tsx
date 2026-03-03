@@ -14,7 +14,7 @@ export default async function BarangayAipProjectReviewPage({
   const projectRepo = getAipProjectRepo("barangay");
 
   const [aip, detail] = await Promise.all([
-    aipRepo.getAipDetail(aipId, actor),
+    aipRepo.getAipDetail(aipId, actor ?? undefined),
     projectRepo.getReviewDetail(aipId, projectId),
   ]);
 

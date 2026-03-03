@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
 import { getActorContext } from "@/lib/domain/get-actor-context";
+import {
+  assertFeedbackUsageAllowed,
+  isFeedbackUsageError,
+} from "@/lib/feedback/usage-guards";
+import { notifySafely } from "@/lib/notifications";
+import { enforceCsrfProtection } from "@/lib/security/csrf";
 import { supabaseServer } from "@/lib/supabase/server";
 import {
   CitizenAipFeedbackApiError,
@@ -98,6 +104,11 @@ export async function handleScopedAipFeedbackReplyRequest(input: {
   aipId: string;
 }) {
   try {
+    const csrf = enforceCsrfProtection(input.request);
+    if (!csrf.ok) {
+      return csrf.response;
+    }
+
     const payload = (await input.request.json().catch(() => null)) as
       | ReplyFeedbackRequestBody
       | null;
@@ -114,6 +125,7 @@ export async function handleScopedAipFeedbackReplyRequest(input: {
     assertScopedActor(actor, input.scope);
 
     const client = await supabaseServer();
+    await assertFeedbackUsageAllowed({ client: client as any, userId: actor.userId });
     const aip = await resolveScopedAip({
       client,
       scope: input.scope,
@@ -192,6 +204,16 @@ export async function handleScopedAipFeedbackReplyRequest(input: {
         error?.message ?? "Failed to create feedback reply."
       );
     }
+    await notifySafely({
+      eventType: "FEEDBACK_CREATED",
+      scopeType: input.scope,
+      entityType: "feedback",
+      entityId: data.id,
+      feedbackId: data.id,
+      aipId: aip.id,
+      actorUserId: actor.userId,
+      actorRole: actor.role,
+    });
 
     const [item] = await hydrateAipFeedbackItems([data]);
     if (!item) {
@@ -200,6 +222,12 @@ export async function handleScopedAipFeedbackReplyRequest(input: {
 
     return NextResponse.json({ item }, { status: 201 });
   } catch (error) {
+    if (isFeedbackUsageError(error)) {
+      return toErrorResponse(
+        new CitizenAipFeedbackApiError(error.status, error.message),
+        "Failed to create AIP feedback reply."
+      );
+    }
     return toErrorResponse(error, "Failed to create AIP feedback reply.");
   }
 }

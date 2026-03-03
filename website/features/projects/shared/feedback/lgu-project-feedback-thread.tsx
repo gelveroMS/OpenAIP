@@ -163,6 +163,7 @@ export function LguProjectFeedbackThread({
       projectId,
       parentFeedbackId: replyComposer.rootId,
       kind: "lgu_note",
+      isHidden: false,
       body: normalizedBody,
       createdAt: new Date().toISOString(),
       author: {
@@ -230,7 +231,6 @@ export function LguProjectFeedbackThread({
               item={thread.root}
               onReply={handleReplyClick}
               replyDisabled={isPostingReply}
-              hideLguNoteBadge
             />
 
             {thread.replies.length > 0 ? (
@@ -242,7 +242,6 @@ export function LguProjectFeedbackThread({
                     onReply={handleReplyClick}
                     replyDisabled={isPostingReply}
                     isReply
-                    hideLguNoteBadge
                   />
                 ))}
               </div>

@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-export default function RemoveUpdateModal({
+export default function HideUpdateModal({
   open,
   onOpenChange,
   reason,
@@ -41,7 +41,7 @@ export default function RemoveUpdateModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Remove Update</DialogTitle>
+          <DialogTitle>Hide Update</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 text-[13.5px] text-slate-700">
@@ -50,9 +50,9 @@ export default function RemoveUpdateModal({
             <AlertDescription className="text-rose-800">
               <div className="font-medium">Content Removal Policy</div>
               <ul className="mt-2 list-disc pl-4 text-sm">
-                <li>Content will be hidden from public view.</li>
+                <li>Content will be hidden from public users.</li>
                 <li>Original content preserved for accountability.</li>
-                <li>Citizens will no longer see this update.</li>
+                <li>LGU users can still review the original update.</li>
                 <li>Action is audit-logged with your identity and justification.</li>
               </ul>
             </AlertDescription>
@@ -60,7 +60,7 @@ export default function RemoveUpdateModal({
 
           <div className="space-y-2">
             <Label>
-              Reason for Remove Update <span className="text-rose-600">*</span>
+              Reason for Hide Update <span className="text-rose-600">*</span>
             </Label>
             <Textarea
               value={reason}
@@ -92,7 +92,7 @@ export default function RemoveUpdateModal({
 
           <div className="flex items-center justify-center gap-3 pt-2">
             <Button className="w-56" disabled={!isValid || isSubmitting} onClick={onConfirm}>
-              {isSubmitting ? "Removing..." : "Confirm Remove Update"}
+              {isSubmitting ? "Hiding..." : "Confirm Hide Update"}
             </Button>
             <Button
               variant="outline"

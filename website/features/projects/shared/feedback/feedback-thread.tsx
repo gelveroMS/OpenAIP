@@ -39,6 +39,15 @@ type ReplyComposerState = {
   replyToAuthor: string;
 };
 
+type ProfileStatusPayload = {
+  ok?: boolean;
+  isComplete?: boolean;
+  userId?: string;
+  isBlocked?: boolean;
+  blockedUntil?: string | null;
+  blockedReason?: string | null;
+};
+
 const EMPTY_STATE_TEXT =
   "No feedback yet. Be the first to share a commendation, suggestion, concern, or question.";
 
@@ -87,6 +96,18 @@ function normalizeApiError(error: unknown, fallback: string): string {
   return fallback;
 }
 
+function formatBlockedUntilLabel(value: string | null): string {
+  if (!value) return "an unknown date";
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString("en-PH", {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+    timeZone: "Asia/Manila",
+  });
+}
+
 function isCitizenRoot(thread: ProjectFeedbackThread): boolean {
   return thread.root.author.role === "citizen";
 }
@@ -107,6 +128,9 @@ export function FeedbackThread({
   const [isAuthLoading, setIsAuthLoading] = React.useState(true);
   const [isAuthenticated, setIsAuthenticated] = React.useState(false);
   const [isProfileComplete, setIsProfileComplete] = React.useState(false);
+  const [isBlocked, setIsBlocked] = React.useState(false);
+  const [blockedUntil, setBlockedUntil] = React.useState<string | null>(null);
+  const [blockedReason, setBlockedReason] = React.useState<string | null>(null);
 
   const [items, setItems] = React.useState<ProjectFeedbackItem[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -145,6 +169,9 @@ export function FeedbackThread({
       openAuthModal({ forceCompleteProfile: false });
       return false;
     }
+    if (isBlocked) {
+      return false;
+    }
 
     if (!isProfileComplete) {
       openAuthModal({ forceCompleteProfile: true });
@@ -152,7 +179,7 @@ export function FeedbackThread({
     }
 
     return true;
-  }, [isAuthenticated, isProfileComplete, openAuthModal]);
+  }, [isAuthenticated, isBlocked, isProfileComplete, openAuthModal]);
 
   const refreshAuthState = React.useCallback(async () => {
     if (authStatusRequestRef.current) {
@@ -168,9 +195,7 @@ export function FeedbackThread({
         method: "GET",
         cache: "no-store",
       });
-      const payload = (await response.json().catch(() => null)) as
-        | { ok?: boolean; isComplete?: boolean; userId?: string }
-        | null;
+      const payload = (await response.json().catch(() => null)) as ProfileStatusPayload | null;
       if (!mountedRef.current) return;
 
       if (
@@ -181,12 +206,22 @@ export function FeedbackThread({
       ) {
         setIsAuthenticated(false);
         setIsProfileComplete(false);
+        setIsBlocked(false);
+        setBlockedUntil(null);
+        setBlockedReason(null);
         setIsAuthLoading(false);
         return;
       }
 
       setIsAuthenticated(true);
       setIsProfileComplete(payload.isComplete === true);
+      setIsBlocked(payload.isBlocked === true);
+      setBlockedUntil(typeof payload.blockedUntil === "string" ? payload.blockedUntil : null);
+      setBlockedReason(
+        typeof payload.blockedReason === "string" && payload.blockedReason.trim().length > 0
+          ? payload.blockedReason.trim()
+          : null
+      );
       setIsAuthLoading(false);
     })();
 
@@ -258,6 +293,23 @@ export function FeedbackThread({
     return grouped.filter((thread) => !isCitizenRoot(thread));
   }, [items, rootFilter]);
 
+  React.useEffect(() => {
+    if (isBlocked) {
+      setReplyComposer(null);
+    }
+  }, [isBlocked]);
+
+  const blockedNotice = React.useMemo(() => {
+    if (!isAuthenticated || !isBlocked) return null;
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <p className="font-semibold">Your account is temporarily blocked from posting feedback.</p>
+        <p className="mt-1">Blocked until: {formatBlockedUntilLabel(blockedUntil)}</p>
+        <p className="mt-1">Reason: {blockedReason ?? "Policy violation"}</p>
+      </div>
+    );
+  }, [blockedReason, blockedUntil, isAuthenticated, isBlocked]);
+
   const handleReplyClick = React.useCallback(
     (item: ProjectFeedbackItem) => {
       if (readOnly) {
@@ -293,6 +345,7 @@ export function FeedbackThread({
         projectId,
         parentFeedbackId: null,
         kind: input.kind,
+        isHidden: false,
         body: input.body,
         createdAt: new Date().toISOString(),
         author: {
@@ -351,6 +404,7 @@ export function FeedbackThread({
         projectId,
         parentFeedbackId: replyComposer.rootId,
         kind: input.kind,
+        isHidden: false,
         body: input.body,
         createdAt: new Date().toISOString(),
         author: {
@@ -401,7 +455,7 @@ export function FeedbackThread({
               <p className="text-sm text-slate-500">{description}</p>
             </div>
 
-            {!readOnly && (!isAuthenticated || !isProfileComplete) ? (
+            {!readOnly && !isBlocked && (!isAuthenticated || !isProfileComplete) ? (
               <Button
                 type="button"
                 onClick={() => {
@@ -419,7 +473,11 @@ export function FeedbackThread({
             ) : null}
           </div>
 
-          {!readOnly && isAuthenticated && isProfileComplete ? (
+          {!readOnly && isAuthenticated && isBlocked ? (
+            <div className="mt-4">{blockedNotice}</div>
+          ) : null}
+
+          {!readOnly && isAuthenticated && isProfileComplete && !isBlocked ? (
             <div className="mt-4">
               <FeedbackComposer
                 submitLabel={isPostingRoot ? "Posting..." : "Post feedback"}
@@ -452,8 +510,8 @@ export function FeedbackThread({
                 <FeedbackCard
                   item={thread.root}
                   onReply={handleReplyClick}
-                  replyDisabled={readOnly || isPostingReply || isPostingRoot || isAuthLoading}
-                  hideReplyButton={readOnly}
+                  replyDisabled={readOnly || isBlocked || isPostingReply || isPostingRoot || isAuthLoading}
+                  hideReplyButton={readOnly || isBlocked}
                 />
 
                 {thread.replies.length > 0 ? (
@@ -464,16 +522,16 @@ export function FeedbackThread({
                         item={reply}
                         onReply={handleReplyClick}
                         replyDisabled={
-                          readOnly || isPostingReply || isPostingRoot || isAuthLoading
+                          readOnly || isBlocked || isPostingReply || isPostingRoot || isAuthLoading
                         }
-                        hideReplyButton={readOnly}
+                        hideReplyButton={readOnly || isBlocked}
                         isReply
                       />
                     ))}
                   </div>
                 ) : null}
 
-                {isReplyingHere && !readOnly ? (
+                {isReplyingHere && !readOnly && !isBlocked ? (
                   <div className="ml-4 space-y-2 border-l border-slate-200 pl-4">
                     <p className="text-xs text-slate-500">
                       Replying to {replyComposer.replyToAuthor}

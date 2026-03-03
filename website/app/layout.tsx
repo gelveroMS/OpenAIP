@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Arimo, Arsenal_SC, Baskervville_SC, Geist_Mono, Inter } from "next/font/google";
 import "./globals.css";
 import "leaflet/dist/leaflet.css";
+import SessionTimeoutGuard from "@/components/security/session-timeout-guard";
+import GlobalSystemBanner from "@/components/system/global-system-banner";
 
 const arimo = Arimo({
   variable: "--font-arimo",
@@ -45,6 +47,8 @@ export default function RootLayout({
       <body
         className={`${arimo.variable} ${geistMono.variable} ${arsenalSc.variable} ${baskervvilleSc.variable} ${inter.variable} antialiased`}
       >
+        <GlobalSystemBanner />
+        <SessionTimeoutGuard />
         {children}
       </body>
     </html>

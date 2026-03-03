@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -30,8 +30,15 @@ export default function ChatbotRateLimitsCard({
     policy?.timeWindow ?? "per_hour"
   );
   const [saved, setSaved] = useState(false);
+  const isValid = Number.isFinite(maxRequests) && maxRequests >= 1;
+  const hasChanges = useMemo(() => {
+    if (!policy) return false;
+    return policy.maxRequests !== maxRequests || policy.timeWindow !== timeWindow;
+  }, [maxRequests, policy, timeWindow]);
+  const canSave = !loading && isValid && hasChanges;
 
   const handleSave = async () => {
+    if (!canSave) return;
     await onSave({ maxRequests, timeWindow });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -60,7 +67,10 @@ export default function ChatbotRateLimitsCard({
               type="number"
               min={1}
               value={maxRequests}
-              onChange={(e) => setMaxRequests(Number(e.target.value))}
+              onChange={(e) => {
+                const parsed = Number.parseInt(e.target.value, 10);
+                setMaxRequests(Number.isFinite(parsed) ? parsed : 0);
+              }}
               className="h-10"
               disabled={loading}
             />
@@ -94,7 +104,7 @@ export default function ChatbotRateLimitsCard({
           <Button
             className="bg-[#0E5D6F] text-white hover:bg-[#0E5D6F]/90"
             onClick={handleSave}
-            disabled={loading}
+            disabled={!canSave}
           >
             Save Chatbot Rate Limits
           </Button>

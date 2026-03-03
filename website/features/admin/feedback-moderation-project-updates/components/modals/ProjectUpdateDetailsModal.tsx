@@ -26,9 +26,7 @@ export default function ProjectUpdateDetailsModal({
 
         <div className="space-y-4 text-[13.5px] text-slate-700">
           <div>
-            <div className="text-base font-semibold text-slate-900">
-              {details.projectTitle}
-            </div>
+            <div className="text-base font-semibold text-slate-900">{details.projectTitle}</div>
             <div className="text-sm text-slate-500">{details.lguName}</div>
           </div>
 
@@ -46,18 +44,16 @@ export default function ProjectUpdateDetailsModal({
                 <div className="mt-2 text-sm text-slate-600">{details.updateContent}</div>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2 text-sm text-slate-600">
+              <div className="grid gap-4 text-sm text-slate-600 sm:grid-cols-2">
                 <div>
                   <div className="text-xs text-slate-500">Progress Percentage</div>
                   <div className="font-medium text-slate-900">
-                    {details.progressPercent ?? "—"}%
+                    {details.progressPercent ?? "\u2014"}%
                   </div>
                 </div>
                 <div>
                   <div className="text-xs text-slate-500">Attendance Count</div>
-                  <div className="font-medium text-slate-900">
-                    {details.attendanceCount ?? "—"}
-                  </div>
+                  <div className="font-medium text-slate-900">{details.attendanceCount ?? "\u2014"}</div>
                 </div>
               </div>
 
@@ -95,17 +91,19 @@ export default function ProjectUpdateDetailsModal({
             </div>
           </div>
 
-          {details.status === "Removed" && (
+          {details.status === "Hidden" ? (
             <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
-              <div className="font-semibold text-rose-800">Content Removed</div>
-              <div className="mt-1">
-                Reason: {details.removedReason ?? "Policy violation."}
-              </div>
+              <div className="font-semibold text-rose-800">Content Hidden</div>
+              <div className="mt-1">Reason: {details.hiddenReason ?? "Policy violation."}</div>
+              {details.violationCategory ? (
+                <div className="mt-1">Violation Category: {details.violationCategory}</div>
+              ) : null}
             </div>
-          )}
+          ) : null}
 
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
-            Audit Logging: All actions performed on this workflow case are automatically logged with timestamps, user information, and justification for compliance purposes.
+            Audit Logging: All actions performed on this workflow case are automatically logged with
+            timestamps, user information, and justification for compliance purposes.
           </div>
         </div>
       </DialogContent>

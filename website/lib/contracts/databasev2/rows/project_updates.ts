@@ -1,6 +1,6 @@
 import type { ISODateTime, UUID } from "../primitives";
 
-export type ProjectUpdateStatus = "active" | "flagged" | "removed";
+export type ProjectUpdateStatus = "active" | "hidden";
 
 export type ProjectUpdateRow = {
   id: UUID;
@@ -13,6 +13,10 @@ export type ProjectUpdateRow = {
   attendance_count: number | null;
   posted_by: UUID;
   status: ProjectUpdateStatus;
+  hidden_reason: string | null;
+  hidden_violation_category: string | null;
+  hidden_at: ISODateTime | null;
+  hidden_by: UUID | null;
 
   created_at: ISODateTime;
   updated_at: ISODateTime;

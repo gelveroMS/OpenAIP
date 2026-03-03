@@ -136,75 +136,98 @@ export default function UpdatesTimelineView({
       <h2 className="text-base font-semibold text-slate-900">Updates Timeline</h2>
 
       <div className="space-y-4">
-        {updates.map((u, idx) => (
-          <Card key={u.id} className="border-slate-200 shadow-sm">
-            <CardContent className="p-4 sm:p-5">
-              <div className="flex items-start gap-3">
-                <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#022437] text-sm font-semibold text-white">
-                  {idx + 1}
-                </div>
+        {updates.map((u, idx) => {
+          if (u.isHidden && u.isRedacted) {
+            return (
+              <Card key={u.id} className="border-slate-300 bg-slate-50/80 shadow-sm">
+                <CardContent className="p-4 sm:p-5">
+                  <p className="whitespace-pre-wrap text-sm italic leading-6 text-slate-600">
+                    {u.description}
+                  </p>
+                </CardContent>
+              </Card>
+            );
+          }
 
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div
-                        title={u.title}
-                        className="truncate text-base font-semibold text-slate-900"
-                      >
-                        {u.title}
+          return (
+            <Card key={u.id} className="border-slate-200 shadow-sm">
+              <CardContent className="p-4 sm:p-5">
+                <div className="flex items-start gap-3">
+                  <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#022437] text-sm font-semibold text-white">
+                    {idx + 1}
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div title={u.title} className="truncate text-base font-semibold text-slate-900">
+                          {u.title}
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
+                          <CalendarDays className="h-4 w-4 text-slate-400" />
+                          <span>{u.date}</span>
+                          {u.attendanceCount !== undefined ? (
+                            <>
+                              <span aria-hidden="true" className="text-slate-300">
+                                &bull;
+                              </span>
+                              <span>{u.attendanceCount.toLocaleString()} participants</span>
+                            </>
+                          ) : null}
+                        </div>
                       </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
-                        <CalendarDays className="h-4 w-4 text-slate-400" />
-                        <span>{u.date}</span>
-                        {u.attendanceCount !== undefined ? (
-                          <>
-                            <span aria-hidden="true" className="text-slate-300">
-                              &bull;
-                            </span>
-                            <span>{u.attendanceCount.toLocaleString()} participants</span>
-                          </>
+
+                      <div className="flex shrink-0 flex-col items-end gap-2">
+                        <Badge
+                          variant="outline"
+                          className="rounded-full border-emerald-200 bg-emerald-50 text-emerald-700"
+                        >
+                          {u.progressPercent}% Complete
+                        </Badge>
+                        {u.isHidden ? (
+                          <Badge
+                            variant="outline"
+                            className="rounded-full border-rose-200 bg-rose-50 text-rose-700"
+                          >
+                            Hidden
+                          </Badge>
                         ) : null}
                       </div>
                     </div>
 
-                    <Badge
-                      variant="outline"
-                      className="shrink-0 rounded-full border-emerald-200 bg-emerald-50 text-emerald-700"
-                    >
-                      {u.progressPercent}% Complete
-                    </Badge>
-                  </div>
+                    <p className="mt-3 line-clamp-4 text-sm leading-6 text-slate-600">{u.description}</p>
 
-                  <p className="mt-3 line-clamp-4 text-sm leading-6 text-slate-600">
-                    {u.description}
-                  </p>
+                    {u.isHidden && (u.hiddenReason || u.violationCategory) ? (
+                      <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+                        {u.hiddenReason ? <div>Reason: {u.hiddenReason}</div> : null}
+                        {u.violationCategory ? <div>Violation Category: {u.violationCategory}</div> : null}
+                      </div>
+                    ) : null}
 
-                  {u.photoUrls?.length ? (
-                    <div className="mt-4">
-                      {u.photoUrls.length === 1 ? (
-                        <div className="flex justify-center">
-                          <button
-                            type="button"
-                            aria-label="Open update image 1 of 1"
-                            className="group relative w-[92%] max-w-full cursor-zoom-in overflow-hidden rounded-xl border border-slate-200 bg-slate-50 sm:w-[85%] md:w-[420px]"
-                            onClick={() => openViewer(u.id, u.photoUrls ?? [], 0)}
-                          >
-                            <div className="relative h-[240px] max-h-[420px] sm:h-[300px] md:h-[320px]">
-                              <Image
-                                src={u.photoUrls[0] ?? ""}
-                                alt="Update image 1"
-                                fill
-                                className="object-cover transition duration-200 group-hover:scale-[1.02] group-hover:brightness-95"
-                                sizes="(max-width: 640px) 92vw, (max-width: 768px) 85vw, 420px"
-                              />
-                            </div>
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex flex-wrap justify-center gap-3">
-                          {u.photoUrls
-                            .slice(0, MAX_VISIBLE_MEDIA)
-                            .map((src: string, photoIndex, visiblePhotos) => {
+                    {u.photoUrls?.length ? (
+                      <div className="mt-4">
+                        {u.photoUrls.length === 1 ? (
+                          <div className="flex justify-center">
+                            <button
+                              type="button"
+                              aria-label="Open update image 1 of 1"
+                              className="group relative w-[92%] max-w-full cursor-zoom-in overflow-hidden rounded-xl border border-slate-200 bg-slate-50 sm:w-[85%] md:w-[420px]"
+                              onClick={() => openViewer(u.id, u.photoUrls ?? [], 0)}
+                            >
+                              <div className="relative h-[240px] max-h-[420px] sm:h-[300px] md:h-[320px]">
+                                <Image
+                                  src={u.photoUrls[0] ?? ""}
+                                  alt="Update image 1"
+                                  fill
+                                  className="object-cover transition duration-200 group-hover:scale-[1.02] group-hover:brightness-95"
+                                  sizes="(max-width: 640px) 92vw, (max-width: 768px) 85vw, 420px"
+                                />
+                              </div>
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap justify-center gap-3">
+                            {u.photoUrls.slice(0, MAX_VISIBLE_MEDIA).map((src: string, photoIndex, visiblePhotos) => {
                               const hiddenCount = u.photoUrls
                                 ? Math.max(0, u.photoUrls.length - visiblePhotos.length)
                                 : 0;
@@ -234,15 +257,16 @@ export default function UpdatesTimelineView({
                                 </button>
                               );
                             })}
-                        </div>
-                      )}
-                    </div>
-                  ) : null}
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+              </CardContent>
+            </Card>
+          );
+        })}
 
         {!updates.length ? (
           <div className="text-sm text-slate-500">No updates yet.</div>

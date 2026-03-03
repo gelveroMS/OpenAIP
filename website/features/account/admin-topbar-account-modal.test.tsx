@@ -8,6 +8,10 @@ vi.mock("@/features/account/AdminAccountModal", () => ({
   ),
 }));
 
+vi.mock("@/features/notifications/components/notifications-bell", () => ({
+  default: () => <div data-testid="notifications-bell" />,
+}));
+
 describe("AdminTopbar account icon", () => {
   it("opens the account modal when the top-right account icon is clicked", () => {
     render(

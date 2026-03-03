@@ -23,8 +23,8 @@ const GUIDELINES = [
 ];
 
 const ACTIONS = [
-  "Remove if content clearly violates privacy or contains sensitive data",
-  "Flag if content requires official review or unclear policy violation",
+  "Hide if content clearly violates privacy or contains sensitive data",
+  "Unhide once compliance issues are resolved and restoration is approved",
 ];
 
 export default function SensitiveGuidelinesPanel() {

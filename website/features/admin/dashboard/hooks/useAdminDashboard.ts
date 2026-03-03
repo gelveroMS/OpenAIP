@@ -1,10 +1,13 @@
 "use client";
 
 import { useMemo } from "react";
-import { useAdminDashboardData } from "./useAdminDashboardData";
+import {
+  useAdminDashboardData,
+  type AdminDashboardInitialData,
+} from "./useAdminDashboardData";
 import { mapAdminDashboardToVM } from "@/lib/mappers/dashboard/admin";
 
-export function useAdminDashboard() {
+export function useAdminDashboard(initial?: AdminDashboardInitialData) {
   const {
     filters,
     setFilters,
@@ -17,7 +20,7 @@ export function useAdminDashboard() {
     loading,
     error,
     createDefaultFilters,
-  } = useAdminDashboardData();
+  } = useAdminDashboardData(initial);
 
   const viewModel = useMemo(
     () =>
@@ -50,5 +53,6 @@ export function useAdminDashboard() {
     loading,
     error,
     handleReset,
+    createDefaultFilters,
   };
 }

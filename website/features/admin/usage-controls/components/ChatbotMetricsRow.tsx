@@ -7,6 +7,7 @@ import type { ChatbotMetrics } from "@/lib/repos/usage-controls/types";
 const formatNumber = (value: number) => value.toLocaleString("en-US");
 
 const formatPercent = (value: number) => `${value.toFixed(2)}%`;
+const shouldShowTrend = (value: number) => Number(value.toFixed(1)) !== 100;
 
 const trendStyle = (value: number) =>
   value >= 0
@@ -52,10 +53,14 @@ export default function ChatbotMetricsRow({
               </div>
               <div className="text-xs">Total Requests</div>
             </div>
-            <div className={`flex items-center gap-1 rounded-full px-2 py-1 text-[11px] ${trendStyle(metrics.trendTotalRequestsPct)}`}>
-              {trendIcon(metrics.trendTotalRequestsPct)}
-              {metrics.trendTotalRequestsPct.toFixed(1)}%
-            </div>
+            {shouldShowTrend(metrics.trendTotalRequestsPct) && (
+              <div
+                className={`flex items-center gap-1 rounded-full px-2 py-1 text-[11px] ${trendStyle(metrics.trendTotalRequestsPct)}`}
+              >
+                {trendIcon(metrics.trendTotalRequestsPct)}
+                {metrics.trendTotalRequestsPct.toFixed(1)}%
+              </div>
+            )}
           </div>
           <div className="mt-3 text-2xl font-semibold text-slate-900">
             {formatNumber(metrics.totalRequests)}
@@ -75,10 +80,14 @@ export default function ChatbotMetricsRow({
               </div>
               <div className="text-xs">Error Rate</div>
             </div>
-            <div className={`flex items-center gap-1 rounded-full px-2 py-1 text-[11px] ${trendStyle(metrics.trendErrorRatePct)}`}>
-              {trendIcon(metrics.trendErrorRatePct)}
-              {metrics.trendErrorRatePct.toFixed(1)}%
-            </div>
+            {shouldShowTrend(metrics.trendErrorRatePct) && (
+              <div
+                className={`flex items-center gap-1 rounded-full px-2 py-1 text-[11px] ${trendStyle(metrics.trendErrorRatePct)}`}
+              >
+                {trendIcon(metrics.trendErrorRatePct)}
+                {metrics.trendErrorRatePct.toFixed(1)}%
+              </div>
+            )}
           </div>
           <div className="mt-3 text-2xl font-semibold text-slate-900">
             {formatPercent(metrics.errorRate * 100)}
@@ -96,10 +105,14 @@ export default function ChatbotMetricsRow({
               </div>
               <div className="text-xs">Avg Daily Requests</div>
             </div>
-            <div className={`flex items-center gap-1 rounded-full px-2 py-1 text-[11px] ${trendStyle(metrics.trendAvgDailyPct)}`}>
-              {trendIcon(metrics.trendAvgDailyPct)}
-              {metrics.trendAvgDailyPct.toFixed(1)}%
-            </div>
+            {shouldShowTrend(metrics.trendAvgDailyPct) && (
+              <div
+                className={`flex items-center gap-1 rounded-full px-2 py-1 text-[11px] ${trendStyle(metrics.trendAvgDailyPct)}`}
+              >
+                {trendIcon(metrics.trendAvgDailyPct)}
+                {metrics.trendAvgDailyPct.toFixed(1)}%
+              </div>
+            )}
           </div>
           <div className="mt-3 text-2xl font-semibold text-slate-900">
             {Math.round(metrics.avgDailyRequests)}

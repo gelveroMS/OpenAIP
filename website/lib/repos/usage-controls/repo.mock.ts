@@ -1,12 +1,11 @@
 import { PLATFORM_CONTROLS_DATASET } from "@/mocks/fixtures/admin/usage-controls/platformControls.mock";
-import { CHAT_MESSAGES_FIXTURE } from "@/mocks/fixtures/chat/chat.fixture";
-import type { ActivityLogRow, ChatMessageRow } from "@/lib/contracts/databasev2";
+import type { ActivityLogRow } from "@/lib/contracts/databasev2";
+import type { BlockedUsersSetting } from "@/lib/settings/app-settings";
 import type { PlatformControlsDataset, UsageControlsRepo } from "./types";
 import {
   deriveRateLimitSettings,
   deriveChatbotMetrics,
   deriveChatbotRateLimitPolicy,
-  deriveChatbotSystemPolicy,
   mapFlaggedUsers,
   mapUserAuditHistory,
 } from "./mappers/usage-controls.mapper";
@@ -24,21 +23,13 @@ const cloneDataset = (dataset: PlatformControlsDataset): PlatformControlsDataset
   profiles: dataset.profiles.map((row) => ({ ...row })),
   feedback: dataset.feedback.map((row) => ({ ...row })),
   activity: dataset.activity.map((row) => ({ ...row })),
+  chatMessages: dataset.chatMessages.map((row) => ({ ...row })),
+  chatRateEvents: dataset.chatRateEvents.map((row) => ({ ...row })),
 });
 
 const createStore = () => cloneDataset(PLATFORM_CONTROLS_DATASET);
 
 const store = createStore();
-
-const CHAT_MESSAGE_ROWS: ChatMessageRow[] = CHAT_MESSAGES_FIXTURE.map((row) => ({
-  id: row.id,
-  session_id: row.sessionId,
-  role: row.role,
-  content: row.content,
-  citations: null,
-  retrieval_meta: null,
-  created_at: row.createdAt,
-}));
 
 const appendActivity = (input: ActivityLogRow) => {
   store.activity = [...store.activity, input];
@@ -48,6 +39,38 @@ const deriveBlockedUntil = (durationValue: number, durationUnit: "days" | "weeks
   const days = durationUnit === "weeks" ? durationValue * 7 : durationValue;
   const blockedUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
   return blockedUntil.toISOString().slice(0, 10);
+};
+
+const getMetadataString = (metadata: unknown, key: string): string | null => {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
+  const value = (metadata as Record<string, unknown>)[key];
+  return typeof value === "string" ? value : null;
+};
+
+const deriveBlockedUsersFromActivity = (activity: ActivityLogRow[]): BlockedUsersSetting => {
+  const profileLogs = activity
+    .filter((row) => row.entity_table === "profiles" && row.entity_id)
+    .slice()
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  const blockedUsers: BlockedUsersSetting = {};
+  const seen = new Set<string>();
+  for (const row of profileLogs) {
+    const entityId = row.entity_id;
+    if (!entityId || seen.has(entityId)) continue;
+    seen.add(entityId);
+
+    if (row.action !== "user_blocked") continue;
+    const blockedUntil = getMetadataString(row.metadata, "blocked_until");
+    if (!blockedUntil) continue;
+    blockedUsers[entityId] = {
+      blockedUntil,
+      reason: getMetadataString(row.metadata, "reason") ?? "Policy violation",
+      updatedAt: row.created_at,
+      updatedBy: getMetadataString(row.metadata, "actor_name"),
+    };
+  }
+  return blockedUsers;
 };
 
 export function createMockUsageControlsRepo(): UsageControlsRepo {
@@ -78,10 +101,18 @@ export function createMockUsageControlsRepo(): UsageControlsRepo {
       return deriveRateLimitSettings(store.activity);
     },
     async listFlaggedUsers() {
-      return mapFlaggedUsers(store);
+      return mapFlaggedUsers({
+        ...store,
+        blockedUsers: deriveBlockedUsersFromActivity(store.activity),
+      });
     },
-    async getChatbotMetrics() {
-      return deriveChatbotMetrics(CHAT_MESSAGE_ROWS);
+    async getChatbotMetrics(input) {
+      return deriveChatbotMetrics({
+        chatMessages: store.chatMessages,
+        chatRateEvents: store.chatRateEvents,
+        dateFrom: input?.dateFrom,
+        dateTo: input?.dateTo,
+      });
     },
     async getChatbotRateLimitPolicy() {
       return deriveChatbotRateLimitPolicy(store.activity);
@@ -108,34 +139,22 @@ export function createMockUsageControlsRepo(): UsageControlsRepo {
       });
       return deriveChatbotRateLimitPolicy(store.activity);
     },
-    async getChatbotSystemPolicy() {
-      return deriveChatbotSystemPolicy(store.activity);
-    },
-    async updateChatbotSystemPolicy(input) {
-      appendActivity({
-        id: createId("activity"),
-        actor_id: "admin_001",
-        actor_role: "admin",
-        action: "chatbot_policy_updated",
-        entity_table: null,
-        entity_id: null,
-        region_id: null,
-        province_id: null,
-        city_id: null,
-        municipality_id: null,
-        barangay_id: null,
-        metadata: {
-          is_enabled: input.isEnabled,
-          retention_days: input.retentionDays,
-          user_disclaimer: input.userDisclaimer,
-          actor_name: "Admin Maria Rodriguez",
-        },
-        created_at: nowIso(),
+    async getUserAuditHistory(input) {
+      const offset = Math.max(0, input.offset ?? 0);
+      const limit = Math.min(50, Math.max(1, input.limit ?? 2));
+      const allEntries = mapUserAuditHistory({
+        userId: input.userId,
+        feedback: store.feedback,
+        activity: store.activity,
       });
-      return deriveChatbotSystemPolicy(store.activity);
-    },
-    async getUserAuditHistory(userId) {
-      return mapUserAuditHistory({ userId, feedback: store.feedback, activity: store.activity });
+
+      return {
+        entries: allEntries.slice(offset, offset + limit),
+        total: allEntries.length,
+        offset,
+        limit,
+        hasNext: offset + limit < allEntries.length,
+      };
     },
     async temporarilyBlockUser(input) {
       appendActivity({

@@ -15,6 +15,8 @@ const mockAppendUserMessage = vi.fn();
 const mockConsumeQuotaRpc = vi.fn();
 const mockMatchLineItemsRpc = vi.fn();
 const mockConsoleInfo = vi.spyOn(console, "info").mockImplementation(() => {});
+const mockGetTypedAppSetting = vi.fn();
+const mockIsUserBlocked = vi.fn();
 
 type StoredAssistantRow = {
   id: string;
@@ -227,6 +229,11 @@ vi.mock("@/lib/supabase/admin", () => ({
   supabaseAdmin: () => mockSupabaseAdmin(),
 }));
 
+vi.mock("@/lib/settings/app-settings", () => ({
+  getTypedAppSetting: (...args: unknown[]) => mockGetTypedAppSetting(...args),
+  isUserBlocked: (...args: unknown[]) => mockIsUserBlocked(...args),
+}));
+
 vi.mock("@/lib/chat/totals-sql-routing", () => ({
   routeSqlFirstTotals: (...args: unknown[]) => mockRouteSqlFirstTotals(...args),
   buildTotalsMissingMessage: () => "Totals missing.",
@@ -251,6 +258,7 @@ async function callMessagesRoute(input: { sessionId?: string; content: string })
     method: "POST",
     headers: {
       "content-type": "application/json",
+      origin: "http://localhost",
     },
     body: JSON.stringify(input),
   });
@@ -291,6 +299,8 @@ describe("chat messages clarification state machine", () => {
     mockGetActorContext.mockReset();
     mockSupabaseServer.mockReset();
     mockSupabaseAdmin.mockReset();
+    mockGetTypedAppSetting.mockReset();
+    mockIsUserBlocked.mockReset();
     mockRouteSqlFirstTotals.mockReset();
     routePostHandler = null;
     mockRequestPipelineIntentClassify.mockResolvedValue({
@@ -413,6 +423,11 @@ describe("chat messages clarification state machine", () => {
 
     mockSupabaseServer.mockResolvedValue(createServerClient());
     mockSupabaseAdmin.mockImplementation(() => createAdminClient());
+    mockGetTypedAppSetting.mockResolvedValue({
+      maxRequests: 20,
+      timeWindow: "per_hour",
+    });
+    mockIsUserBlocked.mockResolvedValue(false);
 
     mockRequestPipelineQueryEmbedding.mockResolvedValue({
       embedding: [0.1, 0.2, 0.3],

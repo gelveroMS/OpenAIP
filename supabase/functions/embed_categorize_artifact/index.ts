@@ -7,9 +7,21 @@ const MAX_TARGET_TOKENS = 800;
 const GROUP_TARGET_TOKENS = 700;
 const EMBED_RUN_ERROR_CODE = "EMBED_CATEGORIZE_FAILED";
 const SKIP_NO_ARTIFACT_MESSAGE = "No categorize artifact; skipping.";
+const MAX_CLOCK_SKEW_SECONDS = 60;
+const DEFAULT_JOB_AUDIENCE = "embed-categorize-dispatcher";
+const DEFAULT_NONCE_TTL_SECONDS = 120;
+const DEFAULT_DEDUPE_TTL_SECONDS = 300;
+
+// Process-local cache only. Multi-instance deployments need shared KV (Redis/DB)
+// for strong replay and idempotency guarantees.
+const NONCE_CACHE = new Map<string, number>();
+const JOB_RESULT_CACHE = new Map<string, { expiresAt: number; response: Record<string, unknown> }>();
+const JOB_INFLIGHT_CACHE = new Map<string, number>();
 
 type PublishPayload = {
   aip_id?: string;
+  request_id?: string | null;
+  artifact_id?: string | null;
   published_at?: string | null;
   fiscal_year?: number | null;
   scope_type?: "barangay" | "city" | "municipality" | string | null;
@@ -95,6 +107,74 @@ function nowIso(): string {
 
 function elapsedMs(startedAtMs: number): number {
   return Date.now() - startedAtMs;
+}
+
+function readIntEnv(name: string, fallback: number): number {
+  const raw = Deno.env.get(name);
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw.trim(), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
+function pruneNonceCache(nowMs: number): void {
+  for (const [key, expiresAtMs] of NONCE_CACHE.entries()) {
+    if (expiresAtMs <= nowMs) NONCE_CACHE.delete(key);
+  }
+}
+
+function pruneJobCaches(nowMs: number): void {
+  for (const [key, value] of JOB_RESULT_CACHE.entries()) {
+    if (value.expiresAt <= nowMs) JOB_RESULT_CACHE.delete(key);
+  }
+  for (const [key, expiresAtMs] of JOB_INFLIGHT_CACHE.entries()) {
+    if (expiresAtMs <= nowMs) JOB_INFLIGHT_CACHE.delete(key);
+  }
+}
+
+function hexToBytes(hex: string): Uint8Array | null {
+  if (!/^[0-9a-fA-F]+$/.test(hex) || hex.length % 2 !== 0) return null;
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2) {
+    const byte = Number.parseInt(hex.slice(i, i + 2), 16);
+    if (!Number.isFinite(byte)) return null;
+    out[i / 2] = byte;
+  }
+  return out;
+}
+
+function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
+  const len = Math.max(a.length, b.length);
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < len; i += 1) {
+    diff |= (a[i] ?? 0) ^ (b[i] ?? 0);
+  }
+  return diff === 0;
+}
+
+async function hmacSha256(secret: string, payload: string): Promise<Uint8Array> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(payload));
+  return new Uint8Array(signature);
+}
+
+function buildCanonical(aud: string, ts: string, nonce: string, rawBody: string): string {
+  return `${aud}|${ts}|${nonce}|${rawBody}`;
+}
+
+function resolveJobKey(payload: PublishPayload): string | null {
+  const artifactId = normalizeString(payload.artifact_id, "");
+  if (artifactId) return `artifact:${artifactId}`;
+  const requestId = normalizeString(payload.request_id, "");
+  if (requestId) return `request:${requestId}`;
+  return null;
 }
 
 function logEvent(
@@ -790,31 +870,170 @@ export async function handleRequest(request: Request): Promise<Response> {
     return json(405, { error: "Method not allowed. Use POST." });
   }
 
+  const startedAtMs = Date.now();
+  const nonceTtlMs = readIntEnv("EMBED_CATEGORIZE_NONCE_TTL_SECONDS", DEFAULT_NONCE_TTL_SECONDS) * 1000;
+  const dedupeTtlMs = readIntEnv("EMBED_CATEGORIZE_DEDUPE_TTL_SECONDS", DEFAULT_DEDUPE_TTL_SECONDS) * 1000;
+  const audience =
+    normalizeString(Deno.env.get("EMBED_CATEGORIZE_JOB_AUDIENCE"), DEFAULT_JOB_AUDIENCE) ||
+    DEFAULT_JOB_AUDIENCE;
   const expectedSecret = Deno.env.get("EMBED_CATEGORIZE_JOB_SECRET") ?? "";
-  const providedSecret = request.headers.get("x-job-secret") ?? "";
-  if (!expectedSecret || providedSecret !== expectedSecret) {
+
+  let payload: PublishPayload;
+  let requestId: string | null = null;
+  let requestArtifactId: string | null = null;
+  let loggedArtifactId: string | null = null;
+  let aipId = "";
+  let jobKey: string | null = null;
+
+  const logWithContext = (event: string, payloadFields: Record<string, unknown>): void => {
+    logEvent(event, {
+      request_id: requestId,
+      artifact_id: loggedArtifactId ?? requestArtifactId,
+      ...payloadFields,
+    });
+  };
+
+  const rawBody = await request.text();
+  const ts = normalizeString(request.headers.get("x-job-ts"), "");
+  const nonce = normalizeString(request.headers.get("x-job-nonce"), "");
+  const providedSigHex = normalizeString(request.headers.get("x-job-sig"), "").toLowerCase();
+
+  if (!expectedSecret || !ts || !nonce || !providedSigHex) {
+    logWithContext("embed_categorize.auth.failed", {
+      reason: !expectedSecret ? "missing_server_secret_or_header" : "missing_header",
+      elapsed_ms: elapsedMs(startedAtMs),
+    });
     return json(401, { error: "Unauthorized." });
   }
 
-  let payload: PublishPayload;
+  if (!/^\d+$/.test(ts)) {
+    logWithContext("embed_categorize.auth.failed", {
+      reason: "invalid_timestamp",
+      elapsed_ms: elapsedMs(startedAtMs),
+    });
+    return json(401, { error: "Unauthorized." });
+  }
+  const tsSeconds = Number.parseInt(ts, 10);
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (Math.abs(nowSeconds - tsSeconds) > MAX_CLOCK_SKEW_SECONDS) {
+    logWithContext("embed_categorize.auth.failed", {
+      reason: "stale_timestamp",
+      elapsed_ms: elapsedMs(startedAtMs),
+    });
+    return json(401, { error: "Unauthorized." });
+  }
+
+  const providedSig = hexToBytes(providedSigHex);
+  if (!providedSig) {
+    logWithContext("embed_categorize.auth.failed", {
+      reason: "invalid_signature_format",
+      elapsed_ms: elapsedMs(startedAtMs),
+    });
+    return json(401, { error: "Unauthorized." });
+  }
+
+  const canonical = buildCanonical(audience, ts, nonce, rawBody);
+  const expectedSig = await hmacSha256(expectedSecret, canonical);
+  if (!constantTimeEqual(providedSig, expectedSig)) {
+    logWithContext("embed_categorize.auth.failed", {
+      reason: "invalid_signature",
+      elapsed_ms: elapsedMs(startedAtMs),
+    });
+    return json(401, { error: "Unauthorized." });
+  }
+
+  const nonceKey = `${audience}|${nonce}`;
+  const nowMsForNonce = Date.now();
+  pruneNonceCache(nowMsForNonce);
+  const replayedNonce = NONCE_CACHE.get(nonceKey);
+  if (replayedNonce && replayedNonce > nowMsForNonce) {
+    logWithContext("embed_categorize.replay.rejected", {
+      nonce,
+      elapsed_ms: elapsedMs(startedAtMs),
+    });
+    return json(401, { error: "Unauthorized." });
+  }
+  NONCE_CACHE.set(nonceKey, nowMsForNonce + nonceTtlMs);
+
   try {
-    payload = (await request.json()) as PublishPayload;
+    payload = JSON.parse(rawBody) as PublishPayload;
   } catch {
     return json(400, { error: "Invalid JSON payload." });
   }
 
-  const aipId = normalizeString(payload.aip_id, "");
+  requestId = normalizeString(payload.request_id, "") || null;
+  requestArtifactId = normalizeString(payload.artifact_id, "") || null;
+  loggedArtifactId = requestArtifactId;
+  aipId = normalizeString(payload.aip_id, "");
+
   if (!aipId) {
     return json(400, { error: "Missing required field: aip_id." });
   }
+  if (!requestId && !requestArtifactId) {
+    return json(400, { error: "Missing required field: request_id or artifact_id." });
+  }
 
-  const startedAtMs = Date.now();
+  jobKey = resolveJobKey(payload);
+  if (!jobKey) {
+    return json(400, { error: "Missing required field: request_id or artifact_id." });
+  }
+
+  const idempotentResponseBase = {
+    ok: true,
+    idempotent: true,
+    request_id: requestId,
+    artifact_id: requestArtifactId,
+    job_key: jobKey,
+  };
+
+  const nowMsForJobs = Date.now();
+  pruneJobCaches(nowMsForJobs);
+  const cachedResult = JOB_RESULT_CACHE.get(jobKey);
+  if (cachedResult && cachedResult.expiresAt > nowMsForJobs) {
+    logWithContext("embed_categorize.idempotent.hit", {
+      aip_id: aipId,
+      job_key: jobKey,
+      status: "completed",
+      elapsed_ms: elapsedMs(startedAtMs),
+    });
+    return json(200, {
+      ...idempotentResponseBase,
+      status: "completed",
+      result: cachedResult.response,
+    });
+  }
+
+  const inflightUntil = JOB_INFLIGHT_CACHE.get(jobKey);
+  if (inflightUntil && inflightUntil > nowMsForJobs) {
+    logWithContext("embed_categorize.idempotent.hit", {
+      aip_id: aipId,
+      job_key: jobKey,
+      status: "in_progress",
+      elapsed_ms: elapsedMs(startedAtMs),
+    });
+    return json(200, {
+      ...idempotentResponseBase,
+      status: "in_progress",
+    });
+  }
+
+  JOB_INFLIGHT_CACHE.set(jobKey, nowMsForJobs + dedupeTtlMs);
+
+  const cacheJobResult = (response: Record<string, unknown>): void => {
+    if (!jobKey) return;
+    JOB_RESULT_CACHE.set(jobKey, {
+      expiresAt: Date.now() + dedupeTtlMs,
+      response,
+    });
+  };
+
   let supabase: SupabaseClient | null = null;
   let embedRunId: string | null = null;
   let artifactId: string | null = null;
   let artifactRunId: string | null = null;
 
-  logEvent("embed_categorize.request.received", {
+  logWithContext("embed_categorize.request.received", {
     aip_id: aipId,
     fiscal_year: payload.fiscal_year ?? null,
     scope_type: payload.scope_type ?? null,
@@ -828,7 +1047,7 @@ export async function handleRequest(request: Request): Promise<Response> {
     });
 
     embedRunId = await createEmbedRun(supabase, aipId);
-    logEvent("embed_categorize.run.created", {
+    logWithContext("embed_categorize.run.created", {
       aip_id: aipId,
       embed_run_id: embedRunId,
       elapsed_ms: elapsedMs(startedAtMs),
@@ -844,32 +1063,41 @@ export async function handleRequest(request: Request): Promise<Response> {
     const artifact = await selectLatestSucceededCategorizeArtifact(supabase, aipId);
     if (!artifact) {
       await markEmbedRunSucceeded(supabase, embedRunId, SKIP_NO_ARTIFACT_MESSAGE);
-      logEvent("embed_categorize.skipped.no_artifact", {
+      logWithContext("embed_categorize.skipped.no_artifact", {
         aip_id: aipId,
         embed_run_id: embedRunId,
         elapsed_ms: elapsedMs(startedAtMs),
       });
-      return json(202, {
+      const responseBody = {
         message: SKIP_NO_ARTIFACT_MESSAGE,
         aip_id: aipId,
         run_id: embedRunId,
-      });
+        request_id: requestId,
+        artifact_id: requestArtifactId,
+      };
+      cacheJobResult(responseBody);
+      return json(202, responseBody);
     }
 
     artifactId = normalizeString(artifact.id, "");
     artifactRunId = normalizeString(artifact.run_id, "");
+    if (artifactId) loggedArtifactId = artifactId;
     if (!artifactId || !artifactRunId) {
       await markEmbedRunSucceeded(supabase, embedRunId, SKIP_NO_ARTIFACT_MESSAGE);
-      logEvent("embed_categorize.skipped.invalid_artifact_identity", {
+      logWithContext("embed_categorize.skipped.invalid_artifact_identity", {
         aip_id: aipId,
         embed_run_id: embedRunId,
         elapsed_ms: elapsedMs(startedAtMs),
       });
-      return json(202, {
+      const responseBody = {
         message: SKIP_NO_ARTIFACT_MESSAGE,
         aip_id: aipId,
         run_id: embedRunId,
-      });
+        request_id: requestId,
+        artifact_id: requestArtifactId,
+      };
+      cacheJobResult(responseBody);
+      return json(202, responseBody);
     }
 
     await patchEmbedRun(supabase, embedRunId, {
@@ -878,7 +1106,7 @@ export async function handleRequest(request: Request): Promise<Response> {
       progress_message: "Categorize artifact selected.",
       progress_updated_at: nowIso(),
     });
-    logEvent("embed_categorize.artifact.selected", {
+    logWithContext("embed_categorize.artifact.selected", {
       aip_id: aipId,
       embed_run_id: embedRunId,
       artifact_id: artifactId,
@@ -890,18 +1118,22 @@ export async function handleRequest(request: Request): Promise<Response> {
     const projectsRaw = Array.isArray(artifactJson.projects) ? artifactJson.projects : [];
     if (projectsRaw.length === 0) {
       await markEmbedRunSucceeded(supabase, embedRunId, SKIP_NO_ARTIFACT_MESSAGE);
-      logEvent("embed_categorize.skipped.empty_projects", {
+      logWithContext("embed_categorize.skipped.empty_projects", {
         aip_id: aipId,
         embed_run_id: embedRunId,
         artifact_id: artifactId,
         artifact_run_id: artifactRunId,
         elapsed_ms: elapsedMs(startedAtMs),
       });
-      return json(202, {
+      const responseBody = {
         message: SKIP_NO_ARTIFACT_MESSAGE,
         aip_id: aipId,
         run_id: embedRunId,
-      });
+        request_id: requestId,
+        artifact_id: artifactId,
+      };
+      cacheJobResult(responseBody);
+      return json(202, responseBody);
     }
 
     await patchEmbedRun(supabase, embedRunId, {
@@ -935,21 +1167,25 @@ export async function handleRequest(request: Request): Promise<Response> {
 
     if (chunkPlan.length === 0) {
       await markEmbedRunSucceeded(supabase, embedRunId, SKIP_NO_ARTIFACT_MESSAGE);
-      logEvent("embed_categorize.skipped.empty_chunk_plan", {
+      logWithContext("embed_categorize.skipped.empty_chunk_plan", {
         aip_id: aipId,
         embed_run_id: embedRunId,
         artifact_id: artifactId,
         artifact_run_id: artifactRunId,
         elapsed_ms: elapsedMs(startedAtMs),
       });
-      return json(202, {
+      const responseBody = {
         message: SKIP_NO_ARTIFACT_MESSAGE,
         aip_id: aipId,
         run_id: embedRunId,
-      });
+        request_id: requestId,
+        artifact_id: artifactId,
+      };
+      cacheJobResult(responseBody);
+      return json(202, responseBody);
     }
 
-    logEvent("embed_categorize.chunks.planned", {
+    logWithContext("embed_categorize.chunks.planned", {
       aip_id: aipId,
       embed_run_id: embedRunId,
       artifact_id: artifactId,
@@ -980,7 +1216,7 @@ export async function handleRequest(request: Request): Promise<Response> {
     if (chunkUpsertError) {
       throw new Error(`Failed to upsert aip chunks: ${chunkUpsertError.message}`);
     }
-    logEvent("embed_categorize.chunks.upserted", {
+    logWithContext("embed_categorize.chunks.upserted", {
       aip_id: aipId,
       embed_run_id: embedRunId,
       artifact_id: artifactId,
@@ -1009,7 +1245,7 @@ export async function handleRequest(request: Request): Promise<Response> {
       progress_updated_at: nowIso(),
     });
     const embeddingsNew = await insertMissingEmbeddings(supabase, aipId, chunkRows);
-    logEvent("embed_categorize.embeddings.inserted", {
+    logWithContext("embed_categorize.embeddings.inserted", {
       aip_id: aipId,
       embed_run_id: embedRunId,
       artifact_id: artifactId,
@@ -1020,7 +1256,7 @@ export async function handleRequest(request: Request): Promise<Response> {
     });
 
     await markEmbedRunSucceeded(supabase, embedRunId, "Search indexing complete.");
-    logEvent("embed_categorize.completed", {
+    logWithContext("embed_categorize.completed", {
       aip_id: aipId,
       embed_run_id: embedRunId,
       artifact_id: artifactId,
@@ -1031,18 +1267,21 @@ export async function handleRequest(request: Request): Promise<Response> {
       elapsed_ms: elapsedMs(startedAtMs),
     });
 
-    return json(200, {
+    const responseBody = {
       ok: true,
       aip_id: aipId,
       artifact_id: artifactId,
+      request_id: requestId,
       run_id: embedRunId,
       chunks_total: chunkRows.length,
       chunks_new: Math.max(0, chunkRows.length - existingBefore.length),
       embeddings_new: embeddingsNew,
-    });
+    };
+    cacheJobResult(responseBody);
+    return json(200, responseBody);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
-    logEvent("embed_categorize.failed", {
+    logWithContext("embed_categorize.failed", {
       aip_id: aipId,
       embed_run_id: embedRunId,
       artifact_id: artifactId,
@@ -1055,7 +1294,7 @@ export async function handleRequest(request: Request): Promise<Response> {
       try {
         await markEmbedRunFailed(supabase, embedRunId, message);
       } catch (runPatchError) {
-        logEvent("embed_categorize.run_patch_failed", {
+        logWithContext("embed_categorize.run_patch_failed", {
           aip_id: aipId,
           embed_run_id: embedRunId,
           error:
@@ -1067,7 +1306,17 @@ export async function handleRequest(request: Request): Promise<Response> {
       }
     }
 
-    return json(500, { error: message, aip_id: aipId, run_id: embedRunId });
+    return json(500, {
+      error: message,
+      aip_id: aipId,
+      run_id: embedRunId,
+      request_id: requestId,
+      artifact_id: artifactId ?? requestArtifactId,
+    });
+  } finally {
+    if (jobKey) {
+      JOB_INFLIGHT_CACHE.delete(jobKey);
+    }
   }
 }
 

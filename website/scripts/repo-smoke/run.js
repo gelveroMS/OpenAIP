@@ -92,6 +92,9 @@ const {
   runAuditCrudDedupeTests,
 } = require("@/tests/repo-smoke/audit/audit.dedupe.test");
 const {
+  runAuditAdminPaginationTests,
+} = require("@/tests/repo-smoke/audit/audit.admin-pagination.test");
+const {
   getAuditFeedForActor,
 } = require("@/lib/repos/audit/queries");
 const {
@@ -446,6 +449,7 @@ const tests = [
               "listBarangayOfficialActivity",
               "listCityOfficialActivity",
               "listAllActivity",
+              "listActivityPage",
             ],
           },
           {
@@ -486,7 +490,7 @@ const tests = [
           {
             label: "FeedbackModerationProjectUpdatesRepo",
             repo: getFeedbackModerationProjectUpdatesRepo(),
-            methods: ["getSeedData", "flagUpdate", "removeUpdate"],
+            methods: ["getSeedData", "hideUpdate", "unhideUpdate"],
           },
           {
             label: "UsageControlsRepo",
@@ -497,8 +501,6 @@ const tests = [
               "getChatbotMetrics",
               "getChatbotRateLimitPolicy",
               "updateChatbotRateLimitPolicy",
-              "getChatbotSystemPolicy",
-              "updateChatbotSystemPolicy",
               "listFlaggedUsers",
               "getUserAuditHistory",
               "temporarilyBlockUser",
@@ -511,10 +513,10 @@ const tests = [
             methods: [
               "getSecuritySettings",
               "updateSecuritySettings",
-              "getNotificationSettings",
-              "updateNotificationSettings",
               "getSystemBannerDraft",
+              "getSystemBannerPublished",
               "publishSystemBanner",
+              "unpublishSystemBanner",
               "listAuditLogs",
             ],
           },
@@ -616,6 +618,12 @@ const tests = [
     name: "auditService suppresses CRUD duplicates for barangay feed",
     async run() {
       await runAuditCrudDedupeTests();
+    },
+  },
+  {
+    name: "auditService admin pagination and filters",
+    async run() {
+      await runAuditAdminPaginationTests();
     },
   },
   {

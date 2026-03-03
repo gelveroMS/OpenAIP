@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
@@ -15,11 +16,48 @@ class SupabaseConfig:
     service_key: str
 
 
+class SupabaseGuardrailError(RuntimeError):
+    def __init__(self, reason_code: str, message: str):
+        super().__init__(message)
+        self.reason_code = reason_code
+
+
+def _read_positive_float_env(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        parsed = float(raw.strip())
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _read_positive_int_env(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        parsed = int(raw.strip())
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
 class SupabaseRestClient:
     def __init__(self, config: SupabaseConfig):
         self.config = config
         self.base_url = config.url.rstrip("/")
         self.service_key = config.service_key
+        self.http_timeout_seconds = _read_positive_float_env("PIPELINE_SUPABASE_HTTP_TIMEOUT_SECONDS", 120.0)
+        self.download_timeout_seconds = _read_positive_float_env("PIPELINE_SUPABASE_DOWNLOAD_TIMEOUT_SECONDS", 120.0)
+        self.source_pdf_max_bytes = _read_positive_int_env("PIPELINE_SOURCE_PDF_MAX_BYTES", 15 * 1024 * 1024)
+
+        # Security proof:
+        # - PIPELINE_SUPABASE_HTTP_TIMEOUT_SECONDS bounds REST calls (default 120s)
+        # - PIPELINE_SUPABASE_DOWNLOAD_TIMEOUT_SECONDS bounds signed-download calls (default 120s)
+        # - PIPELINE_SOURCE_PDF_MAX_BYTES bounds source PDF downloads (default 15728640 / 15MB)
+        # - Example guardrail error: reason_code=SOURCE_PDF_TOO_LARGE
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "SupabaseRestClient":
@@ -54,7 +92,7 @@ class SupabaseRestClient:
         if payload is not None:
             body = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(url=url, data=body, headers=self._headers(headers), method=method)
-        with urllib.request.urlopen(req, timeout=120) as response:
+        with urllib.request.urlopen(req, timeout=self.http_timeout_seconds) as response:
             data = response.read()
             if not data:
                 return None
@@ -135,11 +173,26 @@ class SupabaseRestClient:
             return f"{self.base_url}/storage/v1{signed}"
         return f"{self.base_url}/storage/v1/{signed}"
 
-    @staticmethod
-    def download_bytes(url: str) -> bytes:
+    def download_bytes(self, url: str) -> bytes:
         req = urllib.request.Request(url=url, method="GET")
-        with urllib.request.urlopen(req, timeout=120) as response:
-            return response.read()
+        total = 0
+        chunks: list[bytes] = []
+        with urllib.request.urlopen(req, timeout=self.download_timeout_seconds) as response:
+            while True:
+                chunk = response.read(64 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > self.source_pdf_max_bytes:
+                    raise SupabaseGuardrailError(
+                        "SOURCE_PDF_TOO_LARGE",
+                        (
+                            "Downloaded source PDF exceeded PIPELINE_SOURCE_PDF_MAX_BYTES "
+                            f"({self.source_pdf_max_bytes} bytes)."
+                        ),
+                    )
+                chunks.append(chunk)
+        return b"".join(chunks)
 
     def upload_bytes(self, *, bucket_id: str, object_name: str, content: bytes, content_type: str) -> str:
         object_path = urllib.parse.quote(object_name, safe="/")

@@ -49,7 +49,7 @@ export default function FeedbackDetailsModal({
             </div>
 
             <div className="space-y-2">
-              <div className="text-sm font-medium text-slate-900">Full Comment</div>
+              <div className="text-sm font-medium text-slate-900">Full Feedback</div>
               <div className="rounded-xl border border-slate-200 bg-white p-3 text-slate-700">
                 {row.commentBody}
               </div>
@@ -60,9 +60,9 @@ export default function FeedbackDetailsModal({
                 <div className="flex items-start gap-3">
                   <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-600" />
                   <div className="space-y-2 text-sm">
-                    <div className="font-semibold">Comment is Currently Hidden</div>
+                    <div className="font-semibold">Feedback is Currently Hidden</div>
                     <div className="text-amber-800">
-                      Citizens see: &quot;This comment has been hidden due to policy violation.&quot;
+                      Citizens see: &quot;This feedback has been hidden due to policy violation.&quot;
                     </div>
                     <div className="text-amber-800">
                       Moderation Reason: {row.hiddenReason ?? "Policy violation."}
@@ -76,7 +76,7 @@ export default function FeedbackDetailsModal({
               <div className="text-sm font-medium text-slate-900">Violation</div>
               <div className="rounded-xl border border-slate-200 bg-white p-3 text-slate-600">
                 <span className={row.status === "Hidden" ? "text-rose-600" : ""}>
-                  {row.violationCategory ?? "No violation for this comment."}
+                  {row.violationCategory ?? "No violation for this feedback."}
                 </span>
               </div>
             </div>

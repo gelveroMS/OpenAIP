@@ -39,6 +39,7 @@ function buildResponse(): ListProjectFeedbackResponse {
         projectId: "proj-1",
         parentFeedbackId: "root-1",
         kind: "lgu_note",
+        isHidden: true,
         body: "Official response",
         createdAt: "2026-02-28T09:00:00.000Z",
         author: {
@@ -109,6 +110,9 @@ describe("LguProjectFeedbackThread", () => {
     expect(screen.queryByText("LGU Note")).not.toBeInTheDocument();
     expect(screen.queryByText("Feedback kind")).not.toBeInTheDocument();
     expect(screen.queryByText("Add feedback")).not.toBeInTheDocument();
+    expect(screen.getByText("Hidden comment")).toBeInTheDocument();
+    const hiddenCard = screen.getByText("Official response").closest("article");
+    expect(hiddenCard).toHaveAttribute("data-hidden-comment", "true");
 
     const selectedThread = document.querySelector('[data-thread-id="root-1"]');
     expect(selectedThread?.getAttribute("data-thread-selected")).toBe("true");

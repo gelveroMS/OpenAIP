@@ -4,6 +4,7 @@ import { getActivityScopeFromActor } from "@/lib/auth/actor-scope-guards";
 import type {
   ActivityLogRow,
   ChatMessageRow,
+  ChatRateEventRow,
   FeedbackRow,
   ProfileRow,
 } from "@/lib/contracts/databasev2";
@@ -17,6 +18,7 @@ import {
   clearBlockedUser,
   getTypedAppSetting,
   isSettingsStoreUnavailableError,
+  type BlockedUsersSetting,
   setBlockedUser,
   setTypedAppSetting,
 } from "@/lib/settings/app-settings";
@@ -32,15 +34,6 @@ type UsageControlsAction =
       payload: {
         maxRequests: number;
         timeWindow: "per_hour" | "per_day";
-        performedBy?: string | null;
-      };
-    }
-  | {
-      action: "update_chatbot_system_policy";
-      payload: {
-        isEnabled: boolean;
-        retentionDays: number;
-        userDisclaimer: string;
         performedBy?: string | null;
       };
     }
@@ -77,9 +70,10 @@ async function loadDataset(): Promise<{
   feedback: FeedbackRow[];
   activity: ActivityLogRow[];
   chatMessages: ChatMessageRow[];
+  chatRateEvents: ChatRateEventRow[];
 }> {
   const admin = supabaseAdmin();
-  const [profilesResult, feedbackResult, activityResult, chatMessagesResult] =
+  const [profilesResult, feedbackResult, activityResult, chatMessagesResult, chatRateEventsResult] =
     await Promise.all([
       admin
         .from("profiles")
@@ -98,6 +92,9 @@ async function loadDataset(): Promise<{
       admin
         .from("chat_messages")
         .select("id,session_id,role,content,citations,retrieval_meta,created_at"),
+      admin
+        .from("chat_rate_events")
+        .select("id,user_id,route,event_status,created_at"),
     ]);
 
   const firstError = [
@@ -105,6 +102,7 @@ async function loadDataset(): Promise<{
     feedbackResult,
     activityResult,
     chatMessagesResult,
+    chatRateEventsResult,
   ].find((result) => result.error)?.error;
   if (firstError) {
     throw new Error(firstError.message);
@@ -115,15 +113,29 @@ async function loadDataset(): Promise<{
     feedback: (feedbackResult.data ?? []) as FeedbackRow[],
     activity: (activityResult.data ?? []) as ActivityLogRow[],
     chatMessages: (chatMessagesResult.data ?? []) as ChatMessageRow[],
+    chatRateEvents: (chatRateEventsResult.data ?? []) as ChatRateEventRow[],
   };
 }
 
-async function buildStateResponse() {
-  const [dataset, commentRate, chatbotRateLimit, chatbotPolicy] = await Promise.all([
+function parsePositiveInt(value: string | null, fallback: number, max?: number): number {
+  if (value === null) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+  if (typeof max === "number") return Math.min(max, parsed);
+  return parsed;
+}
+
+function parseYmd(value: string | null): string | null {
+  if (!value) return null;
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+}
+
+async function buildStateResponse(input?: { dateFrom?: string | null; dateTo?: string | null }) {
+  const [dataset, commentRate, chatbotRateLimit, blockedUsers] = await Promise.all([
     loadDataset(),
     getTypedAppSetting("controls.comment_rate_limit"),
     getTypedAppSetting("controls.chatbot_rate_limit"),
-    getTypedAppSetting("controls.chatbot_policy"),
+    getTypedAppSetting("controls.blocked_users"),
   ]);
 
   return {
@@ -133,20 +145,21 @@ async function buildStateResponse() {
       updatedAt: commentRate.updatedAt ?? new Date().toISOString(),
       updatedBy: commentRate.updatedBy ?? null,
     },
-    flaggedUsers: mapFlaggedUsers(dataset),
-    chatbotMetrics: deriveChatbotMetrics(dataset.chatMessages),
+    flaggedUsers: mapFlaggedUsers({
+      ...dataset,
+      blockedUsers: blockedUsers as BlockedUsersSetting,
+    }),
+    chatbotMetrics: deriveChatbotMetrics({
+      chatMessages: dataset.chatMessages,
+      chatRateEvents: dataset.chatRateEvents,
+      dateFrom: input?.dateFrom,
+      dateTo: input?.dateTo,
+    }),
     chatbotRateLimitPolicy: {
       maxRequests: chatbotRateLimit.maxRequests,
       timeWindow: chatbotRateLimit.timeWindow,
       updatedAt: chatbotRateLimit.updatedAt ?? new Date().toISOString(),
       updatedBy: chatbotRateLimit.updatedBy ?? null,
-    },
-    chatbotSystemPolicy: {
-      isEnabled: chatbotPolicy.isEnabled,
-      retentionDays: chatbotPolicy.retentionDays,
-      userDisclaimer: chatbotPolicy.userDisclaimer,
-      updatedAt: chatbotPolicy.updatedAt ?? new Date().toISOString(),
-      updatedBy: chatbotPolicy.updatedBy ?? null,
     },
   };
 }
@@ -159,16 +172,31 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const userId = url.searchParams.get("userId");
     if (userId) {
+      const offset = parsePositiveInt(url.searchParams.get("offset"), 0);
+      const limit = Math.max(1, parsePositiveInt(url.searchParams.get("limit"), 2, 50));
       const dataset = await loadDataset();
-      const entries = mapUserAuditHistory({
+      const allEntries = mapUserAuditHistory({
         userId,
         feedback: dataset.feedback,
         activity: dataset.activity,
       });
-      return NextResponse.json({ entries }, { status: 200 });
+      const entries = allEntries.slice(offset, offset + limit);
+      return NextResponse.json(
+        {
+          entries,
+          total: allEntries.length,
+          offset,
+          limit,
+          hasNext: offset + limit < allEntries.length,
+        },
+        { status: 200 }
+      );
     }
 
-    const state = await buildStateResponse();
+    const state = await buildStateResponse({
+      dateFrom: parseYmd(url.searchParams.get("from")),
+      dateTo: parseYmd(url.searchParams.get("to")),
+    });
     return NextResponse.json(state, { status: 200 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load usage controls state.";
@@ -241,41 +269,6 @@ export async function POST(request: Request) {
           chatbotRateLimitPolicy: {
             maxRequests: next.maxRequests,
             timeWindow: next.timeWindow,
-            updatedAt: next.updatedAt ?? now,
-            updatedBy: next.updatedBy ?? null,
-          },
-        },
-        { status: 200 }
-      );
-    }
-
-    if (body.action === "update_chatbot_system_policy") {
-      const performedBy = body.payload.performedBy ?? "Admin";
-      const next = await setTypedAppSetting("controls.chatbot_policy", {
-        isEnabled: body.payload.isEnabled,
-        retentionDays: body.payload.retentionDays,
-        userDisclaimer: body.payload.userDisclaimer,
-        updatedAt: now,
-        updatedBy: performedBy,
-      });
-
-      await writeActivityLog({
-        action: "chatbot_policy_updated",
-        metadata: {
-          is_enabled: next.isEnabled,
-          retention_days: next.retentionDays,
-          user_disclaimer: next.userDisclaimer,
-          actor_name: performedBy,
-        },
-        scope: activityScope,
-      });
-
-      return NextResponse.json(
-        {
-          chatbotSystemPolicy: {
-            isEnabled: next.isEnabled,
-            retentionDays: next.retentionDays,
-            userDisclaimer: next.userDisclaimer,
             updatedAt: next.updatedAt ?? now,
             updatedBy: next.updatedBy ?? null,
           },

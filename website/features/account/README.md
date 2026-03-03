@@ -19,7 +19,7 @@ Feature files:
 -> `getUser()` from `lib/actions/auth.actions`
 -> `features/account/account-view.tsx`
 -> `features/account/update-password-form.tsx`
--> `supabase.auth.updateUser({ password })`
+-> `POST /auth/update-password`
 
 ## D. databasev2 Alignment
 Relevant DBV2 objects:
@@ -32,7 +32,8 @@ Constraints that matter to this feature:
 
 Enforcement boundaries:
 - Profile data should ultimately be read from `public.profiles` under RLS.
-- Password updates remain in Supabase Auth, not in DBV2 tables.
+- Password updates remain in Supabase Auth, but are now enforced via server route:
+  - `POST /auth/update-password` (policy validation + session cookie refresh).
 
 ## E. Current Implementation
 - Account pages currently map data from `getUser()`.

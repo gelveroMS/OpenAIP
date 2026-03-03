@@ -3,12 +3,17 @@ import { NextResponse } from "next/server";
 import { withWorkflowActivityMetadata } from "@/lib/audit/workflow-metadata";
 import { getActorContext } from "@/lib/domain/get-actor-context";
 import type { ActorContext } from "@/lib/domain/actor-context";
+import { notifySafely } from "@/lib/notifications";
 import { normalizeDateForStorage } from "@/features/projects/shared/add-information/date-normalization";
 import {
   getProjectMediaBucketName,
   toProjectUpdateMediaProxyUrl,
 } from "@/lib/projects/media";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import {
+  removeProjectMediaObjects,
+  toPrivilegedActorContext,
+  uploadProjectMediaObject,
+} from "@/lib/supabase/privileged-ops";
 import { supabaseServer } from "@/lib/supabase/server";
 import {
   getCurrentProgressBaseline,
@@ -219,6 +224,7 @@ function assertScopedActor(
 }
 
 async function uploadImageToStorage(params: {
+  actor: ActorContext;
   aipId: string;
   projectId: string;
   updateId?: string;
@@ -234,26 +240,29 @@ async function uploadImageToStorage(params: {
       ).padStart(2, "0")}-${randomUUID()}.${extension}`
     : `${params.aipId}/projects/${params.projectId}/cover-${randomUUID()}.${extension}`;
 
-  const admin = supabaseAdmin();
-  const { error } = await admin.storage.from(bucketId).upload(objectName, fileBuffer, {
-    contentType: params.file.type || "application/octet-stream",
-    upsert: false,
-  });
-  if (error) {
-    throw new ApiError(400, `Failed to upload image: ${error.message}`);
+  try {
+    return await uploadProjectMediaObject({
+      actor: toPrivilegedActorContext(params.actor),
+      aipId: params.aipId,
+      projectId: params.projectId,
+      updateId: params.updateId,
+      bucketId,
+      objectName,
+      fileBuffer,
+      contentType: params.file.type || "application/octet-stream",
+      sizeBytes: params.file.size,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to upload image.";
+    throw new ApiError(400, `Failed to upload image: ${message}`);
   }
-
-  return {
-    bucketId,
-    objectName,
-    mimeType: params.file.type || "application/octet-stream",
-    sizeBytes: params.file.size,
-  };
 }
 
-async function removeUploadedStorageRefs(refs: UploadedObjectRef[]): Promise<void> {
+async function removeUploadedStorageRefs(
+  refs: UploadedObjectRef[],
+  actor: ActorContext
+): Promise<void> {
   if (!refs.length) return;
-  const admin = supabaseAdmin();
   const byBucket = new Map<string, string[]>();
 
   for (const ref of refs) {
@@ -263,12 +272,19 @@ async function removeUploadedStorageRefs(refs: UploadedObjectRef[]): Promise<voi
   }
 
   for (const [bucketId, objectNames] of byBucket.entries()) {
-    const { error } = await admin.storage.from(bucketId).remove(objectNames);
-    if (error) {
+    try {
+      await removeProjectMediaObjects({
+        actor: toPrivilegedActorContext(actor),
+        aipId: null,
+        projectId: null,
+        bucketId,
+        objectNames,
+      });
+    } catch (error) {
       console.error("[PROJECT_WRITE] failed cleanup of uploaded storage refs", {
         bucketId,
         objectNames,
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }
@@ -432,6 +448,7 @@ export async function handleAddInformationRequest(input: {
     let uploadedCover: UploadedObjectRef | null = null;
     if (coverFile) {
       uploadedCover = await uploadImageToStorage({
+        actor,
         aipId: project.aipId,
         projectId: project.id,
         file: coverFile,
@@ -558,7 +575,7 @@ export async function handleAddInformationRequest(input: {
       }
     } catch (error) {
       if (uploadedCover) {
-        await removeUploadedStorageRefs([uploadedCover]);
+        await removeUploadedStorageRefs([uploadedCover], actor);
       }
       throw error;
     }
@@ -685,7 +702,7 @@ export async function handlePostUpdateRequest(input: {
       .from("project_updates")
       .select("progress_percent")
       .eq("project_id", project.id)
-      .eq("status", "active")
+      .in("status", ["active", "hidden"])
       .order("progress_percent", { ascending: false })
       .limit(1);
     if (currentProgressError) {
@@ -732,6 +749,7 @@ export async function handlePostUpdateRequest(input: {
       for (let index = 0; index < photos.length; index += 1) {
         const file = photos[index];
         const uploaded = await uploadImageToStorage({
+          actor,
           aipId: project.aipId,
           projectId: project.id,
           updateId: insertedUpdate.id,
@@ -761,7 +779,7 @@ export async function handlePostUpdateRequest(input: {
         mediaRows = (insertedMediaRows ?? []) as Array<{ id: string; created_at: string }>;
       }
     } catch (error) {
-      await removeUploadedStorageRefs(uploadedMediaRefs);
+      await removeUploadedStorageRefs(uploadedMediaRefs, actor);
       await client.from("project_updates").delete().eq("id", insertedUpdate.id);
       throw error;
     }
@@ -799,6 +817,20 @@ export async function handlePostUpdateRequest(input: {
       await client.from("project_updates").delete().eq("id", insertedUpdate.id);
       throw new ApiError(400, logError.message);
     }
+    await notifySafely({
+      eventType: "PROJECT_UPDATE_STATUS_CHANGED",
+      scopeType: input.scope,
+      entityType: "project_update",
+      entityId: insertedUpdate.id,
+      projectUpdateId: insertedUpdate.id,
+      projectId: project.id,
+      aipId: project.aipId,
+      barangayId: project.barangayId,
+      cityId: project.cityId,
+      actorUserId: actor.userId,
+      actorRole: actor.role,
+      transition: "draft->published",
+    });
 
     return NextResponse.json(
       {

@@ -1,4 +1,8 @@
-import type { ActivityLogRow } from "@/lib/contracts/databasev2";
+import type {
+  ActivityLogRow,
+  ChatMessageRow,
+  ChatRateEventRow,
+} from "@/lib/contracts/databasev2";
 import { FEEDBACK_MODERATION_DATASET } from "@/mocks/fixtures/admin/feedback-moderation/feedbackModeration.mock";
 import type { PlatformControlsDataset } from "@/lib/repos/usage-controls/types";
 
@@ -142,4 +146,47 @@ export const PLATFORM_CONTROLS_DATASET: PlatformControlsDataset = {
     ...BLOCK_LOGS,
     ...EXTRA_HIDDEN_LOGS,
   ],
+  chatMessages: [
+    {
+      id: "chat_msg_001",
+      session_id: "chat_session_001",
+      role: "assistant",
+      content: "Sample accepted response",
+      citations: null,
+      retrieval_meta: { reason: "ok" },
+      created_at: "2026-02-28T09:00:00.000Z",
+    },
+    {
+      id: "chat_msg_002",
+      session_id: "chat_session_002",
+      role: "assistant",
+      content: "Sample failure response",
+      citations: null,
+      retrieval_meta: { reason: "pipeline_error" },
+      created_at: "2026-02-27T11:00:00.000Z",
+    },
+  ] satisfies ChatMessageRow[],
+  chatRateEvents: [
+    {
+      id: "chat_rate_event_001",
+      user_id: "profile_maria",
+      route: "citizen_chat_reply",
+      event_status: "accepted",
+      created_at: "2026-02-28T08:58:00.000Z",
+    },
+    {
+      id: "chat_rate_event_002",
+      user_id: "profile_pedro",
+      route: "barangay_chat_message",
+      event_status: "accepted",
+      created_at: "2026-02-27T10:58:00.000Z",
+    },
+    {
+      id: "chat_rate_event_003",
+      user_id: "profile_pedro",
+      route: "barangay_chat_message",
+      event_status: "rejected_hour",
+      created_at: "2026-02-27T10:59:00.000Z",
+    },
+  ] satisfies ChatRateEventRow[],
 };

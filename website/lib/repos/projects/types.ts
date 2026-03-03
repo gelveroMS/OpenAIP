@@ -64,6 +64,10 @@ export type ProjectUpdate = {
   progressPercent?: number;
   attendanceCount?: number;
   photoUrls?: string[];
+  isHidden?: boolean;
+  isRedacted?: boolean;
+  hiddenReason?: string | null;
+  violationCategory?: string | null;
 };
 
 export type ProjectUpdateUi = {
@@ -74,6 +78,10 @@ export type ProjectUpdateUi = {
   progressPercent: number;
   photoUrls?: string[];
   attendanceCount?: number;
+  isHidden?: boolean;
+  isRedacted?: boolean;
+  hiddenReason?: string | null;
+  violationCategory?: string | null;
 };
 
 export type HealthProject = Omit<ProjectMaster, "projectRefCode" | "kind"> & {

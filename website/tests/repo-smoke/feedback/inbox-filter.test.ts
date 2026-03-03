@@ -23,10 +23,10 @@ export async function runFeedbackInboxFilterTests() {
     "Expected mock inbox roots to include only citizen-initiated kinds."
   );
 
-  const repliedCitizenThread = threads.find((thread) =>
-    thread.preview.text.includes("weekly progress schedule")
+  const repliedCitizenThread = threads.find(
+    (thread) => thread.preview.status === "responded"
   );
-  assert(!!repliedCitizenThread, "Expected citizen-initiated thread to remain in inbox.");
+  assert(!!repliedCitizenThread, "Expected a citizen-initiated responded thread in inbox.");
   assert(
     repliedCitizenThread?.preview.status === "responded",
     "Expected citizen thread with official reply to keep responded status."

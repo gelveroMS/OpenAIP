@@ -46,11 +46,11 @@ export default function HideFeedbackModal({
           <Alert className="border-amber-200 bg-amber-50 text-amber-900">
             <AlertTriangle className="h-4 w-4 text-amber-600" />
             <AlertDescription className="text-amber-800">
-              <div className="font-medium">Comment Visibility Policy</div>
+              <div className="font-medium">Feedback Visibility Policy</div>
               <ul className="mt-2 list-disc pl-4 text-sm">
-                <li>Comment will not be deleted from the system.</li>
+                <li>Feedback will not be deleted from the system.</li>
                 <li>
-                  Citizens will see: &quot;This comment has been hidden due to policy violation.&quot;
+                  Citizens will see: &quot;This feedback has been hidden due to policy violation.&quot;
                 </li>
                 <li>Original content preserved for accountability.</li>
                 <li>Action is audit-logged with your identity and justification.</li>
@@ -65,7 +65,7 @@ export default function HideFeedbackModal({
             <Textarea
               value={reason}
               onChange={(event) => onReasonChange(event.target.value)}
-              placeholder="Explain why this comment violates community guidelines or content policy..."
+              placeholder="Explain why this feedback violates community guidelines or content policy..."
               className="min-h-[120px]"
             />
           </div>

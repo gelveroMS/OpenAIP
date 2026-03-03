@@ -1,13 +1,15 @@
 import type {
   ActivityLogRow,
   AipRow,
+  ProjectUpdateMediaRow,
+  ProjectUpdateRow,
   ProfileRow,
   ProjectRow,
 } from "@/lib/contracts/databasev2";
 
-export type ProjectUpdateRecord = ActivityLogRow;
+export type ProjectUpdateRecord = ProjectUpdateRow;
 export type ModerationActionRecord = ActivityLogRow;
-export type ProjectUpdateMediaRecord = ActivityLogRow;
+export type ProjectUpdateMediaRecord = ProjectUpdateMediaRow;
 
 export type AipRecord = AipRow;
 export type ProjectRecord = ProjectRow;
@@ -43,7 +45,7 @@ export type MunicipalityRecord = {
   created_at: string;
 };
 
-export type ProjectUpdateStatus = "Active" | "Removed" | "Flagged";
+export type ProjectUpdateStatus = "Visible" | "Hidden";
 export type ProjectUpdateType = "Update" | "Photo";
 
 export type ProjectUpdateRowModel = {
@@ -73,6 +75,6 @@ export type ProjectUpdateDetailsModel = {
   uploadedByEmail: string | null;
   uploadedAt: string;
   status: ProjectUpdateStatus;
-  removedReason: string | null;
+  hiddenReason: string | null;
   violationCategory: string | null;
 };

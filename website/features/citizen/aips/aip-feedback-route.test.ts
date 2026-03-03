@@ -8,10 +8,26 @@ const mockRequireCitizenActor = vi.fn();
 const mockSanitizeKind = vi.fn();
 const mockSanitizeBody = vi.fn();
 const mockHydrateAipFeedbackItems = vi.fn();
+const mockResolveViewerUserId = vi.fn();
 const mockToErrorResponse = vi.fn();
+const mockAssertFeedbackUsageAllowed = vi.fn();
 
 vi.mock("@/lib/supabase/server", () => ({
   supabaseServer: () => mockSupabaseServer(),
+}));
+
+class MockFeedbackUsageError extends Error {
+  status: 403 | 429;
+
+  constructor(status: 403 | 429, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+vi.mock("@/lib/feedback/usage-guards", () => ({
+  assertFeedbackUsageAllowed: (...args: unknown[]) => mockAssertFeedbackUsageAllowed(...args),
+  isFeedbackUsageError: (error: unknown) => error instanceof MockFeedbackUsageError,
 }));
 
 class MockCitizenAipFeedbackApiError extends Error {
@@ -28,6 +44,7 @@ vi.mock("@/app/api/citizen/aips/_feedback-shared", () => ({
   resolveAipById: mockResolveAipById,
   assertPublishedAipStatus: mockAssertPublishedAipStatus,
   listPublicAipFeedback: mockListPublicAipFeedback,
+  resolveViewerUserId: mockResolveViewerUserId,
   requireCitizenActor: mockRequireCitizenActor,
   sanitizeCitizenFeedbackKind: mockSanitizeKind,
   sanitizeFeedbackBody: mockSanitizeBody,
@@ -60,6 +77,8 @@ describe("GET|POST /api/citizen/aips/[aipId]/feedback", () => {
     mockToErrorResponse.mockImplementation(
       () => new Response(JSON.stringify({ error: "mock error" }), { status: 500 })
     );
+    mockAssertFeedbackUsageAllowed.mockResolvedValue(undefined);
+    mockResolveViewerUserId.mockResolvedValue(null);
   });
 
   it("GET returns public AIP feedback items (including lgu_note)", async () => {
@@ -135,7 +154,7 @@ describe("GET|POST /api/citizen/aips/[aipId]/feedback", () => {
     const response = await POST(
       new Request("http://localhost", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", origin: "http://localhost" },
         body: JSON.stringify({
           kind: "question",
           body: "How will this be monitored?",
@@ -147,7 +166,64 @@ describe("GET|POST /api/citizen/aips/[aipId]/feedback", () => {
 
     expect(response.status).toBe(201);
     expect(mockRequireCitizenActor).toHaveBeenCalled();
+    expect(mockAssertFeedbackUsageAllowed).toHaveBeenCalled();
     expect(mockHydrateAipFeedbackItems).toHaveBeenCalled();
     expect(body.item.id).toBe("fb-2");
+  });
+
+  it("POST returns 403 when feedback usage guard reports blocked user", async () => {
+    mockSupabaseServer.mockResolvedValue(createInsertClient({}));
+    mockResolveAipById.mockResolvedValue({ id: "aip-1", status: "published" });
+    mockRequireCitizenActor.mockResolvedValue({ userId: "citizen-1" });
+    mockSanitizeKind.mockReturnValue("question");
+    mockSanitizeBody.mockReturnValue("How will this be monitored?");
+    mockAssertFeedbackUsageAllowed.mockRejectedValueOnce(
+      new MockFeedbackUsageError(403, "Your account is currently blocked from posting feedback.")
+    );
+    mockToErrorResponse.mockImplementation((error: unknown) => {
+      const status = error instanceof MockCitizenAipFeedbackApiError ? error.status : 500;
+      const message = error instanceof Error ? error.message : "error";
+      return new Response(JSON.stringify({ error: message }), { status });
+    });
+
+    const { POST } = await import("@/app/api/citizen/aips/[aipId]/feedback/route");
+    const response = await POST(
+      new Request("http://localhost", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "http://localhost" },
+        body: JSON.stringify({ kind: "question", body: "How will this be monitored?" }),
+      }),
+      { params: Promise.resolve({ aipId: "aip-1" }) }
+    );
+
+    expect(response.status).toBe(403);
+  });
+
+  it("POST returns 429 when feedback usage guard reports rate limit", async () => {
+    mockSupabaseServer.mockResolvedValue(createInsertClient({}));
+    mockResolveAipById.mockResolvedValue({ id: "aip-1", status: "published" });
+    mockRequireCitizenActor.mockResolvedValue({ userId: "citizen-1" });
+    mockSanitizeKind.mockReturnValue("question");
+    mockSanitizeBody.mockReturnValue("How will this be monitored?");
+    mockAssertFeedbackUsageAllowed.mockRejectedValueOnce(
+      new MockFeedbackUsageError(429, "Comment rate limit exceeded. Please try again later.")
+    );
+    mockToErrorResponse.mockImplementation((error: unknown) => {
+      const status = error instanceof MockCitizenAipFeedbackApiError ? error.status : 500;
+      const message = error instanceof Error ? error.message : "error";
+      return new Response(JSON.stringify({ error: message }), { status });
+    });
+
+    const { POST } = await import("@/app/api/citizen/aips/[aipId]/feedback/route");
+    const response = await POST(
+      new Request("http://localhost", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "http://localhost" },
+        body: JSON.stringify({ kind: "question", body: "How will this be monitored?" }),
+      }),
+      { params: Promise.resolve({ aipId: "aip-1" }) }
+    );
+
+    expect(response.status).toBe(429);
   });
 });

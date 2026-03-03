@@ -70,6 +70,10 @@ export default function HealthProjectDetailPageView({
     progressPercent: u.progressPercent ?? 0,
     photoUrls: u.photoUrls,
     attendanceCount: u.attendanceCount,
+    isHidden: u.isHidden,
+    isRedacted: u.isRedacted,
+    hiddenReason: u.hiddenReason ?? null,
+    violationCategory: u.violationCategory ?? null,
   }));
 
   return (
@@ -92,7 +96,7 @@ export default function HealthProjectDetailPageView({
         aipYear={aipYear}
         project={project}
         scope={scope}
-        useLogoFallback={scope === "barangay"}
+        useLogoFallback={scope === "barangay" || scope === "citizen"}
       />
 
       {/* ✅ Shared updates UI (timeline + form) */}

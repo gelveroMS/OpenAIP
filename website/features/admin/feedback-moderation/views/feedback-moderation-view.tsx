@@ -17,6 +17,14 @@ import {
 import type { FeedbackModerationDataset } from "@/lib/repos/feedback-moderation/types";
 import { getFeedbackModerationRepo } from "@/lib/repos/feedback-moderation/repo";
 import { CATEGORY_KINDS, formatFeedbackKind } from "@/lib/constants/feedback-kind";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const VIOLATION_OPTIONS = [
   "Spam",
@@ -38,6 +46,8 @@ const STATUS_OPTIONS = [
   { value: "hidden", label: "Hidden" },
 ];
 
+const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
+
 const ADMIN_ACTOR = {
   id: "admin_001",
   role: "admin" as const,
@@ -54,6 +64,8 @@ export default function FeedbackModerationView() {
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [lguFilter, setLguFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(10);
 
   const [detailsId, setDetailsId] = useState<string | null>(null);
   const [hideId, setHideId] = useState<string | null>(null);
@@ -126,6 +138,29 @@ export default function FeedbackModerationView() {
       return haystack.includes(loweredQuery);
     });
   }, [rows, categoryFilter, statusFilter, lguFilter, query]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [query, categoryFilter, statusFilter, lguFilter, pageSize]);
+
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil(filteredRows.length / pageSize)),
+    [filteredRows.length, pageSize]
+  );
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
+  const pagedRows = useMemo(() => {
+    const offset = (page - 1) * pageSize;
+    return filteredRows.slice(offset, offset + pageSize);
+  }, [filteredRows, page, pageSize]);
+
+  const showingFrom = filteredRows.length === 0 ? 0 : (page - 1) * pageSize + 1;
+  const showingTo = Math.min(filteredRows.length, page * pageSize);
 
   const detailsRow = rows.find((row) => row.id === detailsId) ?? null;
 
@@ -214,19 +249,70 @@ export default function FeedbackModerationView() {
           ) : error ? (
             <div className="text-sm text-rose-600">{error}</div>
           ) : (
-            <PublicFeedbackTable
-              rows={filteredRows}
-              onViewDetails={(id) => setDetailsId(id)}
-              onHide={(id) => {
-                setHideId(id);
-                setHideReason("");
-                setHideViolation("");
-              }}
-              onUnhide={(id) => {
-                setUnhideId(id);
-                setUnhideReason("");
-              }}
-            />
+            <div className="space-y-4">
+              <PublicFeedbackTable
+                rows={pagedRows}
+                onViewDetails={(id) => setDetailsId(id)}
+                onHide={(id) => {
+                  setHideId(id);
+                  setHideReason("");
+                  setHideViolation("");
+                }}
+                onUnhide={(id) => {
+                  setUnhideId(id);
+                  setUnhideReason("");
+                }}
+              />
+
+              <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-sm text-slate-600">
+                  {`Showing ${showingFrom}-${showingTo} of ${filteredRows.length} feedback records`}
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500">Rows</span>
+                    <Select
+                      value={String(pageSize)}
+                      onValueChange={(value) =>
+                        setPageSize(Number(value) as (typeof PAGE_SIZE_OPTIONS)[number])
+                      }
+                    >
+                      <SelectTrigger className="h-9 w-20">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PAGE_SIZE_OPTIONS.map((size) => (
+                          <SelectItem key={size} value={String(size)}>
+                            {size}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPage(Math.max(1, page - 1))}
+                      disabled={page <= 1}
+                    >
+                      Previous
+                    </Button>
+                    <span className="text-xs text-slate-600">{`Page ${page} of ${totalPages}`}</span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPage(Math.min(totalPages, page + 1))}
+                      disabled={page >= totalPages}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
         </div>
       ) : (

@@ -26,11 +26,6 @@ export type SecuritySettings = {
   loginAttemptLimits: LoginAttemptPolicy;
 };
 
-export type NotificationSettings = {
-  reviewNotificationsEnabled: boolean;
-  submissionAlertsEnabled: boolean;
-};
-
 export type SystemBannerDraft = {
   title?: string | null;
   message: string;
@@ -39,7 +34,7 @@ export type SystemBannerDraft = {
   endAt?: string | null;
 };
 
-export type SystemBanner = SystemBannerDraft & {
+export type SystemBannerPublished = SystemBannerDraft & {
   publishedAt: string;
 };
 
@@ -57,16 +52,15 @@ export type SystemAdministrationRepo = {
     next: SecuritySettings,
     meta?: SystemAdministrationUpdateMeta
   ) => Promise<SecuritySettings>;
-  getNotificationSettings: () => Promise<NotificationSettings>;
-  updateNotificationSettings: (
-    next: NotificationSettings,
-    meta?: SystemAdministrationUpdateMeta
-  ) => Promise<NotificationSettings>;
   getSystemBannerDraft: () => Promise<SystemBannerDraft>;
+  getSystemBannerPublished: () => Promise<SystemBannerPublished | null>;
   publishSystemBanner: (
     draft: SystemBannerDraft,
     meta?: SystemAdministrationUpdateMeta
-  ) => Promise<SystemBanner>;
+  ) => Promise<SystemBannerPublished>;
+  unpublishSystemBanner: (
+    meta?: SystemAdministrationUpdateMeta
+  ) => Promise<{ unpublished: true }>;
   listAuditLogs: () => Promise<SystemAdministrationAuditLog[]>;
 };
 

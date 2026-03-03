@@ -2,23 +2,21 @@ import type { ActivityLogRow } from "@/lib/contracts/databasev2";
 import {
   SYSTEM_ADMIN_ACTIVITY_LOGS,
   SYSTEM_ADMIN_BANNER_DRAFT,
-  SYSTEM_ADMIN_NOTIFICATION_SETTINGS,
+  SYSTEM_ADMIN_BANNER_PUBLISHED,
   SYSTEM_ADMIN_SECURITY_SETTINGS,
 } from "@/mocks/fixtures/admin/system-administration/systemAdministration.mock";
 import type {
-  NotificationSettings,
   SecuritySettings,
   SystemAdministrationRepo,
   SystemAdministrationUpdateMeta,
-  SystemBanner,
   SystemBannerDraft,
+  SystemBannerPublished,
 } from "./types";
 
 type SystemAdministrationStore = {
   security: SecuritySettings;
-  notifications: NotificationSettings;
   bannerDraft: SystemBannerDraft;
-  bannerPublished: SystemBanner | null;
+  bannerPublished: SystemBannerPublished | null;
   activity: ActivityLogRow[];
 };
 
@@ -38,9 +36,8 @@ const cloneSettings = (): SystemAdministrationStore => ({
     sessionTimeout: { ...SYSTEM_ADMIN_SECURITY_SETTINGS.sessionTimeout },
     loginAttemptLimits: { ...SYSTEM_ADMIN_SECURITY_SETTINGS.loginAttemptLimits },
   },
-  notifications: { ...SYSTEM_ADMIN_NOTIFICATION_SETTINGS },
   bannerDraft: { ...SYSTEM_ADMIN_BANNER_DRAFT },
-  bannerPublished: null,
+  bannerPublished: { ...SYSTEM_ADMIN_BANNER_PUBLISHED },
   activity: SYSTEM_ADMIN_ACTIVITY_LOGS.map((row) => ({ ...row })),
 });
 
@@ -100,27 +97,15 @@ export function createMockSystemAdministrationRepo(): SystemAdministrationRepo {
       );
       return { ...store.security };
     },
-    async getNotificationSettings() {
-      return { ...store.notifications };
-    },
-    async updateNotificationSettings(next, meta) {
-      const before = store.notifications;
-      store.notifications = { ...next };
-      appendActivity(
-        createAuditEntry(
-          "notification_settings_updated",
-          { before, after: store.notifications, reason: meta?.reason ?? null },
-          meta
-        )
-      );
-      return { ...store.notifications };
-    },
     async getSystemBannerDraft() {
       return { ...store.bannerDraft };
     },
+    async getSystemBannerPublished() {
+      return store.bannerPublished ? { ...store.bannerPublished } : null;
+    },
     async publishSystemBanner(draft, meta) {
       const before = store.bannerDraft;
-      const published: SystemBanner = {
+      const published: SystemBannerPublished = {
         ...draft,
         publishedAt: resolvePerformedAt(meta),
       };
@@ -134,6 +119,18 @@ export function createMockSystemAdministrationRepo(): SystemAdministrationRepo {
         )
       );
       return published;
+    },
+    async unpublishSystemBanner(meta) {
+      const before = store.bannerPublished;
+      store.bannerPublished = null;
+      appendActivity(
+        createAuditEntry(
+          "system_banner_unpublished",
+          { before, after: null, reason: meta?.reason ?? null },
+          meta
+        )
+      );
+      return { unpublished: true };
     },
     async listAuditLogs() {
       return store.activity.map((row) => ({ ...row }));

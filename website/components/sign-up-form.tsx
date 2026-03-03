@@ -28,6 +28,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ListOfBarangays } from '@/constants'
 import { getRolePath, getRoleEmailPlaceholder } from "@/lib/ui/auth-helpers";
 import { verifyOfficialInviteEligibilityAction } from "@/lib/actions/signup.actions";
+import { validatePasswordWithPolicy } from "@/lib/security/password-policy";
 // import { time } from 'console'
 
 export function SignUpForm({role, baseURL}:AuthParameters) {
@@ -35,6 +36,13 @@ export function SignUpForm({role, baseURL}:AuthParameters) {
   const [email, setEmail] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [passwordPolicy, setPasswordPolicy] = useState<{
+    minLength: number;
+    requireUppercase: boolean;
+    requireLowercase: boolean;
+    requireNumbers: boolean;
+    requireSpecialCharacters: boolean;
+  } | null>(null)
   
   const fullNameRef = useRef('');
   const localeRef = useRef('');
@@ -53,6 +61,40 @@ export function SignUpForm({role, baseURL}:AuthParameters) {
       setError(null);
     }
   }, [email])
+
+  useEffect(() => {
+    let active = true;
+    const loadPolicy = async () => {
+      try {
+        const response = await fetch("/api/system/security-policy", {
+          cache: "no-store",
+        });
+        const payload = (await response.json().catch(() => null)) as
+          | {
+              securitySettings?: {
+                passwordPolicy?: {
+                  minLength: number;
+                  requireUppercase: boolean;
+                  requireLowercase: boolean;
+                  requireNumbers: boolean;
+                  requireSpecialCharacters: boolean;
+                };
+              };
+            }
+          | null;
+
+        if (!active) return;
+        if (!response.ok || !payload?.securitySettings?.passwordPolicy) return;
+        setPasswordPolicy(payload.securitySettings.passwordPolicy);
+      } catch {
+        // Ignore policy fetch errors and let server-side validation handle enforcement.
+      }
+    };
+    void loadPolicy();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -88,6 +130,15 @@ export function SignUpForm({role, baseURL}:AuthParameters) {
       setError('Passwords do not match')
       setIsLoading(false)
       return
+    }
+
+    if (passwordPolicy) {
+      const errors = validatePasswordWithPolicy(passwordRef.current, passwordPolicy);
+      if (errors.length > 0) {
+        setError(errors[0]);
+        setIsLoading(false);
+        return;
+      }
     }
 
     try {

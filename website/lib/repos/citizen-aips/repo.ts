@@ -288,7 +288,6 @@ async function getProjectIdsWithPublicLguNotes(projectIds: string[]): Promise<Se
     .select("project_id")
     .eq("target_type", "project")
     .eq("kind", "lgu_note")
-    .eq("is_public", true)
     .in("project_id", uniqueProjectIds);
 
   if (error) throw new Error(error.message);
@@ -442,7 +441,6 @@ function createSupabaseCitizenAipRepo(): CitizenAipRepo {
           .select("id", { count: "exact", head: true })
           .eq("target_type", "aip")
           .eq("aip_id", aip.id)
-          .eq("is_public", true)
           .is("parent_feedback_id", null),
       ]);
 

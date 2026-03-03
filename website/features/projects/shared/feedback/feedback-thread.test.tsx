@@ -1,4 +1,4 @@
-import { render, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FeedbackThread } from "./feedback-thread";
 
@@ -111,5 +111,33 @@ describe("FeedbackThread auth status loading", () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledTimes(2);
     });
+  });
+
+  it("shows blocked notice and hides feedback composer when citizen is blocked", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ok: true,
+        isComplete: true,
+        userId: "citizen-9",
+        isBlocked: true,
+        blockedUntil: "2026-03-10",
+        blockedReason: "Abusive comments",
+      }),
+    } as Response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<FeedbackThread projectId="proj-1" />);
+
+    await waitFor(() => {
+      expect(mockListProjectFeedback).toHaveBeenCalledWith("proj-1");
+    });
+
+    expect(
+      screen.getByText("Your account is temporarily blocked from posting feedback.")
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("Add project feedback")).not.toBeInTheDocument();
   });
 });

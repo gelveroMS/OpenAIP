@@ -54,3 +54,21 @@ export type ActivityLogRow = {
   createdAt: ISODateTime;
 };
 
+export type AuditRoleFilter = "all" | "admin" | "citizen" | "lgu_officials";
+
+export type AuditListInput = {
+  page: number;
+  pageSize: number;
+  role: AuditRoleFilter;
+  year: "all" | number;
+  event: "all" | string;
+  q: string;
+};
+
+export type AuditListResult = {
+  rows: ActivityLogRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+

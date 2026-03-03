@@ -18,9 +18,14 @@
 ## Runtime Endpoints
 - `POST /auth/sign-up`
 - `POST /auth/sign-in`
+- `POST /auth/staff-sign-in`
 - `POST /auth/verify-otp`
 - `POST /auth/resend-otp`
 - `POST /auth/sign-out`
+- `POST /auth/update-password`
+- `POST /auth/session/activity`
+- `GET /api/system/security-policy`
+- `GET /api/system/banner`
 - `GET /profile/status`
 - `GET /profile/me`
 - `POST /profile/complete`
@@ -28,6 +33,19 @@
 All new endpoints return:
 - Success: `{ ok: true, ... }`
 - Failure: `{ ok: false, error: { message } }`
+
+## Security Hardening
+- Password policy is enforced server-side in `POST /auth/sign-up` and `POST /auth/update-password`.
+- Citizen and staff sign-in flows enforce global login-attempt lockout by normalized email.
+- Lockout responses return HTTP `429`.
+- Successful sign-in clears accumulated failures for that email.
+- Staff sign-in uses `POST /auth/staff-sign-in` for `admin`, `city`, and `barangay`.
+- Session inactivity policy is enforced with:
+  - `oa_session_timeout_ms`
+  - `oa_session_warning_ms`
+  - `oa_last_activity_at`
+- `POST /auth/session/activity` refreshes inactivity cookies and returns policy timing for the warning modal.
+- Middleware expires idle sessions, signs users out, returns `401` JSON for `/api/*`, and redirects protected pages to role sign-in routes.
 
 ## Profile Completion Rules
 - Profile is complete only when:
@@ -102,5 +120,6 @@ All new endpoints return:
 ## Additional Verification
 - `returnTo` open-redirect attempts are rejected.
 - Session cookies are established after `POST /auth/verify-otp`.
+- Session policy cookies are refreshed after sign-in, OTP verify, update-password, and heartbeat.
 - Feedback POST/reply APIs return forbidden for incomplete profiles.
 - `/ai-assistant` route and `/api/citizen/chat/reply` enforce profile completion server-side.

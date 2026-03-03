@@ -5,6 +5,7 @@ const mockSupabaseServer = vi.fn();
 const mockLoadAipFeedbackRowById = vi.fn();
 const mockHydrateAipFeedbackItems = vi.fn();
 const mockSanitizeFeedbackBody = vi.fn();
+const mockAssertFeedbackUsageAllowed = vi.fn();
 
 vi.mock("@/lib/domain/get-actor-context", () => ({
   getActorContext: () => mockGetActorContext(),
@@ -12,6 +13,20 @@ vi.mock("@/lib/domain/get-actor-context", () => ({
 
 vi.mock("@/lib/supabase/server", () => ({
   supabaseServer: () => mockSupabaseServer(),
+}));
+
+class MockFeedbackUsageError extends Error {
+  status: 403 | 429;
+
+  constructor(status: 403 | 429, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+vi.mock("@/lib/feedback/usage-guards", () => ({
+  assertFeedbackUsageAllowed: (...args: unknown[]) => mockAssertFeedbackUsageAllowed(...args),
+  isFeedbackUsageError: (error: unknown) => error instanceof MockFeedbackUsageError,
 }));
 
 class MockCitizenAipFeedbackApiError extends Error {
@@ -112,6 +127,7 @@ describe("handleScopedAipFeedbackReplyRequest", () => {
       }
       return value.trim();
     });
+    mockAssertFeedbackUsageAllowed.mockResolvedValue(undefined);
   });
 
   it("rejects unauthorized role for scoped route", async () => {
@@ -129,7 +145,7 @@ describe("handleScopedAipFeedbackReplyRequest", () => {
     const response = await handleScopedAipFeedbackReplyRequest({
       request: new Request("http://localhost", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", origin: "http://localhost" },
         body: JSON.stringify({ parentFeedbackId: "root-1", body: "Noted." }),
       }),
       scope: "barangay",
@@ -194,7 +210,7 @@ describe("handleScopedAipFeedbackReplyRequest", () => {
     const response = await handleScopedAipFeedbackReplyRequest({
       request: new Request("http://localhost", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", origin: "http://localhost" },
         body: JSON.stringify({ parentFeedbackId: "reply-parent", body: "Noted." }),
       }),
       scope: "barangay",
@@ -278,7 +294,7 @@ describe("handleScopedAipFeedbackReplyRequest", () => {
     const response = await handleScopedAipFeedbackReplyRequest({
       request: new Request("http://localhost", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", origin: "http://localhost" },
         body: JSON.stringify({ parentFeedbackId: "reply-parent", body: "Noted." }),
       }),
       scope: "barangay",
@@ -293,5 +309,33 @@ describe("handleScopedAipFeedbackReplyRequest", () => {
       kind: "lgu_note",
       author_id: "official-1",
     });
+  });
+
+  it("returns 403 when scoped guard reports blocked official", async () => {
+    mockGetActorContext.mockResolvedValue({
+      userId: "official-1",
+      role: "barangay_official",
+      scope: { kind: "barangay", id: "brgy-1" },
+    });
+    mockSupabaseServer.mockResolvedValue(createScopedAipClient());
+    mockAssertFeedbackUsageAllowed.mockRejectedValueOnce(
+      new MockFeedbackUsageError(403, "Your account is currently blocked from posting feedback.")
+    );
+
+    const { handleScopedAipFeedbackReplyRequest } = await import(
+      "@/app/api/aips/_shared/feedback-reply-handlers"
+    );
+
+    const response = await handleScopedAipFeedbackReplyRequest({
+      request: new Request("http://localhost", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "http://localhost" },
+        body: JSON.stringify({ parentFeedbackId: "root-1", body: "Noted." }),
+      }),
+      scope: "barangay",
+      aipId: "aip-1",
+    });
+
+    expect(response.status).toBe(403);
   });
 });

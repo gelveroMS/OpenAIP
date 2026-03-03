@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getActorContext } from "@/lib/domain/get-actor-context";
+import { notifySafely } from "@/lib/notifications";
 import { getAipSubmissionsReviewRepo } from "@/lib/repos/submissions/repo.server";
 
 // [DATAFLOW] UI → server action → repo adapter (mock now; Supabase later).
@@ -31,6 +32,17 @@ export async function requestRevisionAction(input: {
   try {
     const repo = getAipSubmissionsReviewRepo();
     await repo.requestRevision({ aipId: input.aipId, note: trimmed, actor });
+    await notifySafely({
+      eventType: "AIP_REVISION_REQUESTED",
+      scopeType: "barangay",
+      entityType: "aip",
+      entityId: input.aipId,
+      aipId: input.aipId,
+      actorUserId: actor.userId,
+      actorRole: actor.role,
+      note: trimmed,
+      transition: "under_review->for_revision",
+    });
     return { ok: true };
   } catch (error) {
     return {
@@ -55,6 +67,16 @@ export async function claimReviewAction(input: {
   try {
     const repo = getAipSubmissionsReviewRepo();
     await repo.claimReview({ aipId: input.aipId, actor });
+    await notifySafely({
+      eventType: "AIP_CLAIMED",
+      scopeType: "barangay",
+      entityType: "aip",
+      entityId: input.aipId,
+      aipId: input.aipId,
+      actorUserId: actor.userId,
+      actorRole: actor.role,
+      transition: "pending_review->under_review",
+    });
     revalidatePath("/city/submissions");
     revalidatePath(`/city/submissions/aip/${input.aipId}`);
     return { ok: true };
@@ -87,6 +109,17 @@ export async function publishAipAction(input: {
       aipId: input.aipId,
       note: trimmed ? trimmed : undefined,
       actor,
+    });
+    await notifySafely({
+      eventType: "AIP_PUBLISHED",
+      scopeType: "barangay",
+      entityType: "aip",
+      entityId: input.aipId,
+      aipId: input.aipId,
+      actorUserId: actor.userId,
+      actorRole: actor.role,
+      note: trimmed || null,
+      transition: "under_review->published",
     });
     return { ok: true };
   } catch (error) {

@@ -222,4 +222,33 @@ describe("useCitizenChatbot", () => {
     });
     expect(result.current.sessionItems).toHaveLength(1);
   });
+
+  it("disables sending and shows blocked placeholder when citizen is blocked", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ok: true,
+        isComplete: true,
+        userId: "citizen-10",
+        isBlocked: true,
+        blockedUntil: "2026-03-20",
+        blockedReason: "Policy violation",
+      }),
+    } as Response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useCitizenChatbot());
+
+    await waitFor(() => {
+      expect(result.current.isBootstrapping).toBe(false);
+    });
+
+    expect(result.current.composerMode).toBe("send");
+    expect(result.current.isComposerDisabled).toBe(true);
+    expect(result.current.composerPlaceholder).toContain(
+      "temporarily blocked from using the AI Assistant"
+    );
+  });
 });

@@ -134,3 +134,12 @@ export type AdminDashboardRepo = {
   getRecentActivity: (filters: AdminDashboardFilters) => Promise<RecentActivityItemVM[]>;
   listLguOptions: () => Promise<LguOptionVM[]>;
 };
+
+export type AdminDashboardSnapshot = {
+  summary: DashboardSummaryVM;
+  distribution: AipStatusDistributionVM[];
+  reviewBacklog: ReviewBacklogVM;
+  usageMetrics: UsageMetricsVM;
+  recentActivity: RecentActivityItemVM[];
+  lguOptions: LguOptionVM[];
+};

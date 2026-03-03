@@ -10,10 +10,12 @@ import type {
   BarangayRecord,
   MunicipalityRecord,
   ProjectUpdateRecord,
+  ProjectUpdateMediaRecord,
 } from "./types";
 
 export type FeedbackModerationProjectUpdatesSeed = {
   updates: ProjectUpdateRecord[];
+  media: ProjectUpdateMediaRecord[];
   actions: ModerationActionRecord[];
   lguMap: {
     projects: ProjectRecord[];
@@ -42,8 +44,8 @@ export type ProjectUpdateModerationInput = {
 
 export interface FeedbackModerationProjectUpdatesRepo {
   getSeedData(): Promise<FeedbackModerationProjectUpdatesSeed>;
-  flagUpdate(input: ProjectUpdateModerationInput): Promise<FeedbackModerationProjectUpdatesSeed>;
-  removeUpdate(input: ProjectUpdateModerationInput): Promise<FeedbackModerationProjectUpdatesSeed>;
+  hideUpdate(input: ProjectUpdateModerationInput): Promise<FeedbackModerationProjectUpdatesSeed>;
+  unhideUpdate(input: ProjectUpdateModerationInput): Promise<FeedbackModerationProjectUpdatesSeed>;
 }
 
 export function getFeedbackModerationProjectUpdatesRepo(): FeedbackModerationProjectUpdatesRepo {

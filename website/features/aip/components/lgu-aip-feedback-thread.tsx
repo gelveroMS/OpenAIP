@@ -104,10 +104,18 @@ function FeedbackCard({
   onReply: (item: AipFeedbackItem) => void;
   replyDisabled?: boolean;
 }) {
+  const isHidden = item.isHidden === true;
+  const isNested = item.parentFeedbackId !== null;
   const showKindBadge = item.kind !== "lgu_note";
 
   return (
-    <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <article
+      data-hidden-comment={isHidden ? "true" : "false"}
+      className={cn(
+        "rounded-xl border border-slate-200 bg-white p-4 shadow-sm",
+        isHidden && "border-slate-300 bg-slate-50/80"
+      )}
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-slate-900">{item.author.fullName}</p>
@@ -126,21 +134,38 @@ function FeedbackCard({
         </div>
       ) : null}
 
-      <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{item.body}</p>
+      {isHidden ? (
+        <p className="mt-3 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+          Hidden comment
+        </p>
+      ) : null}
 
-      <div className="mt-3">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-8 px-2 text-xs text-slate-600 hover:text-slate-900"
-          aria-label={`Reply to feedback from ${item.author.fullName}`}
-          onClick={() => onReply(item)}
-          disabled={replyDisabled}
-        >
-          Reply
-        </Button>
-      </div>
+      <p className={cn("mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700", isHidden && "italic text-slate-500")}>
+        {item.body}
+      </p>
+
+      {isHidden && (item.hiddenReason || item.violationCategory) ? (
+        <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+          {item.hiddenReason ? <div>Reason: {item.hiddenReason}</div> : null}
+          {item.violationCategory ? <div>Violation Category: {item.violationCategory}</div> : null}
+        </div>
+      ) : null}
+
+      {!isHidden && !isNested ? (
+        <div className="mt-3">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 px-2 text-xs text-slate-600 hover:text-slate-900"
+            aria-label={`Reply to feedback from ${item.author.fullName}`}
+            onClick={() => onReply(item)}
+            disabled={replyDisabled}
+          >
+            Reply
+          </Button>
+        </div>
+      ) : null}
     </article>
   );
 }

@@ -200,10 +200,6 @@ describe("admin routes settings-store unavailable behavior", () => {
         lockoutUnit: "minutes",
       },
     };
-    const notificationSettings = {
-      reviewNotificationsEnabled: true,
-      submissionAlertsEnabled: true,
-    };
     const systemBannerDraft = {
       title: null,
       message: "",
@@ -211,11 +207,12 @@ describe("admin routes settings-store unavailable behavior", () => {
       startAt: null,
       endAt: null,
     };
+    const systemBannerPublished = null;
 
     mockGetTypedAppSetting.mockImplementation(async (key: string) => {
       if (key === "system.security_settings") return securitySettings;
-      if (key === "system.notification_settings") return notificationSettings;
       if (key === "system.banner_draft") return systemBannerDraft;
+      if (key === "system.banner_published") return systemBannerPublished;
       return {};
     });
 
@@ -226,8 +223,8 @@ describe("admin routes settings-store unavailable behavior", () => {
     expect(response.status).toBe(200);
     expect(body).toEqual({
       securitySettings,
-      notificationSettings,
       systemBannerDraft,
+      systemBannerPublished,
       auditLogs: [],
     });
   });

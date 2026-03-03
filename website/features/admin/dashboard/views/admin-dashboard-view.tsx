@@ -8,17 +8,41 @@ import ReviewBacklogCard from "../components/ReviewBacklogCard";
 import ErrorRateBarChart from "../components/ErrorRateBarChart";
 import ChatbotUsageLineChart from "../components/ChatbotUsageLineChart";
 import MiniKpiStack from "../components/MiniKpiStack";
-import RecentActivityList from "../components/RecentActivityList";
 import { Users, Building2, MessageSquare, FileText } from "lucide-react";
 import { useAdminDashboard } from "../hooks/useAdminDashboard";
 import type { AdminDashboardActions } from "../types/dashboard-actions";
+import type {
+  AdminDashboardFilters,
+  AdminDashboardSnapshot,
+} from "@/lib/repos/admin-dashboard/types";
 
 type AdminDashboardViewProps = {
   actions: AdminDashboardActions;
+  onFiltersChange?: (filters: AdminDashboardFilters) => void;
+  initialData?: {
+    filters: AdminDashboardFilters;
+    snapshot: AdminDashboardSnapshot;
+  };
 };
 
-export default function AdminDashboardView({ actions }: AdminDashboardViewProps) {
-  const { filters, setFilters, viewModel, loading, error, handleReset } = useAdminDashboard();
+export default function AdminDashboardView({
+  actions,
+  onFiltersChange,
+  initialData,
+}: AdminDashboardViewProps) {
+  const { filters, setFilters, viewModel, loading, error, createDefaultFilters } =
+    useAdminDashboard(initialData);
+
+  const handleFilterChange = (nextFilters: AdminDashboardFilters) => {
+    setFilters(nextFilters);
+    onFiltersChange?.(nextFilters);
+  };
+
+  const handleReset = () => {
+    const nextFilters = createDefaultFilters();
+    setFilters(nextFilters);
+    onFiltersChange?.(nextFilters);
+  };
 
   const handleStatusClick = (status: string) => {
     actions.onOpenAipMonitoring?.({ filters, status });
@@ -45,7 +69,7 @@ export default function AdminDashboardView({ actions }: AdminDashboardViewProps)
         <DashboardFiltersRow
           filters={filters}
           lguOptions={viewModel.lguOptions}
-          onChange={setFilters}
+          onChange={handleFilterChange}
           onReset={handleReset}
         />
       </div>
@@ -104,10 +128,7 @@ export default function AdminDashboardView({ actions }: AdminDashboardViewProps)
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[2.1fr_1fr]">
-        <AipStatusDonutCard
-          data={viewModel.distribution}
-          onStatusClick={handleStatusClick}
-        />
+        <AipStatusDonutCard data={viewModel.distribution} onStatusClick={handleStatusClick} />
         {viewModel.reviewBacklog && (
           <ReviewBacklogCard
             backlog={viewModel.reviewBacklog}
@@ -126,14 +147,7 @@ export default function AdminDashboardView({ actions }: AdminDashboardViewProps)
         </div>
       )}
 
-      <RecentActivityList
-        items={viewModel.recentActivity}
-        onViewAudit={() => actions.onOpenAuditLogs?.({ filters })}
-      />
-
-      {loading && (
-        <div className="text-[12px] text-slate-500">Refreshing dashboard metrics…</div>
-      )}
+      {loading && <div className="text-[12px] text-slate-500">Refreshing dashboard metrics...</div>}
     </div>
   );
 }

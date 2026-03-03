@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { supabaseBrowser } from "@/lib/supabase/client";
+import { addCitizenAuthChangedListener } from "@/features/citizen/auth/utils/auth-sync";
 import { FeedbackComposer } from "@/features/projects/shared/feedback";
 import type { CitizenProjectFeedbackKind } from "@/features/projects/shared/feedback";
 import {
@@ -33,6 +34,15 @@ type ReplyComposerState = {
 type Props = {
   aipId: string;
   feedbackCount: number;
+};
+
+type ProfileStatusPayload = {
+  ok?: boolean;
+  isComplete?: boolean;
+  userId?: string;
+  isBlocked?: boolean;
+  blockedUntil?: string | null;
+  blockedReason?: string | null;
 };
 
 function sortByCreatedNewestFirst(items: AipFeedbackItem[]): AipFeedbackItem[] {
@@ -95,6 +105,18 @@ function formatFeedbackTimestamp(value: string): string {
   return `${dateLabel} | ${timeLabel}`;
 }
 
+function formatBlockedUntilLabel(value: string | null): string {
+  if (!value) return "an unknown date";
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString("en-PH", {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+    timeZone: "Asia/Manila",
+  });
+}
+
 const KIND_LABELS: Record<AipFeedbackDisplayKind, string> = {
   commend: "Commend",
   suggestion: "Suggestion",
@@ -122,10 +144,17 @@ function FeedbackCard({
   replyDisabled: boolean;
   showReplyButton?: boolean;
 }) {
-  const authorInitial = item.author.fullName.trim().charAt(0).toUpperCase() || "?";
+  const isHidden = item.isHidden === true;
+  const isNested = item.parentFeedbackId !== null;
+  const shouldShowKindBadge = item.kind !== "lgu_note";
 
   return (
-    <article className="rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm">
+    <article
+      data-hidden-comment={isHidden ? "true" : "false"}
+      className={`rounded-xl border bg-white p-4 shadow-sm ${
+        isHidden ? "border-slate-300 bg-slate-50/80" : "border-slate-200"
+      }`}
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#0B6676] text-sm font-semibold text-white">
@@ -140,17 +169,39 @@ function FeedbackCard({
             </div>
           </div>
         </div>
-        <Badge
-          variant="outline"
-          className={`rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${KIND_BADGE_CLASSES[item.kind]}`}
-        >
-          {KIND_LABELS[item.kind]}
-        </Badge>
+        <p className="text-xs text-slate-500">{formatFeedbackTimestamp(item.createdAt)}</p>
       </div>
 
-      <p className="mt-3 whitespace-pre-wrap pr-2 text-sm leading-7 text-slate-700">{item.body}</p>
+      {shouldShowKindBadge ? (
+        <div className="mt-3">
+          <Badge variant="outline" className={`rounded-full ${KIND_BADGE_CLASSES[item.kind]}`}>
+            {KIND_LABELS[item.kind]}
+          </Badge>
+        </div>
+      ) : null}
 
-      {showReplyButton === false ? null : (
+      {isHidden ? (
+        <p className="mt-3 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+          Hidden comment
+        </p>
+      ) : null}
+
+      <p
+        className={`mt-3 whitespace-pre-wrap text-sm leading-6 ${
+          isHidden ? "text-slate-500 italic" : "text-slate-700"
+        }`}
+      >
+        {item.body}
+      </p>
+
+      {isHidden && (item.hiddenReason || item.violationCategory) ? (
+        <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+          {item.hiddenReason ? <div>Reason: {item.hiddenReason}</div> : null}
+          {item.violationCategory ? <div>Violation Category: {item.violationCategory}</div> : null}
+        </div>
+      ) : null}
+
+      {showReplyButton === false || isHidden || isNested ? null : (
         <div className="mt-4 flex items-center gap-4">
           <p className="text-[11px] text-slate-400">
             • {formatFeedbackTimestamp(item.createdAt)}
@@ -260,6 +311,9 @@ export default function AipFeedbackTab({ aipId, feedbackCount }: Props) {
   const [isPostingRoot, setIsPostingRoot] = React.useState(false);
   const [postingReplyRootId, setPostingReplyRootId] = React.useState<string | null>(null);
   const [replyComposer, setReplyComposer] = React.useState<ReplyComposerState | null>(null);
+  const [isBlocked, setIsBlocked] = React.useState(false);
+  const [blockedUntil, setBlockedUntil] = React.useState<string | null>(null);
+  const [blockedReason, setBlockedReason] = React.useState<string | null>(null);
 
   const currentDetailPath = React.useMemo(() => {
     const query = searchParams.toString();
@@ -292,28 +346,73 @@ export default function AipFeedbackTab({ aipId, feedbackCount }: Props) {
     let active = true;
     const supabase = supabaseBrowser();
 
-    async function resolveAuthState() {
-      const { data, error } = await supabase.auth.getUser();
+    async function refreshAuthState() {
+      const response = await fetch("/profile/status", {
+        method: "GET",
+        cache: "no-store",
+      });
+      const payload = (await response.json().catch(() => null)) as ProfileStatusPayload | null;
       if (!active) return;
-      if (error || !data.user?.id) {
+
+      if (
+        !response.ok ||
+        !payload?.ok ||
+        typeof payload.userId !== "string" ||
+        !payload.userId.trim().length
+      ) {
         setIsAuthenticated(false);
+        setIsBlocked(false);
+        setBlockedUntil(null);
+        setBlockedReason(null);
         setIsAuthLoading(false);
         return;
       }
+
       setIsAuthenticated(true);
+      setIsBlocked(payload.isBlocked === true);
+      setBlockedUntil(typeof payload.blockedUntil === "string" ? payload.blockedUntil : null);
+      setBlockedReason(
+        typeof payload.blockedReason === "string" && payload.blockedReason.trim().length > 0
+          ? payload.blockedReason.trim()
+          : null
+      );
       setIsAuthLoading(false);
     }
 
-    void resolveAuthState();
+    void refreshAuthState();
+
+    const cleanupAuthChanged = addCitizenAuthChangedListener(() => {
+      void refreshAuthState();
+    });
+    const handleFocus = () => {
+      void refreshAuthState();
+    };
+    const handleVisibilityChange = () => {
+      if (typeof document === "undefined") return;
+      if (document.visibilityState !== "visible") return;
+      void refreshAuthState();
+    };
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!active) return;
-      setIsAuthenticated(Boolean(session?.user?.id));
-      setIsAuthLoading(false);
+      if (!session?.user?.id) {
+        setIsAuthenticated(false);
+        setIsBlocked(false);
+        setBlockedUntil(null);
+        setBlockedReason(null);
+        setIsAuthLoading(false);
+        return;
+      }
+      void refreshAuthState();
     });
 
     return () => {
       active = false;
+      cleanupAuthChanged();
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       listener.subscription.unsubscribe();
     };
   }, []);
@@ -328,10 +427,19 @@ export default function AipFeedbackTab({ aipId, feedbackCount }: Props) {
     [threads]
   );
 
+  React.useEffect(() => {
+    if (isBlocked) {
+      setReplyComposer(null);
+    }
+  }, [isBlocked]);
+
   const handleReplyClick = React.useCallback(
     (item: AipFeedbackItem) => {
       if (!isAuthenticated) {
         redirectToCitizenSignIn();
+        return;
+      }
+      if (isBlocked) {
         return;
       }
 
@@ -342,7 +450,7 @@ export default function AipFeedbackTab({ aipId, feedbackCount }: Props) {
         replyToAuthor: item.author.fullName,
       });
     },
-    [isAuthenticated, redirectToCitizenSignIn]
+    [isAuthenticated, isBlocked, redirectToCitizenSignIn]
   );
 
   const handleCreateRootFeedback = React.useCallback(
@@ -350,6 +458,9 @@ export default function AipFeedbackTab({ aipId, feedbackCount }: Props) {
       if (!isAuthenticated) {
         redirectToCitizenSignIn();
         throw new Error("Please sign in to post feedback.");
+      }
+      if (isBlocked) {
+        throw new Error("Your account is currently blocked from posting feedback.");
       }
 
       setIsPostingRoot(true);
@@ -359,6 +470,7 @@ export default function AipFeedbackTab({ aipId, feedbackCount }: Props) {
         aipId,
         parentFeedbackId: null,
         kind: input.kind,
+        isHidden: false,
         body: input.body,
         createdAt: new Date().toISOString(),
         author: {
@@ -386,7 +498,7 @@ export default function AipFeedbackTab({ aipId, feedbackCount }: Props) {
         setIsPostingRoot(false);
       }
     },
-    [aipId, isAuthenticated, redirectToCitizenSignIn]
+    [aipId, isAuthenticated, isBlocked, redirectToCitizenSignIn]
   );
 
   const handleCreateReplyFeedback = React.useCallback(
@@ -398,6 +510,9 @@ export default function AipFeedbackTab({ aipId, feedbackCount }: Props) {
         redirectToCitizenSignIn();
         throw new Error("Please sign in to post a reply.");
       }
+      if (isBlocked) {
+        throw new Error("Your account is currently blocked from posting feedback.");
+      }
 
       setPostingReplyRootId(replyComposer.rootId);
       const optimisticId = `temp_reply_${Date.now()}`;
@@ -406,6 +521,7 @@ export default function AipFeedbackTab({ aipId, feedbackCount }: Props) {
         aipId,
         parentFeedbackId: replyComposer.rootId,
         kind: input.kind,
+        isHidden: false,
         body: input.body,
         createdAt: new Date().toISOString(),
         author: {
@@ -438,7 +554,7 @@ export default function AipFeedbackTab({ aipId, feedbackCount }: Props) {
         setPostingReplyRootId(null);
       }
     },
-    [aipId, isAuthenticated, redirectToCitizenSignIn, replyComposer]
+    [aipId, isAuthenticated, isBlocked, redirectToCitizenSignIn, replyComposer]
   );
 
   return (
@@ -470,6 +586,14 @@ export default function AipFeedbackTab({ aipId, feedbackCount }: Props) {
                 </Button>
               </div>
             </div>
+          ) : isBlocked ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              <p className="font-semibold">
+                Your account is temporarily blocked from posting feedback.
+              </p>
+              <p className="mt-1">Blocked until: {formatBlockedUntilLabel(blockedUntil)}</p>
+              <p className="mt-1">Reason: {blockedReason ?? "Policy violation"}</p>
+            </div>
           ) : (
             <FeedbackComposer
               submitLabel={isPostingRoot ? "Posting..." : "Post feedback"}
@@ -493,11 +617,12 @@ export default function AipFeedbackTab({ aipId, feedbackCount }: Props) {
               threads={citizenThreads}
               postingReplyRootId={postingReplyRootId}
               isPostingRoot={isPostingRoot}
-              isAuthLoading={isAuthLoading}
+              isAuthLoading={isAuthLoading || isBlocked}
               replyComposer={replyComposer}
               onReply={handleReplyClick}
               onCancelReply={() => setReplyComposer(null)}
               onSubmitReply={handleCreateReplyFeedback}
+              readOnly={isBlocked}
             />
           ) : null}
         </CardContent>

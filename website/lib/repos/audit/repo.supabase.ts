@@ -2,7 +2,13 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { AuditRepo } from "./repo";
-import type { ActivityLogRow, ActivityScopeSnapshot } from "./types";
+import type {
+  ActivityLogRow,
+  ActivityScopeSnapshot,
+  AuditListInput,
+  AuditListResult,
+  AuditRoleFilter,
+} from "./types";
 
 type ActivityLogSelectRow = {
   id: string;
@@ -45,6 +51,10 @@ type ActivityLogFilters = {
   actorRole?: string;
   barangayId?: string;
   cityId?: string;
+  role?: AuditRoleFilter;
+  year?: "all" | number;
+  event?: "all" | string;
+  q?: string;
 };
 
 function toScope(row: ActivityLogSelectRow): ActivityScopeSnapshot {
@@ -128,38 +138,83 @@ function mapActivityRow(
   };
 }
 
-async function listActivityRows(
-  filters: ActivityLogFilters = {}
-): Promise<ActivityLogRow[]> {
-  const admin = supabaseAdmin();
-  let query = admin
-    .from("activity_log")
-    .select(SELECT_COLUMNS)
-    .order("created_at", { ascending: false });
+function escapeIlikeTerm(input: string): string {
+  return input.replace(/[%_]/g, "\\$&").replace(/,/g, " ").trim();
+}
+
+type FilterableQuery = {
+  eq: (...args: unknown[]) => unknown;
+  in: (...args: unknown[]) => unknown;
+  gte: (...args: unknown[]) => unknown;
+  lt: (...args: unknown[]) => unknown;
+  or: (...args: unknown[]) => unknown;
+};
+
+function applyActivityLogFilters(
+  query: FilterableQuery,
+  filters: ActivityLogFilters
+): FilterableQuery {
+  let next = query;
 
   if (filters.actorId) {
-    query = query.eq("actor_id", filters.actorId);
+    next = next.eq("actor_id", filters.actorId) as FilterableQuery;
   }
 
   if (filters.actorRole) {
-    query = query.eq("actor_role", filters.actorRole);
+    next = next.eq("actor_role", filters.actorRole) as FilterableQuery;
   }
 
   if (filters.barangayId) {
-    query = query.eq("barangay_id", filters.barangayId);
+    next = next.eq("barangay_id", filters.barangayId) as FilterableQuery;
   }
   if (filters.cityId) {
-    query = query.eq("city_id", filters.cityId);
+    next = next.eq("city_id", filters.cityId) as FilterableQuery;
   }
 
-  const { data, error } = await query;
-  if (error) {
-    throw new Error(error.message);
+  if (filters.role && filters.role !== "all") {
+    if (filters.role === "admin") {
+      next = next.eq("actor_role", "admin") as FilterableQuery;
+    } else if (filters.role === "citizen") {
+      next = next.eq("actor_role", "citizen") as FilterableQuery;
+    } else if (filters.role === "lgu_officials") {
+      next = next.in("actor_role", [
+        "barangay_official",
+        "city_official",
+        "municipal_official",
+      ]) as FilterableQuery;
+    }
   }
 
-  const rows = ((data ?? []) as unknown[]).map(
-    (row) => row as ActivityLogSelectRow
-  );
+  if (typeof filters.year === "number") {
+    const yearStart = new Date(Date.UTC(filters.year, 0, 1)).toISOString();
+    const yearEnd = new Date(Date.UTC(filters.year + 1, 0, 1)).toISOString();
+    next = next.gte("created_at", yearStart) as FilterableQuery;
+    next = next.lt("created_at", yearEnd) as FilterableQuery;
+  }
+
+  if (filters.event && filters.event !== "all") {
+    next = next.eq("action", filters.event) as FilterableQuery;
+  }
+
+  const q = typeof filters.q === "string" ? escapeIlikeTerm(filters.q) : "";
+  if (q.length > 0) {
+    next = next.or(
+      [
+        `action.ilike.%${q}%`,
+        `actor_role.ilike.%${q}%`,
+        `metadata->>actor_name.ilike.%${q}%`,
+        `metadata->>actor_position.ilike.%${q}%`,
+        `metadata->>details.ilike.%${q}%`,
+      ].join(",")
+    ) as FilterableQuery;
+  }
+
+  return next;
+}
+
+async function buildProfileMap(
+  rows: ActivityLogSelectRow[]
+): Promise<Map<string, ProfileSelectRow>> {
   const actorIds = Array.from(
     new Set(
       rows
@@ -169,23 +224,84 @@ async function listActivityRows(
   );
 
   const profileById = new Map<string, ProfileSelectRow>();
-  if (actorIds.length > 0) {
-    const { data: profiles, error: profilesError } = await admin
-      .from("profiles")
-      .select("id,full_name,email")
-      .in("id", actorIds);
-
-    if (profilesError) {
-      throw new Error(profilesError.message);
-    }
-
-    ((profiles ?? []) as unknown[]).forEach((row) => {
-      const profile = row as ProfileSelectRow;
-      profileById.set(profile.id, profile);
-    });
+  if (actorIds.length === 0) {
+    return profileById;
   }
 
+  const { data: profiles, error: profilesError } = await supabaseAdmin()
+    .from("profiles")
+    .select("id,full_name,email")
+    .in("id", actorIds);
+
+  if (profilesError) {
+    throw new Error(profilesError.message);
+  }
+
+  ((profiles ?? []) as unknown[]).forEach((row) => {
+    const profile = row as ProfileSelectRow;
+    profileById.set(profile.id, profile);
+  });
+
+  return profileById;
+}
+
+async function listActivityRows(
+  filters: ActivityLogFilters = {}
+): Promise<ActivityLogRow[]> {
+  const admin = supabaseAdmin();
+  let query: any = admin
+    .from("activity_log")
+    .select(SELECT_COLUMNS)
+    .order("created_at", { ascending: false });
+
+  query = applyActivityLogFilters(query as FilterableQuery, filters);
+
+  const { data, error } = await query;
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const rows = ((data ?? []) as unknown[]).map(
+    (row) => row as ActivityLogSelectRow
+  );
+  const profileById = await buildProfileMap(rows);
+
   return rows.map((row) => mapActivityRow(row, profileById));
+}
+
+async function listActivityPage(input: AuditListInput): Promise<AuditListResult> {
+  const admin = supabaseAdmin();
+  const start = (input.page - 1) * input.pageSize;
+  const end = start + input.pageSize - 1;
+
+  let query: any = admin
+    .from("activity_log")
+    .select(SELECT_COLUMNS, { count: "exact" })
+    .order("created_at", { ascending: false });
+
+  query = applyActivityLogFilters(query as FilterableQuery, {
+    role: input.role,
+    year: input.year,
+    event: input.event,
+    q: input.q,
+  });
+
+  const { data, error, count } = await query.range(start, end);
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const rows = ((data ?? []) as unknown[]).map(
+    (row) => row as ActivityLogSelectRow
+  );
+  const profileById = await buildProfileMap(rows);
+
+  return {
+    rows: rows.map((row) => mapActivityRow(row, profileById)),
+    total: count ?? 0,
+    page: input.page,
+    pageSize: input.pageSize,
+  };
 }
 
 export function createSupabaseAuditRepo(): AuditRepo {
@@ -209,6 +325,9 @@ export function createSupabaseAuditRepo(): AuditRepo {
     },
     async listAllActivity(): Promise<ActivityLogRow[]> {
       return listActivityRows();
+    },
+    async listActivityPage(input: AuditListInput): Promise<AuditListResult> {
+      return listActivityPage(input);
     },
   };
 }

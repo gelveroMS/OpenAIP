@@ -5,15 +5,15 @@ import ProjectUpdatesFiltersRow from "./ProjectUpdatesFiltersRow";
 import ProjectUpdatesTable from "./ProjectUpdatesTable";
 import SensitiveGuidelinesPanel from "./SensitiveGuidelinesPanel";
 import ProjectUpdateDetailsModal from "./modals/ProjectUpdateDetailsModal";
-import FlagForReviewModal from "./modals/FlagForReviewModal";
-import RemoveUpdateModal from "./modals/RemoveUpdateModal";
+import HideUpdateModal from "./modals/RemoveUpdateModal";
+import UnhideUpdateModal from "./modals/UnhideUpdateModal";
 import { getFeedbackModerationProjectUpdatesRepo } from "@/lib/repos/feedback-moderation-project-updates";
 import {
   mapProjectUpdateToDetails,
   mapProjectUpdatesToRows,
 } from "@/lib/mappers/feedback-moderation-project-updates";
 import type {
-  ModerationActionRecord,
+  AipRecord,
   ProjectUpdateRecord,
 } from "@/lib/repos/feedback-moderation-project-updates/types";
 
@@ -25,9 +25,8 @@ const TYPE_OPTIONS = [
 
 const STATUS_OPTIONS = [
   { value: "all", label: "All Statuses" },
-  { value: "active", label: "Active" },
-  { value: "flagged", label: "Flagged" },
-  { value: "removed", label: "Removed" },
+  { value: "visible", label: "Visible" },
+  { value: "hidden", label: "Hidden" },
 ];
 
 const VIOLATION_OPTIONS = [
@@ -37,12 +36,12 @@ const VIOLATION_OPTIONS = [
   "Inappropriate Images",
 ];
 
-const toScope = (update: ProjectUpdateRecord) => ({
-  region_id: update.region_id,
-  province_id: update.province_id,
-  city_id: update.city_id,
-  municipality_id: update.municipality_id,
-  barangay_id: update.barangay_id,
+const toScope = (aip: AipRecord | undefined) => ({
+  region_id: null,
+  province_id: null,
+  city_id: aip?.city_id ?? null,
+  municipality_id: aip?.municipality_id ?? null,
+  barangay_id: aip?.barangay_id ?? null,
 });
 
 export default function ProjectUpdatesPage() {
@@ -56,18 +55,17 @@ export default function ProjectUpdatesPage() {
   const [seedData, setSeedData] = useState<Awaited<ReturnType<typeof repo.getSeedData>> | null>(
     null
   );
-  const [actions, setActions] = useState<ModerationActionRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionPending, setActionPending] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const [detailsId, setDetailsId] = useState<string | null>(null);
-  const [flagId, setFlagId] = useState<string | null>(null);
-  const [removeId, setRemoveId] = useState<string | null>(null);
-  const [flagReason, setFlagReason] = useState("");
-  const [removeReason, setRemoveReason] = useState("");
-  const [removeViolation, setRemoveViolation] = useState("");
+  const [hideId, setHideId] = useState<string | null>(null);
+  const [unhideId, setUnhideId] = useState<string | null>(null);
+  const [hideReason, setHideReason] = useState("");
+  const [hideViolation, setHideViolation] = useState("");
+  const [unhideReason, setUnhideReason] = useState("");
 
   useEffect(() => {
     let isActive = true;
@@ -80,7 +78,6 @@ export default function ProjectUpdatesPage() {
         const nextSeed = await repo.getSeedData();
         if (!isActive) return;
         setSeedData(nextSeed);
-        setActions(nextSeed.actions);
       } catch (loadError) {
         if (!isActive) return;
         setError(
@@ -89,14 +86,11 @@ export default function ProjectUpdatesPage() {
             : "Failed to load project update moderation data."
         );
       } finally {
-        if (isActive) {
-          setLoading(false);
-        }
+        if (isActive) setLoading(false);
       }
     }
 
-    load();
-
+    void load();
     return () => {
       isActive = false;
     };
@@ -107,7 +101,7 @@ export default function ProjectUpdatesPage() {
       seedData
         ? mapProjectUpdatesToRows({
             updates: seedData.updates,
-            actions,
+            media: seedData.media,
             projects: seedData.lguMap.projects,
             aips: seedData.lguMap.aips,
             profiles: seedData.lguMap.profiles,
@@ -116,14 +110,11 @@ export default function ProjectUpdatesPage() {
             municipalities: seedData.lguMap.municipalities,
           })
         : [],
-    [actions, seedData]
+    [seedData]
   );
 
   const lguOptions = useMemo(
-    () =>
-      Array.from(new Set(rows.map((row) => row.lguName))).sort((a, b) =>
-        a.localeCompare(b)
-      ),
+    () => Array.from(new Set(rows.map((row) => row.lguName))).sort((a, b) => a.localeCompare(b)),
     [rows]
   );
 
@@ -143,112 +134,96 @@ export default function ProjectUpdatesPage() {
     });
   }, [rows, query, typeFilter, statusFilter, lguFilter]);
 
-  const selectedUpdate = seedData
+  const selectedUpdate: ProjectUpdateRecord | null = seedData
     ? seedData.updates.find((row) => row.id === detailsId) ?? null
     : null;
-  const selectedActions = actions.filter((row) => row.entity_id === detailsId);
   const selectedProject = seedData?.lguMap.projects.find(
-    (row) => row.id === selectedUpdate?.entity_id
+    (row) => row.id === selectedUpdate?.project_id
   );
-  const selectedAip = seedData?.lguMap.aips.find((row) => row.id === selectedProject?.aip_id);
-  const selectedProfile = seedData?.lguMap.profiles.find(
-    (row) => row.id === selectedUpdate?.actor_id
-  );
+  const selectedAip = seedData?.lguMap.aips.find((row) => row.id === selectedUpdate?.aip_id);
+  const selectedProfile = seedData?.lguMap.profiles.find((row) => row.id === selectedUpdate?.posted_by);
+  const selectedMedia =
+    seedData?.media.filter((row) => row.update_id === selectedUpdate?.id) ?? [];
 
-  const detailsModel = selectedUpdate && seedData
-    ? mapProjectUpdateToDetails({
-        update: selectedUpdate,
-        actions: selectedActions,
-        project: selectedProject,
-        aip: selectedAip,
-        profile: selectedProfile,
-        cities: seedData.lguMap.cities,
-        barangays: seedData.lguMap.barangays,
-        municipalities: seedData.lguMap.municipalities,
-      })
-    : null;
+  const detailsModel =
+    selectedUpdate && seedData
+      ? mapProjectUpdateToDetails({
+          update: selectedUpdate,
+          media: selectedMedia,
+          project: selectedProject,
+          aip: selectedAip,
+          profile: selectedProfile,
+          cities: seedData.lguMap.cities,
+          barangays: seedData.lguMap.barangays,
+          municipalities: seedData.lguMap.municipalities,
+        })
+      : null;
 
-  const resetFlagState = () => {
-    setFlagId(null);
-    setFlagReason("");
+  const resetHideState = () => {
+    setHideId(null);
+    setHideReason("");
+    setHideViolation("");
   };
 
-  const resetRemoveState = () => {
-    setRemoveId(null);
-    setRemoveReason("");
-    setRemoveViolation("");
+  const resetUnhideState = () => {
+    setUnhideId(null);
+    setUnhideReason("");
   };
 
-  const handleFlagConfirm = () => {
-    if (!flagId || !seedData) return;
-    const targetUpdate = seedData.updates.find((row) => row.id === flagId);
-    if (!targetUpdate) return;
-
+  const withPendingAction = async (task: () => Promise<void>) => {
     setActionPending(true);
     setActionError(null);
+    try {
+      await task();
+    } catch (actionErr) {
+      setActionError(
+        actionErr instanceof Error ? actionErr.message : "Failed to update project moderation state."
+      );
+    } finally {
+      setActionPending(false);
+    }
+  };
 
-    repo
-      .flagUpdate({
-        updateId: flagId,
-        reason: flagReason.trim(),
+  const handleHideConfirm = () => {
+    if (!hideId || !seedData) return;
+    const targetUpdate = seedData.updates.find((row) => row.id === hideId);
+    if (!targetUpdate) return;
+    const targetAip = seedData.lguMap.aips.find((row) => row.id === targetUpdate.aip_id);
+
+    void withPendingAction(async () => {
+      const nextSeed = await repo.hideUpdate({
+        updateId: hideId,
+        reason: hideReason.trim(),
+        violationCategory: hideViolation || null,
+        scope: toScope(targetAip),
+      });
+      setSeedData(nextSeed);
+      resetHideState();
+    });
+  };
+
+  const handleUnhideConfirm = () => {
+    if (!unhideId || !seedData) return;
+    const targetUpdate = seedData.updates.find((row) => row.id === unhideId);
+    if (!targetUpdate) return;
+    const targetAip = seedData.lguMap.aips.find((row) => row.id === targetUpdate.aip_id);
+
+    void withPendingAction(async () => {
+      const nextSeed = await repo.unhideUpdate({
+        updateId: unhideId,
+        reason: unhideReason.trim(),
         violationCategory: null,
-        scope: toScope(targetUpdate),
-      })
-      .then((nextSeed) => {
-        setSeedData(nextSeed);
-        setActions(nextSeed.actions);
-        resetFlagState();
-      })
-      .catch((actionErr) => {
-        setActionError(
-          actionErr instanceof Error
-            ? actionErr.message
-            : "Failed to flag this project update."
-        );
-      })
-      .finally(() => {
-        setActionPending(false);
+        scope: toScope(targetAip),
       });
-  };
-
-  const handleRemoveConfirm = () => {
-    if (!removeId || !seedData) return;
-    const targetUpdate = seedData.updates.find((row) => row.id === removeId);
-    if (!targetUpdate) return;
-
-    setActionPending(true);
-    setActionError(null);
-
-    repo
-      .removeUpdate({
-        updateId: removeId,
-        reason: removeReason.trim(),
-        violationCategory: removeViolation || null,
-        scope: toScope(targetUpdate),
-      })
-      .then((nextSeed) => {
-        setSeedData(nextSeed);
-        setActions(nextSeed.actions);
-        resetRemoveState();
-      })
-      .catch((actionErr) => {
-        setActionError(
-          actionErr instanceof Error
-            ? actionErr.message
-            : "Failed to remove this project update."
-        );
-      })
-      .finally(() => {
-        setActionPending(false);
-      });
+      setSeedData(nextSeed);
+      resetUnhideState();
+    });
   };
 
   return (
     <div className="space-y-6">
       <div className="space-y-1">
-        <div className="text-base font-semibold text-slate-900">
-          Project Updates & Media Review
-        </div>
+        <div className="text-base font-semibold text-slate-900">Project Updates & Media Review</div>
         <div className="text-sm text-slate-500">
           Review updates and uploaded media for compliance and sensitive content.
         </div>
@@ -284,14 +259,14 @@ export default function ProjectUpdatesPage() {
             <ProjectUpdatesTable
               rows={filteredRows}
               onViewPreview={(id) => setDetailsId(id)}
-              onRemove={(id) => {
-                setRemoveId(id);
-                setRemoveReason("");
-                setRemoveViolation("");
+              onHide={(id) => {
+                setHideId(id);
+                setHideReason("");
+                setHideViolation("");
               }}
-              onFlag={(id) => {
-                setFlagId(id);
-                setFlagReason("");
+              onUnhide={(id) => {
+                setUnhideId(id);
+                setUnhideReason("");
               }}
             />
 
@@ -308,28 +283,28 @@ export default function ProjectUpdatesPage() {
         details={detailsModel}
       />
 
-      <FlagForReviewModal
-        open={flagId !== null}
+      <HideUpdateModal
+        open={hideId !== null}
         onOpenChange={(open) => {
-          if (!open) resetFlagState();
+          if (!open) resetHideState();
         }}
-        reason={flagReason}
-        onReasonChange={setFlagReason}
-        onConfirm={handleFlagConfirm}
+        reason={hideReason}
+        onReasonChange={setHideReason}
+        violationCategory={hideViolation}
+        onViolationCategoryChange={setHideViolation}
+        violationOptions={VIOLATION_OPTIONS}
+        onConfirm={handleHideConfirm}
         isSubmitting={actionPending}
       />
 
-      <RemoveUpdateModal
-        open={removeId !== null}
+      <UnhideUpdateModal
+        open={unhideId !== null}
         onOpenChange={(open) => {
-          if (!open) resetRemoveState();
+          if (!open) resetUnhideState();
         }}
-        reason={removeReason}
-        onReasonChange={setRemoveReason}
-        violationCategory={removeViolation}
-        onViolationCategoryChange={setRemoveViolation}
-        violationOptions={VIOLATION_OPTIONS}
-        onConfirm={handleRemoveConfirm}
+        reason={unhideReason}
+        onReasonChange={setUnhideReason}
+        onConfirm={handleUnhideConfirm}
         isSubmitting={actionPending}
       />
     </div>

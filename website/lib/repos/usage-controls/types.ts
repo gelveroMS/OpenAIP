@@ -1,4 +1,10 @@
-import type { ActivityLogRow, FeedbackRow, ProfileRow } from "@/lib/contracts/databasev2";
+import type {
+  ActivityLogRow,
+  ChatMessageRow,
+  ChatRateEventRow,
+  FeedbackRow,
+  ProfileRow,
+} from "@/lib/contracts/databasev2";
 
 export type RateLimitSettingRecord = ActivityLogRow;
 export type UserRestrictionRecord = ActivityLogRow;
@@ -31,14 +37,6 @@ export type ChatbotRateLimitPolicy = {
   updatedBy?: string | null;
 };
 
-export type ChatbotSystemPolicy = {
-  isEnabled: boolean;
-  retentionDays: number;
-  userDisclaimer: string;
-  updatedAt: string;
-  updatedBy?: string | null;
-};
-
 export type FlaggedUserRowVM = {
   userId: string;
   name: string;
@@ -60,10 +58,20 @@ export type AuditEntryVM = {
   status?: string | null;
 };
 
+export type UserAuditHistoryPage = {
+  entries: AuditEntryVM[];
+  total: number;
+  offset: number;
+  limit: number;
+  hasNext: boolean;
+};
+
 export type PlatformControlsDataset = {
   profiles: ProfileRecord[];
   feedback: FeedbackRecord[];
   activity: ActivityLogRow[];
+  chatMessages: ChatMessageRow[];
+  chatRateEvents: ChatRateEventRow[];
 };
 
 export type UsageControlsRepo = {
@@ -72,20 +80,21 @@ export type UsageControlsRepo = {
     maxComments: number;
     timeWindow: "hour" | "day";
   }) => Promise<RateLimitSettingsVM>;
-  getChatbotMetrics: () => Promise<ChatbotMetrics>;
+  getChatbotMetrics: (input?: {
+    dateFrom?: string | null;
+    dateTo?: string | null;
+  }) => Promise<ChatbotMetrics>;
   getChatbotRateLimitPolicy: () => Promise<ChatbotRateLimitPolicy>;
   updateChatbotRateLimitPolicy: (input: {
     maxRequests: number;
     timeWindow: "per_hour" | "per_day";
   }) => Promise<ChatbotRateLimitPolicy>;
-  getChatbotSystemPolicy: () => Promise<ChatbotSystemPolicy>;
-  updateChatbotSystemPolicy: (input: {
-    isEnabled: boolean;
-    retentionDays: number;
-    userDisclaimer: string;
-  }) => Promise<ChatbotSystemPolicy>;
   listFlaggedUsers: () => Promise<FlaggedUserRowVM[]>;
-  getUserAuditHistory: (userId: string) => Promise<AuditEntryVM[]>;
+  getUserAuditHistory: (input: {
+    userId: string;
+    offset?: number;
+    limit?: number;
+  }) => Promise<UserAuditHistoryPage>;
   temporarilyBlockUser: (input: {
     userId: string;
     reason: string;

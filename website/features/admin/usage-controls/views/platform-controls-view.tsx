@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import PlatformControlsTabs, {
   PlatformControlsTab,
 } from "../components/PlatformControlsTabs";
@@ -11,29 +12,43 @@ import BlockUserDialog from "../components/BlockUserDialog";
 import UnblockUserDialog from "../components/UnblockUserDialog";
 import ChatbotMetricsRow from "../components/ChatbotMetricsRow";
 import ChatbotRateLimitsCard from "../components/ChatbotRateLimitsCard";
-import ChatbotPolicyCard from "../components/ChatbotPolicyCard";
 import { getUsageControlsRepo } from "@/lib/repos/usage-controls/repo";
 import type {
-  AuditEntryVM,
   ChatbotMetrics,
   ChatbotRateLimitPolicy,
-  ChatbotSystemPolicy,
   FlaggedUserRowVM,
   RateLimitSettingsVM,
+  UserAuditHistoryPage,
 } from "@/lib/repos/usage-controls/types";
 
+const AUDIT_PAGE_SIZE = 2;
+
+const EMPTY_AUDIT_PAGE: UserAuditHistoryPage = {
+  entries: [],
+  total: 0,
+  offset: 0,
+  limit: AUDIT_PAGE_SIZE,
+  hasNext: false,
+};
+
 export default function PlatformControlsView() {
+  const searchParams = useSearchParams();
   const repo = useMemo(() => getUsageControlsRepo(), []);
-  const [activeTab, setActiveTab] = useState<PlatformControlsTab>("feedback");
+  const tabParam = searchParams.get("tab");
+  const metricsDateFrom = searchParams.get("from");
+  const metricsDateTo = searchParams.get("to");
+  const initialTab: PlatformControlsTab = tabParam === "chatbot" ? "chatbot" : "feedback";
+  const [activeTab, setActiveTab] = useState<PlatformControlsTab>(initialTab);
 
   const [rateSettings, setRateSettings] = useState<RateLimitSettingsVM | null>(null);
   const [flaggedUsers, setFlaggedUsers] = useState<FlaggedUserRowVM[]>([]);
-  const [auditEntries, setAuditEntries] = useState<AuditEntryVM[]>([]);
+  const [auditPage, setAuditPage] = useState<UserAuditHistoryPage>(EMPTY_AUDIT_PAGE);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState<string | null>(null);
   const [selectedUser, setSelectedUser] = useState<FlaggedUserRowVM | null>(null);
   const [activeModal, setActiveModal] = useState<"audit" | "block" | "unblock" | null>(null);
   const [chatbotMetrics, setChatbotMetrics] = useState<ChatbotMetrics | null>(null);
   const [chatbotRateLimit, setChatbotRateLimit] = useState<ChatbotRateLimitPolicy | null>(null);
-  const [chatbotPolicy, setChatbotPolicy] = useState<ChatbotSystemPolicy | null>(null);
 
   const [blockReason, setBlockReason] = useState("");
   const [blockDurationValue, setBlockDurationValue] = useState(7);
@@ -43,28 +58,33 @@ export default function PlatformControlsView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [settings, users, metrics, rateLimitPolicy, systemPolicy] = await Promise.all([
+      const [settings, users, rateLimitPolicy, metrics] = await Promise.all([
         repo.getRateLimitSettings(),
         repo.listFlaggedUsers(),
-        repo.getChatbotMetrics(),
         repo.getChatbotRateLimitPolicy(),
-        repo.getChatbotSystemPolicy(),
+        repo.getChatbotMetrics({
+          dateFrom: metricsDateFrom,
+          dateTo: metricsDateTo,
+        }),
       ]);
       setRateSettings(settings);
       setFlaggedUsers(users);
       setChatbotMetrics(metrics);
       setChatbotRateLimit(rateLimitPolicy);
-      setChatbotPolicy(systemPolicy);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load platform controls.");
     } finally {
       setLoading(false);
     }
-  }, [repo]);
+  }, [metricsDateFrom, metricsDateTo, repo]);
 
   useEffect(() => {
     refresh();
@@ -86,20 +106,42 @@ export default function PlatformControlsView() {
     setChatbotRateLimit(next);
   };
 
-  const handleSaveChatbotPolicy = async (input: {
-    isEnabled: boolean;
-    retentionDays: number;
-    userDisclaimer: string;
-  }) => {
-    const next = await repo.updateChatbotSystemPolicy(input);
-    setChatbotPolicy(next);
-  };
+  const loadAuditPage = useCallback(
+    async (row: FlaggedUserRowVM, offset = 0) => {
+      setAuditLoading(true);
+      setAuditError(null);
+      try {
+        const page = await repo.getUserAuditHistory({
+          userId: row.userId,
+          offset,
+          limit: AUDIT_PAGE_SIZE,
+        });
+        setAuditPage(page);
+      } catch (err) {
+        setAuditError(err instanceof Error ? err.message : "Failed to load audit history.");
+      } finally {
+        setAuditLoading(false);
+      }
+    },
+    [repo]
+  );
 
   const handleViewAudit = async (row: FlaggedUserRowVM) => {
     setSelectedUser(row);
-    const entries = await repo.getUserAuditHistory(row.userId);
-    setAuditEntries(entries);
+    setAuditPage(EMPTY_AUDIT_PAGE);
+    setAuditError(null);
     setActiveModal("audit");
+    await loadAuditPage(row, 0);
+  };
+
+  const handleNextAuditPage = async () => {
+    if (!selectedUser || auditLoading || !auditPage.hasNext) return;
+    await loadAuditPage(selectedUser, auditPage.offset + auditPage.limit);
+  };
+
+  const handlePreviousAuditPage = async () => {
+    if (!selectedUser || auditLoading || auditPage.offset <= 0) return;
+    await loadAuditPage(selectedUser, Math.max(0, auditPage.offset - auditPage.limit));
   };
 
   const handleBlockUser = (row: FlaggedUserRowVM) => {
@@ -107,14 +149,16 @@ export default function PlatformControlsView() {
     setBlockReason("");
     setBlockDurationValue(7);
     setBlockDurationUnit("days");
-    setAuditEntries([]);
+    setAuditPage(EMPTY_AUDIT_PAGE);
+    setAuditError(null);
     setActiveModal("block");
   };
 
   const handleUnblockUser = (row: FlaggedUserRowVM) => {
     setSelectedUser(row);
     setUnblockReason("");
-    setAuditEntries([]);
+    setAuditPage(EMPTY_AUDIT_PAGE);
+    setAuditError(null);
     setActiveModal("unblock");
   };
 
@@ -141,7 +185,8 @@ export default function PlatformControlsView() {
 
   const closeAuditDialog = () => {
     setSelectedUser(null);
-    setAuditEntries([]);
+    setAuditPage(EMPTY_AUDIT_PAGE);
+    setAuditError(null);
     setActiveModal(null);
   };
 
@@ -151,7 +196,7 @@ export default function PlatformControlsView() {
         <h1 className="text-[28px] font-semibold text-slate-900">Platform Controls</h1>
         <p className="mt-2 text-[14px] text-muted-foreground">
           Configure usage protections and manage abusive/flagged users. Govern chatbot availability
-          and compliance settings while viewing chatbot performance metrics
+          and request limits while viewing chatbot performance metrics
         </p>
       </div>
 
@@ -172,9 +217,9 @@ export default function PlatformControlsView() {
           )}
 
           <div>
-            <div className="text-[15px] font-semibold text-slate-900">Comment Rate Limits</div>
+            <div className="text-[15px] font-semibold text-slate-900">Feedback Rate Limits</div>
             <div className="text-[13.5px] text-slate-500">
-              Configure comment submission rate limits to prevent spam and abuse.
+              Configure feedback submission rate limits to prevent spam and abuse.
             </div>
           </div>
 
@@ -218,13 +263,6 @@ export default function PlatformControlsView() {
             loading={loading || !chatbotRateLimit}
             onSave={handleSaveChatbotRateLimits}
           />
-
-          <ChatbotPolicyCard
-            key={chatbotPolicy?.updatedAt ?? "chatbot-policy"}
-            policy={chatbotPolicy}
-            loading={loading || !chatbotPolicy}
-            onSave={handleSaveChatbotPolicy}
-          />
         </div>
       )}
 
@@ -234,7 +272,14 @@ export default function PlatformControlsView() {
           if (!open) closeAuditDialog();
         }}
         user={selectedUser}
-        entries={auditEntries}
+        entries={auditPage.entries}
+        total={auditPage.total}
+        offset={auditPage.offset}
+        hasNext={auditPage.hasNext}
+        loading={auditLoading}
+        error={auditError}
+        onPrevious={handlePreviousAuditPage}
+        onNext={handleNextAuditPage}
       />
 
       <BlockUserDialog

@@ -7,9 +7,6 @@ type UsageControlsStateResponse = {
   chatbotRateLimitPolicy: Awaited<
     ReturnType<UsageControlsRepo["getChatbotRateLimitPolicy"]>
   >;
-  chatbotSystemPolicy: Awaited<
-    ReturnType<UsageControlsRepo["getChatbotSystemPolicy"]>
-  >;
 };
 
 async function readJson<T>(response: Response): Promise<T> {
@@ -22,8 +19,15 @@ async function readJson<T>(response: Response): Promise<T> {
   return payload;
 }
 
-async function getState(): Promise<UsageControlsStateResponse> {
-  const response = await fetch("/api/admin/usage-controls", {
+async function getState(input?: {
+  dateFrom?: string | null;
+  dateTo?: string | null;
+}): Promise<UsageControlsStateResponse> {
+  const params = new URLSearchParams();
+  if (input?.dateFrom) params.set("from", input.dateFrom);
+  if (input?.dateTo) params.set("to", input.dateTo);
+  const query = params.toString();
+  const response = await fetch(`/api/admin/usage-controls${query ? `?${query}` : ""}`, {
     method: "GET",
     cache: "no-store",
   });
@@ -55,8 +59,8 @@ export function createSupabaseUsageControlsRepo(): UsageControlsRepo {
       const state = await getState();
       return state.flaggedUsers;
     },
-    async getChatbotMetrics() {
-      const state = await getState();
+    async getChatbotMetrics(input) {
+      const state = await getState(input);
       return state.chatbotMetrics;
     },
     async getChatbotRateLimitPolicy() {
@@ -71,30 +75,24 @@ export function createSupabaseUsageControlsRepo(): UsageControlsRepo {
       }>("update_chatbot_rate_limit", input);
       return result.chatbotRateLimitPolicy;
     },
-    async getChatbotSystemPolicy() {
-      const state = await getState();
-      return state.chatbotSystemPolicy;
-    },
-    async updateChatbotSystemPolicy(input) {
-      const result = await postAction<{
-        chatbotSystemPolicy: Awaited<
-          ReturnType<UsageControlsRepo["getChatbotSystemPolicy"]>
-        >;
-      }>("update_chatbot_system_policy", input);
-      return result.chatbotSystemPolicy;
-    },
-    async getUserAuditHistory(userId) {
+    async getUserAuditHistory(input) {
+      const offset = Math.max(0, input.offset ?? 0);
+      const limit = Math.max(1, input.limit ?? 2);
       const response = await fetch(
-        `/api/admin/usage-controls?userId=${encodeURIComponent(userId)}`,
+        `/api/admin/usage-controls?userId=${encodeURIComponent(input.userId)}&offset=${offset}&limit=${limit}`,
         {
           method: "GET",
           cache: "no-store",
         }
       );
       const payload = await readJson<{
-        entries: Awaited<ReturnType<UsageControlsRepo["getUserAuditHistory"]>>;
+        entries: Awaited<ReturnType<UsageControlsRepo["getUserAuditHistory"]>>["entries"];
+        total: number;
+        offset: number;
+        limit: number;
+        hasNext: boolean;
       }>(response);
-      return payload.entries;
+      return payload;
     },
     async temporarilyBlockUser(input) {
       await postAction("block_user", input);

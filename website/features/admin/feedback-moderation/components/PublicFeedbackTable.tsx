@@ -43,7 +43,7 @@ export default function PublicFeedbackTable({
           <TableHeader>
             <TableRow className="bg-slate-50 hover:bg-slate-50">
               <TableHead className="p-4 text-[11px] uppercase tracking-wide text-slate-500 font-semibold">
-                Comment Preview
+                Feedback Preview
               </TableHead>
               <TableHead className="p-4 text-[11px] uppercase tracking-wide text-slate-500 font-semibold">
                 Submitted By
@@ -130,7 +130,7 @@ export default function PublicFeedbackTable({
                           }}
                         >
                           <EyeOff className="h-4 w-4" />
-                          Hide Comment
+                          Hide Feedback
                         </DropdownMenuItem>
                       ) : (
                         <DropdownMenuItem
@@ -140,7 +140,7 @@ export default function PublicFeedbackTable({
                           }}
                         >
                           <Eye className="h-4 w-4" />
-                          Unhide Comment
+                          Unhide Feedback
                         </DropdownMenuItem>
                       )}
                     </DropdownMenuContent>

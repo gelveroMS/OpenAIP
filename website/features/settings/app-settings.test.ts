@@ -46,18 +46,18 @@ describe("app settings fallback behavior", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns default chatbot policy when app schema is unavailable", async () => {
+  it("returns default chatbot rate limit when app schema is unavailable", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     mockSupabaseAdmin.mockReturnValue(
       createAdminClient({ readErrorMessage: "Invalid schema: app" })
     );
 
     const { getTypedAppSetting } = await import("@/lib/settings/app-settings");
-    const chatbotPolicy = await getTypedAppSetting("controls.chatbot_policy");
+    const chatbotRateLimit = await getTypedAppSetting("controls.chatbot_rate_limit");
 
-    expect(chatbotPolicy).toMatchObject({
-      isEnabled: true,
-      retentionDays: 90,
+    expect(chatbotRateLimit).toMatchObject({
+      maxRequests: 20,
+      timeWindow: "per_hour",
     });
     expect(warnSpy).toHaveBeenCalledTimes(1);
   });

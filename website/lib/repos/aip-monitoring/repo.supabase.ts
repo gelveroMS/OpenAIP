@@ -1,4 +1,5 @@
-import { supabaseBrowser } from "@/lib/supabase/client";
+import { getAuthenticatedBrowserClient } from "@/lib/supabase/client";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AipMonitoringRepo, AipMonitoringSeedData } from "./repo";
 import type { AipMonitoringDetail } from "@/mocks/fixtures/admin/aip-monitoring/aipMonitoring.mock";
 
@@ -11,6 +12,7 @@ function formatIsoDate(value: string | null | undefined): string {
 }
 
 async function loadNameMap(
+  client: SupabaseClient,
   table: "cities" | "municipalities" | "barangays",
   ids: string[]
 ): Promise<Map<string, string>> {
@@ -18,7 +20,6 @@ async function loadNameMap(
   const map = new Map<string, string>();
   if (uniqueIds.length === 0) return map;
 
-  const client = supabaseBrowser();
   const { data, error } = await client
     .from(table)
     .select("id,name")
@@ -66,7 +67,7 @@ function buildFallbackDetails(aip: {
 }
 
 async function loadSeedData(): Promise<AipMonitoringSeedData> {
-  const client = supabaseBrowser();
+  const client = await getAuthenticatedBrowserClient();
 
   const [aipsResult, reviewsResult, activityResult] = await Promise.all([
     client
@@ -98,14 +99,17 @@ async function loadSeedData(): Promise<AipMonitoringSeedData> {
 
   const [cityMap, municipalityMap, barangayMap] = await Promise.all([
     loadNameMap(
+      client,
       "cities",
       aips.map((aip) => aip.city_id ?? "").filter(Boolean)
     ),
     loadNameMap(
+      client,
       "municipalities",
       aips.map((aip) => aip.municipality_id ?? "").filter(Boolean)
     ),
     loadNameMap(
+      client,
       "barangays",
       aips.map((aip) => aip.barangay_id ?? "").filter(Boolean)
     ),

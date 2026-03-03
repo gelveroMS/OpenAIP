@@ -136,7 +136,7 @@ export default function DashboardFiltersRow({
         </div>
       </div>
       <div className="text-[12px] text-slate-500">
-        Filters update dashboard widgets only. Selections persist when navigating via drill-down.
+        Filters persist in the URL, carry into dashboard drill-down pages, and reuse date range in Usage Controls chatbot metrics.
       </div>
     </div>
   );
