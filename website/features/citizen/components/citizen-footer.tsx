@@ -7,11 +7,11 @@ import { usePathname } from "next/navigation";
 type FooterLink = { label: string; href: string };
 
 const QUICK_LINKS: FooterLink[] = [
-  { label: "Dashboard", href: "/dashboard" },
+  { label: "Dashboard", href: "/" },
   { label: "AIPs", href: "/aips" },
   { label: "Budget Allocation", href: "/budget-allocation" },
-  { label: "Health Projects", href: "/health-projects" },
-  { label: "Infrastructure Projects", href: "/infrastructure-projects" },
+  { label: "Health Projects", href: "/projects/health" },
+  { label: "Infrastructure Projects", href: "/projects/infrastructure" },
 ];
 
 type CitizenFooterProps = {
