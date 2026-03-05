@@ -103,7 +103,7 @@ export default function HeroMotion({ title, subtitle, cta }: HeroMotionProps) {
               </motion.h1>
 
               <motion.p
-                className="mt-5 max-w-[640px] text-[17px] leading-8 text-white/80 md:text-[19px] md:leading-[31px]"
+                className="mt-5 max-w-[640px] text-[12px] leading-7 text-white/80 md:text-[17px] md:leading-[29px]"
                 variants={subtitleVariants}
               >
                 {subtitle}

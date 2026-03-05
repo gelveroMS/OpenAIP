@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useTransition } from "react";
+import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import L from "leaflet";
 import { MapContainer, Marker, Popup, TileLayer, Tooltip, useMap } from "react-leaflet";
@@ -59,13 +60,14 @@ export default function LguMapPanelLeaflet({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const [isNavigating, startNavigation] = useTransition();
   const mainMarkerId = useMemo(
     () => map.markers.find((marker) => marker.kind === "main")?.id ?? null,
     [map.markers]
   );
 
   return (
-    <div className={cn("h-full w-full overflow-hidden rounded-xl border border-slate-200", className)}>
+    <div className={cn("relative h-full w-full overflow-hidden rounded-xl border border-slate-200", className)}>
       <MapContainer
         center={map.center}
         zoom={map.zoom}
@@ -100,7 +102,9 @@ export default function LguMapPanelLeaflet({
                 });
 
                 if (!href) return;
-                router.push(href, { scroll: false });
+                startNavigation(() => {
+                  router.push(href, { scroll: false });
+                });
               },
             }}
           >
@@ -121,6 +125,35 @@ export default function LguMapPanelLeaflet({
           </Marker>
         ))}
       </MapContainer>
+      <div
+        className={cn(
+          "pointer-events-none absolute inset-0 z-[500] grid place-items-center bg-white/45 backdrop-blur-[1px] transition-opacity duration-200",
+          isNavigating ? "opacity-100" : "opacity-0"
+        )}
+        aria-hidden={!isNavigating}
+      >
+        <div
+          className="inline-flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 shadow-sm"
+          role="status"
+          aria-live="polite"
+          aria-label="Loading map data"
+        >
+          <div className="relative flex h-12 w-12 items-center justify-center">
+            <span
+              className="absolute inset-0 rounded-full border-2 border-[#144679]/15 border-t-[#144679] animate-spin"
+              aria-hidden="true"
+            />
+            <Image
+              src="/brand/logo3.svg"
+              alt=""
+              width={30}
+              height={30}
+              className="relative z-10 h-8 w-8"
+            />
+          </div>
+          <span className="text-[11px] font-medium text-slate-700">Loading map data...</span>
+        </div>
+      </div>
     </div>
   );
 }

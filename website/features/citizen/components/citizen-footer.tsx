@@ -27,8 +27,8 @@ export default function CitizenFooter({ forceVisible = false }: CitizenFooterPro
 
   return (
     <footer className="w-full bg-[#001925] text-white">
-      <div className="w-full px-6 py-10 md:px-12 md:py-12 lg:px-16">
-        <div className="grid grid-cols-1 gap-10 md:grid-cols-3">
+      <div className="mx-auto w-full max-w-6xl px-6 py-10 md:px-12 md:py-12 lg:px-16">
+        <div className="grid grid-cols-1 gap-10 md:grid-cols-3 md:gap-x-16 lg:gap-x-20">
           <div className="space-y-3">
             <div className="flex items-center gap-3">
               <Image
@@ -38,7 +38,7 @@ export default function CitizenFooter({ forceVisible = false }: CitizenFooterPro
                 height={40}
                 className="h-10 w-10"
               />
-              <h3 className="text-base font-semibold text-white">Cabuyao AIP Portal</h3>
+              <h3 className="text-base font-semibold text-white">OpenAIP</h3>
             </div>
             <p className="max-w-[34ch] text-sm leading-relaxed text-white/70">
               Promoting transparent and accountable local governance through accessible Annual

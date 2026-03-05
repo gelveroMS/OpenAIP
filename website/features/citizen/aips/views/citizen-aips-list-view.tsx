@@ -140,22 +140,18 @@ export default function CitizenAipsListView({ items }: Props) {
       <CitizenPageHero
         title="Annual Investment Plans"
         subtitle="Explore how your city or barangay plans to use public funds for programs, projects, and community development throughout the year."
-        imageSrc="/citizen-dashboard/hero2.svg"
+        imageSrc="/citizen-dashboard/hero2.webp"
       />
 
       <CitizenExplainerCard title="What is an Annual Investment Plan?">
         <>
-          <p className="text-sm leading-6 text-slate-600 md:text-[15px] md:leading-6">
+          <p className="text-xs leading-6 text-slate-600 md:text-sm md:leading-6">
             The AIP is your local government&apos;s official roadmap for the year. It lists planned programs,
             projects, and activities, together with their approved budgets.
           </p>
-          <p className="text-sm leading-6 text-slate-600 md:text-[15px] md:leading-6">
+          <p className="text-xs leading-6 text-slate-600 md:text-sm md:leading-6">
             This page allows citizens to review the full document, understand budget priorities, and see how public
             funds are intended to benefit the community.
-          </p>
-          <p className="text-sm text-[#6f5a1b]">
-            Click &quot;View Details&quot; on any AIP to see the complete breakdown of projects, budgets, timelines,
-            and implementation strategies.
           </p>
         </>
       </CitizenExplainerCard>

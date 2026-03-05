@@ -1,7 +1,7 @@
 import Image from "next/image";
 import { cn } from "@/lib/ui/utils";
 
-const HERO_BG_SRC = "/citizen-dashboard/hero.svg";
+const HERO_BG_SRC = "/citizen-dashboard/hero.webp";
 
 type CitizenPageHeroProps = {
   title: string;
@@ -31,7 +31,8 @@ export default function CitizenPageHero({
         {/* ✅ Actual hero box (background + border + shadow) */}
         <div
           className={cn(
-            "relative h-[255px] overflow-hidden border border-[#063d7c] text-white shadow-sm"          )}
+            "relative h-[255px] overflow-hidden text-white shadow-sm"
+          )}
         >
           {imageSrc ? (
             <div className="absolute inset-0">
@@ -64,12 +65,12 @@ export default function CitizenPageHero({
               </p>
             ) : null}
             <h1
-              className="text-3xl font-normal uppercase tracking-[0.06em] text-white md:text-5xl"
+              className="text-4xl font-normal uppercase tracking-[0.06em] text-white md:text-6xl"
               style={{ fontFamily: "var(--font-baskervville-sc), Georgia, serif" }}
             >
               {title}
             </h1>
-            <p className="mx-auto mt-4 max-w-4xl text-sm md:text-lg">
+            <p className="mx-auto mt-4 max-w-4xl text-xs md:text-base">
               {subtitle}
             </p>
           </div>

@@ -244,7 +244,12 @@ export default function DonutChartCitizenDashboard({
               onMouseLeave={() => onHover(null)}
             >
               <span className={cn("h-2 w-2 rounded-full", segment.colorClass.split(" ")[0])} />
-              <span className="max-w-[140px] whitespace-normal break-words leading-tight">
+              <span
+                className={cn(
+                  "whitespace-normal break-words leading-tight",
+                  segment.key === "economic" ? "max-w-[84px]" : "max-w-[140px]"
+                )}
+              >
                 {segment.label}
               </span>
             </div>

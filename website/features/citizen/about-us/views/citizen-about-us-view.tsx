@@ -207,7 +207,7 @@ export default function CitizenAboutUsView({
           <CitizenPageHero
             title="ABOUT US"
             subtitle="Explore how your city or barangay plans to use public funds for programs, projects, and community development throughout the year."
-            imageSrc="/citizen-dashboard/hero2.svg"
+            imageSrc="/citizen-dashboard/hero2.webp"
           />
         </motion.div>
 

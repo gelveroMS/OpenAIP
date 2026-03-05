@@ -705,12 +705,14 @@ function formatCompactPeso(value: number): string {
   return `PHP ${Math.round(value).toLocaleString("en-PH")}`;
 }
 
+const NO_PREVIOUS_YEAR_DATA_LABEL = "No data from previous year";
+
 function buildDeltaLabel(input: {
   currentValue: number;
   previousValue: number;
   previousFiscalYear: number;
-}): string | undefined {
-  if (input.previousValue <= 0) return undefined;
+}): string {
+  if (input.previousValue <= 0) return NO_PREVIOUS_YEAR_DATA_LABEL;
   const deltaPct = ((input.currentValue - input.previousValue) / input.previousValue) * 100;
   const sign = deltaPct > 0 ? "+" : "";
   return `${sign}${deltaPct.toFixed(1)}% vs FY ${input.previousFiscalYear}`;
@@ -720,7 +722,10 @@ function buildProjectDeltaLabel(input: {
   currentValue: number;
   previousValue: number;
   previousFiscalYear: number;
-}): string | undefined {
+}): string {
+  if (input.previousValue <= 0) {
+    return NO_PREVIOUS_YEAR_DATA_LABEL;
+  }
   const delta = input.currentValue - input.previousValue;
   if (delta === 0) {
     return `Same with FY ${input.previousFiscalYear}`;
@@ -1164,21 +1169,25 @@ export function createSupabaseLandingContentRepo(): LandingContentRepo {
       });
 
       const budgetDeltaLabel =
-        previousMetrics && typeof previousPublishedFiscalYear === "number"
-          ? buildDeltaLabel({
-              currentValue: currentMetrics.totalBudget,
-              previousValue: previousMetrics.totalBudget,
-              previousFiscalYear: previousPublishedFiscalYear,
-            })
+        hasData
+          ? previousMetrics && typeof previousPublishedFiscalYear === "number"
+            ? buildDeltaLabel({
+                currentValue: currentMetrics.totalBudget,
+                previousValue: previousMetrics.totalBudget,
+                previousFiscalYear: previousPublishedFiscalYear,
+              })
+            : NO_PREVIOUS_YEAR_DATA_LABEL
           : undefined;
 
       const projectDeltaLabel =
-        previousMetrics && typeof previousPublishedFiscalYear === "number"
-          ? buildProjectDeltaLabel({
-              currentValue: currentMetrics.projectCount,
-              previousValue: previousMetrics.projectCount,
-              previousFiscalYear: previousPublishedFiscalYear,
-            })
+        hasData
+          ? previousMetrics && typeof previousPublishedFiscalYear === "number"
+            ? buildProjectDeltaLabel({
+                currentValue: currentMetrics.projectCount,
+                previousValue: previousMetrics.projectCount,
+                previousFiscalYear: previousPublishedFiscalYear,
+              })
+            : NO_PREVIOUS_YEAR_DATA_LABEL
           : undefined;
 
       const lguName = selectedPin?.label ?? mapCenterPin.label ?? "City of Cabuyao";
