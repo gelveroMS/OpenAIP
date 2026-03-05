@@ -125,8 +125,7 @@ export function getCitizenProfileStatus(options?: {
     return result;
   });
 
-  let trackedRequest: Promise<CitizenProfileStatusResult>;
-  trackedRequest = request.finally(() => {
+  const trackedRequest = request.finally(() => {
     if (inFlightRequest === trackedRequest) {
       inFlightRequest = null;
     }

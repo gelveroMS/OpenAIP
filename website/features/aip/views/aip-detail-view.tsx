@@ -345,9 +345,8 @@ export default function AipDetailView({
     aip.status === "published" &&
     (isBarangayScope || isCityScope) &&
     !isEmbedRunning &&
-    Boolean(chatbotReadiness) &&
-    (chatbotReadiness.kind === "failed" ||
-      chatbotReadiness.kind === "needs_embedding");
+    (chatbotReadiness?.kind === "failed" ||
+      chatbotReadiness?.kind === "needs_embedding");
   const embedActionButtonLabel = isEmbedFailed
     ? "Retry Embedding"
     : "Start Embedding";
