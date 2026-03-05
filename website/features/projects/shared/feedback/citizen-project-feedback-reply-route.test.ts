@@ -10,6 +10,7 @@ const mockSanitizeBody = vi.fn();
 const mockHydrateProjectFeedbackItems = vi.fn();
 const mockToErrorResponse = vi.fn();
 const mockAssertFeedbackUsageAllowed = vi.fn();
+const mockNotifySafely = vi.fn();
 
 vi.mock("@/lib/supabase/server", () => ({
   supabaseServer: () => mockSupabaseServer(),
@@ -27,6 +28,10 @@ class MockFeedbackUsageError extends Error {
 vi.mock("@/lib/feedback/usage-guards", () => ({
   assertFeedbackUsageAllowed: (...args: unknown[]) => mockAssertFeedbackUsageAllowed(...args),
   isFeedbackUsageError: (error: unknown) => error instanceof MockFeedbackUsageError,
+}));
+
+vi.mock("@/lib/notifications", () => ({
+  notifySafely: (...args: unknown[]) => mockNotifySafely(...args),
 }));
 
 class MockCitizenFeedbackApiError extends Error {
@@ -170,6 +175,18 @@ describe("POST /api/citizen/feedback/reply", () => {
     );
 
     expect(response.status).toBe(201);
+    expect(mockNotifySafely).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: "FEEDBACK_CREATED",
+        scopeType: "citizen",
+        entityType: "feedback",
+        entityId: "fb-r1",
+        feedbackId: "fb-r1",
+        projectId: "project-1",
+        actorUserId: "citizen-1",
+        actorRole: "citizen",
+      })
+    );
   });
 
   it("rejects replies to workflow-rooted project feedback threads", async () => {

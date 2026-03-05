@@ -282,6 +282,17 @@ async function resolveRecipientsForEvent(
       }
       break;
     case "FEEDBACK_CREATED":
+      if (resolvedFeedbackId) {
+        const feedbackContext =
+          resolvedFeedbackContext ?? (await resolveFeedbackContext(admin, resolvedFeedbackId));
+        resolvedFeedbackContext = feedbackContext;
+        if (feedbackContext?.parentFeedbackId && feedbackContext.rootAuthorUserId) {
+          const rootAuthor = await getRecipientByUserId(admin, feedbackContext.rootAuthorUserId);
+          if (rootAuthor?.role === "citizen") {
+            recipients.push(rootAuthor);
+          }
+        }
+      }
       if (resolvedBarangayId) {
         recipients.push(...(await getBarangayOfficialRecipients(admin, resolvedBarangayId)));
       } else if (resolvedCityId) {
@@ -354,7 +365,12 @@ export async function notify(input: NotifyInput): Promise<NotifyResult> {
     resolvedProjectUpdateContext,
   } = await resolveRecipientsForEvent(admin, input);
 
-  if (recipients.length === 0) {
+  const filteredRecipients =
+    input.eventType === "FEEDBACK_CREATED" && input.actorUserId
+      ? recipients.filter((recipient) => recipient.userId !== input.actorUserId)
+      : recipients;
+
+  if (filteredRecipients.length === 0) {
     return {
       recipientCount: 0,
       notificationsInserted: 0,
@@ -545,12 +561,12 @@ export async function notify(input: NotifyInput): Promise<NotifyResult> {
 
   const preferences = await loadPreferencesByUserId(
     admin,
-    recipients.map((recipient) => recipient.userId),
+    filteredRecipients.map((recipient) => recipient.userId),
     input.eventType
   );
 
   const actionUrlByRecipientUserId = new Map<string, string>();
-  for (const recipient of recipients) {
+  for (const recipient of filteredRecipients) {
     const recipientScopeType = toNotificationScope(recipient);
     actionUrlByRecipientUserId.set(
       recipient.userId,
@@ -572,7 +588,7 @@ export async function notify(input: NotifyInput): Promise<NotifyResult> {
   }
 
   const notificationRows: Array<Record<string, unknown>> = [];
-  for (const recipient of recipients) {
+  for (const recipient of filteredRecipients) {
     const pref = preferences.get(recipient.userId);
     const inAppEnabled = pref?.inAppEnabled ?? true;
     if (!inAppEnabled) continue;
@@ -596,7 +612,7 @@ export async function notify(input: NotifyInput): Promise<NotifyResult> {
   const sendEmail = input.sendEmail !== false;
   const emailRows: Array<Record<string, unknown>> = [];
   if (sendEmail) {
-    for (const recipient of recipients) {
+    for (const recipient of filteredRecipients) {
       const pref = preferences.get(recipient.userId);
       const emailEnabled = pref?.emailEnabled ?? true;
       if (!emailEnabled) continue;
@@ -645,7 +661,7 @@ export async function notify(input: NotifyInput): Promise<NotifyResult> {
   }
 
   return {
-    recipientCount: recipients.length,
+    recipientCount: filteredRecipients.length,
     notificationsInserted: notificationRows.length,
     emailsQueued: emailRows.length,
   };

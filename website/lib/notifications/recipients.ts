@@ -60,6 +60,7 @@ export type ResolvedAipScope = {
 export type ResolvedFeedbackContext = {
   feedbackId: string;
   authorUserId: string | null;
+  rootAuthorUserId: string | null;
   targetType: "aip" | "project";
   aipId: string | null;
   projectId: string | null;
@@ -432,11 +433,26 @@ export async function resolveFeedbackContext(
 
   const row = data as FeedbackScopeRow;
   const rootFeedbackId = row.parent_feedback_id ?? row.id;
+  let rootAuthorUserId: string | null = row.parent_feedback_id ? null : row.author_id;
+
+  if (row.parent_feedback_id) {
+    const { data: rootData, error: rootError } = await admin
+      .from("feedback")
+      .select("id,author_id")
+      .eq("id", rootFeedbackId)
+      .maybeSingle();
+    if (rootError) throw new Error(rootError.message);
+
+    const rootRow = (rootData ?? null) as { id: string; author_id: string | null } | null;
+    rootAuthorUserId = rootRow?.author_id ?? null;
+  }
+
   if (row.target_type === "aip" && row.aip_id) {
     const scope = await resolveAipScope(admin, row.aip_id);
     return {
       feedbackId: row.id,
       authorUserId: row.author_id,
+      rootAuthorUserId,
       targetType: row.target_type,
       aipId: row.aip_id,
       projectId: null,
@@ -451,6 +467,7 @@ export async function resolveFeedbackContext(
     return {
       feedbackId: row.id,
       authorUserId: row.author_id,
+      rootAuthorUserId,
       targetType: row.target_type,
       aipId: projectScope?.aipId ?? null,
       projectId: row.project_id,
@@ -464,6 +481,7 @@ export async function resolveFeedbackContext(
   return {
     feedbackId: row.id,
     authorUserId: row.author_id,
+    rootAuthorUserId,
     targetType: row.target_type,
     aipId: row.aip_id,
     projectId: row.project_id,

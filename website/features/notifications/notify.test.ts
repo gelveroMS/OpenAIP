@@ -9,7 +9,10 @@ type MockRecipient = {
 
 const mockGetAdminRecipients = vi.fn<() => Promise<MockRecipient[]>>();
 const mockGetBarangayOfficialRecipients = vi.fn<() => Promise<MockRecipient[]>>();
+const mockGetCityOfficialRecipients = vi.fn<() => Promise<MockRecipient[]>>();
 const mockGetCitizenRecipientsForBarangay = vi.fn<() => Promise<MockRecipient[]>>();
+const mockGetRecipientByUserId = vi.fn();
+const mockResolveFeedbackContext = vi.fn();
 const mockResolveAipTemplateContext = vi.fn();
 const mockResolveProjectTemplateContext = vi.fn();
 const mockResolveFeedbackTemplateContext = vi.fn();
@@ -26,14 +29,14 @@ let preferenceRows: Array<{
 vi.mock("@/lib/notifications/recipients", () => ({
   getAdminRecipients: () => mockGetAdminRecipients(),
   getBarangayOfficialRecipients: () => mockGetBarangayOfficialRecipients(),
-  getCityOfficialRecipients: vi.fn(async () => []),
+  getCityOfficialRecipients: () => mockGetCityOfficialRecipients(),
   getCitizenRecipientsForBarangay: () => mockGetCitizenRecipientsForBarangay(),
   getCitizenRecipientsForCity: vi.fn(async () => []),
-  getRecipientByUserId: vi.fn(async () => null),
+  getRecipientByUserId: (...args: unknown[]) => mockGetRecipientByUserId(...args),
   resolveAipScope: vi.fn(async () => null),
   resolveAipTemplateContext: (...args: unknown[]) => mockResolveAipTemplateContext(...args),
   resolveProjectTemplateContext: (...args: unknown[]) => mockResolveProjectTemplateContext(...args),
-  resolveFeedbackContext: vi.fn(async () => null),
+  resolveFeedbackContext: (...args: unknown[]) => mockResolveFeedbackContext(...args),
   resolveFeedbackTemplateContext: (...args: unknown[]) => mockResolveFeedbackTemplateContext(...args),
   resolveProjectScope: vi.fn(async () => null),
   resolveProjectUpdateContext: vi.fn(async () => null),
@@ -139,8 +142,14 @@ describe("notify()", () => {
     ]);
     mockGetBarangayOfficialRecipients.mockReset();
     mockGetBarangayOfficialRecipients.mockResolvedValue([]);
+    mockGetCityOfficialRecipients.mockReset();
+    mockGetCityOfficialRecipients.mockResolvedValue([]);
     mockGetCitizenRecipientsForBarangay.mockReset();
     mockGetCitizenRecipientsForBarangay.mockResolvedValue([]);
+    mockGetRecipientByUserId.mockReset();
+    mockGetRecipientByUserId.mockResolvedValue(null);
+    mockResolveFeedbackContext.mockReset();
+    mockResolveFeedbackContext.mockResolvedValue(null);
   });
 
   it("inserts notifications and outbox rows for multiple recipients", async () => {
@@ -269,6 +278,170 @@ describe("notify()", () => {
         lgu_name: "Barangay Uno",
       }),
     });
+  });
+
+  it("notifies root citizen on reply while excluding official replier", async () => {
+    mockResolveFeedbackContext.mockResolvedValueOnce({
+      feedbackId: "fb-reply-1",
+      authorUserId: "bo-actor",
+      rootAuthorUserId: "citizen-root",
+      targetType: "project",
+      aipId: "aip-1",
+      projectId: "proj-1",
+      parentFeedbackId: "fb-root",
+      rootFeedbackId: "fb-root",
+      projectCategory: "health",
+      scope: {
+        aipId: "aip-1",
+        barangayId: "brgy-1",
+        cityId: "city-1",
+        municipalityId: null,
+      },
+    });
+    mockGetRecipientByUserId.mockResolvedValueOnce({
+      userId: "citizen-root",
+      role: "citizen",
+      email: "citizen.root@example.com",
+      scopeType: "citizen",
+    });
+    mockGetBarangayOfficialRecipients.mockResolvedValueOnce([
+      {
+        userId: "bo-actor",
+        role: "barangay_official",
+        email: "actor@example.com",
+        scopeType: "barangay",
+      },
+      {
+        userId: "bo-2",
+        role: "barangay_official",
+        email: "bo2@example.com",
+        scopeType: "barangay",
+      },
+    ]);
+
+    const result = await notify({
+      eventType: "FEEDBACK_CREATED",
+      scopeType: "barangay",
+      entityType: "feedback",
+      entityId: "fb-reply-1",
+      feedbackId: "fb-reply-1",
+      actorUserId: "bo-actor",
+      actorRole: "barangay_official",
+    });
+
+    expect(result.recipientCount).toBe(2);
+    expect(notificationUpserts).toHaveLength(1);
+    const byUserId = new Map(
+      notificationUpserts[0].rows.map((row) => [String(row.recipient_user_id), row])
+    );
+    expect(byUserId.has("bo-actor")).toBe(false);
+    expect(byUserId.get("bo-2")?.action_url).toBe(
+      "/barangay/projects/health/proj-1?tab=feedback&thread=fb-root&comment=fb-reply-1"
+    );
+    expect(byUserId.get("citizen-root")?.action_url).toBe(
+      "/projects/health/proj-1?tab=feedback&thread=fb-root&comment=fb-reply-1"
+    );
+
+    expect(emailUpserts).toHaveLength(1);
+    const emailRecipients = new Set(
+      emailUpserts[0].rows.map((row) => String(row.recipient_user_id))
+    );
+    expect(emailRecipients.has("bo-actor")).toBe(false);
+    expect(emailRecipients.has("bo-2")).toBe(true);
+    expect(emailRecipients.has("citizen-root")).toBe(true);
+  });
+
+  it("suppresses self-notification when citizen replies to own feedback thread", async () => {
+    mockResolveFeedbackContext.mockResolvedValueOnce({
+      feedbackId: "fb-reply-2",
+      authorUserId: "citizen-1",
+      rootAuthorUserId: "citizen-1",
+      targetType: "project",
+      aipId: "aip-1",
+      projectId: "proj-1",
+      parentFeedbackId: "fb-root",
+      rootFeedbackId: "fb-root",
+      projectCategory: "health",
+      scope: {
+        aipId: "aip-1",
+        barangayId: "brgy-1",
+        cityId: "city-1",
+        municipalityId: null,
+      },
+    });
+    mockGetRecipientByUserId.mockResolvedValueOnce({
+      userId: "citizen-1",
+      role: "citizen",
+      email: "citizen1@example.com",
+      scopeType: "citizen",
+    });
+    mockGetBarangayOfficialRecipients.mockResolvedValueOnce([
+      {
+        userId: "bo-1",
+        role: "barangay_official",
+        email: "bo1@example.com",
+        scopeType: "barangay",
+      },
+    ]);
+
+    const result = await notify({
+      eventType: "FEEDBACK_CREATED",
+      scopeType: "citizen",
+      entityType: "feedback",
+      entityId: "fb-reply-2",
+      feedbackId: "fb-reply-2",
+      actorUserId: "citizen-1",
+      actorRole: "citizen",
+    });
+
+    expect(result.recipientCount).toBe(1);
+    expect(notificationUpserts).toHaveLength(1);
+    expect(notificationUpserts[0].rows).toHaveLength(1);
+    expect(notificationUpserts[0].rows[0].recipient_user_id).toBe("bo-1");
+  });
+
+  it("does not add root author recipient for root feedback creation", async () => {
+    mockResolveFeedbackContext.mockResolvedValueOnce({
+      feedbackId: "fb-root",
+      authorUserId: "citizen-1",
+      rootAuthorUserId: "citizen-1",
+      targetType: "project",
+      aipId: "aip-1",
+      projectId: "proj-1",
+      parentFeedbackId: null,
+      rootFeedbackId: "fb-root",
+      projectCategory: "health",
+      scope: {
+        aipId: "aip-1",
+        barangayId: "brgy-1",
+        cityId: "city-1",
+        municipalityId: null,
+      },
+    });
+    mockGetBarangayOfficialRecipients.mockResolvedValueOnce([
+      {
+        userId: "bo-1",
+        role: "barangay_official",
+        email: "bo1@example.com",
+        scopeType: "barangay",
+      },
+    ]);
+
+    const result = await notify({
+      eventType: "FEEDBACK_CREATED",
+      scopeType: "citizen",
+      entityType: "feedback",
+      entityId: "fb-root",
+      feedbackId: "fb-root",
+      actorUserId: "citizen-1",
+      actorRole: "citizen",
+    });
+
+    expect(result.recipientCount).toBe(1);
+    expect(mockGetRecipientByUserId).not.toHaveBeenCalled();
+    expect(notificationUpserts).toHaveLength(1);
+    expect(notificationUpserts[0].rows).toHaveLength(1);
+    expect(notificationUpserts[0].rows[0].recipient_user_id).toBe("bo-1");
   });
 
   it("enriches feedback payload template_data with sanitized excerpt and labels", async () => {
