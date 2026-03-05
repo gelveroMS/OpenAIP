@@ -369,7 +369,7 @@ def process_run(*, repo: PipelineRepository, settings: Settings, run: dict[str, 
             validation_res = validation_fn(
                 json.dumps(extraction_payload, ensure_ascii=False),
                 model=model_name,
-                batch_size=25,
+                batch_size=None,
                 on_progress=validation_progress,
             )
             validation_payload = validation_res.validated_obj
@@ -435,7 +435,7 @@ def process_run(*, repo: PipelineRepository, settings: Settings, run: dict[str, 
                 stage_progress_pct=pct,
                 progress_message=(
                     f"Categorizing projects {categorized_count}/{total_count} "
-                    f"(batch {batch_no}/{total_batches})..."
+                    f"(chunk {batch_no}/{total_batches})..."
                 ),
             )
 
