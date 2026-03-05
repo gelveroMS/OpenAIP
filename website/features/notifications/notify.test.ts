@@ -367,6 +367,9 @@ describe("notify()", () => {
     expect(emailRecipients.has("bo-actor")).toBe(false);
     expect(emailRecipients.has("bo-2")).toBe(true);
     expect(emailRecipients.has("citizen-root")).toBe(true);
+    const firstReplyEmail = emailUpserts[0].rows[0];
+    expect(firstReplyEmail.template_key).toBe("feedback_reply");
+    expect(firstReplyEmail.subject).toBe("OpenAIP — New reply in a feedback thread");
   });
 
   it("suppresses self-notification when citizen replies to own feedback thread", async () => {
@@ -460,6 +463,9 @@ describe("notify()", () => {
     expect(notificationUpserts).toHaveLength(1);
     expect(notificationUpserts[0].rows).toHaveLength(1);
     expect(notificationUpserts[0].rows[0].recipient_user_id).toBe("bo-1");
+    expect(emailUpserts).toHaveLength(1);
+    expect(emailUpserts[0].rows[0].template_key).toBe("feedback_posted");
+    expect(emailUpserts[0].rows[0].subject).toBe("OpenAIP — New feedback posted");
   });
 
   it("enriches feedback payload template_data with sanitized excerpt and labels", async () => {
@@ -507,5 +513,82 @@ describe("notify()", () => {
     expect(String(templateData.feedback_excerpt).length).toBeLessThanOrEqual(200);
     expect(templateData.visibility_action).toBe("hidden");
     expect(templateData.new_visibility).toBe("Hidden");
+    expect(templateData.actor_role_label).toBe("Administrator");
+    expect(templateData.target_label).toBe("Road Improvement Project");
+    expect(templateData.reply_excerpt).toBeNull();
+    expect(emailUpserts[0].rows[0].template_key).toBe("feedback_visibility_changed");
+    expect(emailUpserts[0].rows[0].subject).toBe("OpenAIP — Feedback moderation update");
+  });
+
+  it("emits project update emails with canonical key and transition-specific subjects", async () => {
+    mockGetBarangayOfficialRecipients.mockResolvedValue([
+      {
+        userId: "bo-1",
+        role: "barangay_official",
+        email: "bo1@example.com",
+        scopeType: "barangay",
+      },
+    ]);
+    mockResolveProjectUpdateTemplateContext.mockResolvedValue({
+      updateTitle: "Drainage completed",
+      updateBody: "Drainage work for phase 1 has been completed.",
+      status: "active",
+    });
+    mockResolveActorDisplayName.mockResolvedValue("City Reviewer");
+
+    await notify({
+      eventType: "PROJECT_UPDATE_STATUS_CHANGED",
+      scopeType: "barangay",
+      entityType: "project_update",
+      entityId: "upd-1",
+      projectUpdateId: "upd-1",
+      projectId: "proj-1",
+      aipId: "aip-1",
+      barangayId: "brgy-1",
+      actorRole: "city_official",
+      actorUserId: "co-1",
+      transition: "draft->active",
+    });
+
+    await notify({
+      eventType: "PROJECT_UPDATE_STATUS_CHANGED",
+      scopeType: "barangay",
+      entityType: "project_update",
+      entityId: "upd-2",
+      projectUpdateId: "upd-2",
+      projectId: "proj-1",
+      aipId: "aip-1",
+      barangayId: "brgy-1",
+      actorRole: "city_official",
+      actorUserId: "co-1",
+      transition: "active->hidden",
+    });
+
+    await notify({
+      eventType: "PROJECT_UPDATE_STATUS_CHANGED",
+      scopeType: "barangay",
+      entityType: "project_update",
+      entityId: "upd-3",
+      projectUpdateId: "upd-3",
+      projectId: "proj-1",
+      aipId: "aip-1",
+      barangayId: "brgy-1",
+      actorRole: "city_official",
+      actorUserId: "co-1",
+      transition: "hidden->active",
+    });
+
+    expect(emailUpserts).toHaveLength(3);
+    const [postedEmail, removedEmail, restoredEmail] = emailUpserts.map((entry) => entry.rows[0]);
+    expect(postedEmail.template_key).toBe("project_update_posted");
+    expect(postedEmail.subject).toBe("OpenAIP — A project update has been posted");
+    expect(removedEmail.template_key).toBe("project_update_posted");
+    expect(removedEmail.subject).toBe("OpenAIP — Project update removed from public view");
+    expect(restoredEmail.template_key).toBe("project_update_posted");
+    expect(restoredEmail.subject).toBe("OpenAIP — Project update is visible again");
+    const postedPayload = postedEmail.payload as Record<string, unknown>;
+    const postedTemplateData = postedPayload.template_data as Record<string, unknown>;
+    expect(postedTemplateData.update_title).toBe("Drainage completed");
+    expect(postedTemplateData.update_excerpt).toContain("Drainage work");
   });
 });

@@ -144,6 +144,17 @@ function toActorRoleToken(value: NotifyInput["actorRole"] | null | undefined): s
   return normalized;
 }
 
+function toActorRoleLabel(value: NotifyInput["actorRole"] | null | undefined): string | null {
+  const token = toActorRoleToken(value);
+  if (!token) return null;
+  if (token === "citizen") return "Citizen";
+  if (token === "barangay_official") return "Barangay Official";
+  if (token === "city_official" || token === "municipal_official") return "City Official";
+  if (token === "admin") return "Administrator";
+  if (token === "system") return "System";
+  return humanizeToken(token);
+}
+
 function formatEntityLabelForMetadata(input: {
   entityType: NotifyInput["entityType"];
   fiscalYear: number | null;
@@ -450,6 +461,7 @@ export async function notify(input: NotifyInput): Promise<NotifyResult> {
     transition,
     bucket: dedupeBucket,
   });
+  const isReply = Boolean(resolvedFeedbackContext?.parentFeedbackId);
 
   const templateInput: NotifyInput = {
     ...input,
@@ -460,6 +472,10 @@ export async function notify(input: NotifyInput): Promise<NotifyResult> {
     barangayId: resolvedBarangayId,
     cityId: resolvedCityId,
     entityId: resolvedEntityId,
+    metadata: {
+      ...(input.metadata ?? {}),
+      is_reply: isReply,
+    },
   };
   const template = buildNotificationTemplate(templateInput);
   const resolvedProjectCategory =
@@ -487,7 +503,7 @@ export async function notify(input: NotifyInput): Promise<NotifyResult> {
     input.actorName?.trim() || (await resolveActorDisplayName(admin, input.actorUserId));
   const actorName = sanitizeTemplateText(actorNameFromProfile, 120);
   const actorRoleToken = toActorRoleToken(input.actorRole);
-  const actorRoleLabel = humanizeToken(input.actorRole ?? null);
+  const actorRoleLabel = toActorRoleLabel(input.actorRole);
   const parsedTransition = parseTransition(transition);
   const oldStatusLabel = normalizeStatusLabel(parsedTransition.from);
   const newStatusLabel = normalizeStatusLabel(parsedTransition.to);
@@ -530,7 +546,6 @@ export async function notify(input: NotifyInput): Promise<NotifyResult> {
     updateTitle,
     targetLabel,
   });
-  const isReply = Boolean(resolvedFeedbackContext?.parentFeedbackId);
   const replyContext = resolvedFeedbackContext?.parentFeedbackId
     ? {
         root_feedback_id: resolvedFeedbackContext.rootFeedbackId,
@@ -543,8 +558,12 @@ export async function notify(input: NotifyInput): Promise<NotifyResult> {
     MAX_REASON_LENGTH
   );
   const pipelineErrorExcerpt = toPipelineErrorExcerpt(pipelineErrorMessage);
+  const replyExcerpt = isReply ? displayExcerpt ?? feedbackExcerpt : null;
+  const threadLabel = isReply ? "Feedback Thread" : null;
+  const audienceLabel = humanizeToken(input.scopeType);
 
   const commonTemplateData = compactRecord({
+    app_name: "OpenAIP",
     event_type: input.eventType,
     scope_type: input.scopeType,
     entity_type: input.entityType,
@@ -552,6 +571,8 @@ export async function notify(input: NotifyInput): Promise<NotifyResult> {
     occurred_at: occurredAt,
     actor_name: actorName,
     actor_role: actorRoleLabel,
+    actor_role_label: actorRoleLabel,
+    audience_label: audienceLabel,
     aip_id: resolvedAipId,
     project_id: resolvedProjectId,
     feedback_id: resolvedFeedbackId,
@@ -586,6 +607,8 @@ export async function notify(input: NotifyInput): Promise<NotifyResult> {
             target_label: targetLabel,
             feedback_kind: humanizeToken(feedbackTemplateContext?.feedbackKind ?? null),
             feedback_excerpt: feedbackExcerpt,
+            reply_excerpt: replyExcerpt,
+            thread_label: threadLabel,
             excerpt: displayExcerpt ?? feedbackExcerpt,
             is_reply: isReply,
             reply_context: replyContext,
@@ -600,6 +623,7 @@ export async function notify(input: NotifyInput): Promise<NotifyResult> {
               city_name: aipTemplateContext?.scopeLabel === "city" ? aipTemplateContext?.lguName ?? null : null,
               project_name: projectName,
               update_title: updateTitle,
+              update_excerpt: updateExcerpt,
               excerpt: updateExcerpt,
               entity_label: entityLabel,
               old_status_label: oldStatusLabel,
@@ -673,7 +697,12 @@ export async function notify(input: NotifyInput): Promise<NotifyResult> {
     city_id: resolvedCityId,
     project_name: projectName,
     update_title: updateTitle,
+    update_excerpt: updateExcerpt,
     feedback_kind: humanizeToken(feedbackTemplateContext?.feedbackKind ?? null),
+    reply_excerpt: replyExcerpt,
+    thread_label: threadLabel,
+    actor_role_label: actorRoleLabel ?? null,
+    audience_label: audienceLabel,
     excerpt:
       input.eventType === "PROJECT_UPDATE_STATUS_CHANGED"
         ? updateExcerpt ?? null

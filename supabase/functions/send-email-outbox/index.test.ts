@@ -181,27 +181,27 @@ Deno.test("renderTemplateHtml wraps internal action links with tracked-open rout
 
 Deno.test("renderTemplateHtml uses OTP-inspired structure and event/context sections", () => {
   const html = renderTemplateHtml(
-    "FEEDBACK_VISIBILITY_CHANGED",
+    "feedback_visibility_changed",
     "Feedback visibility changed",
     {
-      title: "Feedback Visibility Updated",
-      message: "A feedback visibility update was recorded.",
+      title: "Feedback moderation update",
+      message: "A moderation update was recorded.",
       event_type: "FEEDBACK_VISIBILITY_CHANGED",
       scope_type: "city",
       entity_type: "feedback",
-      transition: "visible->hidden",
-      reason: "Policy violation",
+      visibility_action: "hidden",
+      moderation_reason: "Policy violation",
       action_url: "/city/feedback?comment=fb-1",
     },
     "https://openaip.example.com"
   );
 
   assertEquals(html.includes("Moderation Update"), true);
-  assertEquals(html.includes("Feedback Visibility Updated"), true);
+  assertEquals(html.includes("Feedback moderation update"), true);
   assertEquals(html.includes("DETAILS"), true);
   assertEquals(html.includes("Status: <strong>Hidden</strong>"), true);
   assertEquals(html.includes("Reason: <strong>Policy violation</strong>"), true);
-  assertEquals(html.includes("View Feedback"), true);
+  assertEquals(html.includes("View feedback"), true);
   assertEquals(html.includes("This is an automated message from OpenAIP."), true);
 });
 
@@ -243,7 +243,7 @@ Deno.test("renderTemplateText returns deterministic plain text fallback", () => 
   assertEquals(text.includes("OpenAIP - Publication Notice"), true);
   assertEquals(text.includes("AIP Published"), true);
   assertEquals(text.includes("DETAILS"), true);
-  assertEquals(text.includes("Open in OpenAIP: https://openaip.example.com/api/notifications/open?"), true);
+  assertEquals(text.includes("View Published AIP: https://openaip.example.com/api/notifications/open?"), true);
   assertEquals(text.includes("<div"), false);
 });
 
@@ -254,15 +254,16 @@ Deno.test("renderTemplateHtml supports event-specific headings", () => {
     { key: "AIP_PUBLISHED", expectedHeading: "AIP Published", expectedSubtitle: "Publication Notice" },
     { key: "AIP_SUBMITTED", expectedHeading: "AIP Submitted for Review", expectedSubtitle: "City Review Queue" },
     { key: "AIP_RESUBMITTED", expectedHeading: "AIP Resubmitted", expectedSubtitle: "City Review Queue" },
-    { key: "FEEDBACK_CREATED", expectedHeading: "New Feedback Received", expectedSubtitle: "Citizen Engagement" },
+    { key: "FEEDBACK_CREATED", expectedHeading: "New feedback posted", expectedSubtitle: "Citizen Engagement" },
+    { key: "feedback_reply", expectedHeading: "New reply in feedback thread", expectedSubtitle: "Citizen Engagement" },
     {
       key: "FEEDBACK_VISIBILITY_CHANGED",
-      expectedHeading: "Feedback Visibility Updated",
+      expectedHeading: "Feedback moderation update",
       expectedSubtitle: "Moderation Update",
     },
     {
       key: "PROJECT_UPDATE_STATUS_CHANGED",
-      expectedHeading: "Project Update Status Changed",
+      expectedHeading: "A project update has been posted",
       expectedSubtitle: "Project Updates",
     },
     {
@@ -290,4 +291,71 @@ Deno.test("renderTemplateHtml supports event-specific headings", () => {
     assertEquals(html.includes(entry.expectedHeading), true);
     assertEquals(html.includes(entry.expectedSubtitle), true);
   }
+});
+
+Deno.test("renderTemplateHtml resolves FEEDBACK_CREATED reply variant from is_reply metadata", () => {
+  const html = renderTemplateHtml(
+    "FEEDBACK_CREATED",
+    "Feedback update",
+    {
+      event_type: "FEEDBACK_CREATED",
+      metadata: {
+        is_reply: true,
+      },
+      reply_excerpt: "We have noted your concern and will update the timeline.",
+      target_label: "Project: Street Lighting",
+      action_url: "/projects/infrastructure/proj-1?tab=feedback&thread=fb-1&comment=fb-2",
+    },
+    "https://openaip.example.com"
+  );
+
+  assertEquals(html.includes("New reply in feedback thread"), true);
+  assertEquals(html.includes("Open reply"), true);
+  assertEquals(html.includes("New feedback posted"), false);
+});
+
+Deno.test("renderTemplateHtml renders project update removed and restored variants", () => {
+  const removedHtml = renderTemplateHtml(
+    "project_update_posted",
+    "Project update status",
+    {
+      event_type: "PROJECT_UPDATE_STATUS_CHANGED",
+      visibility_action: "hidden",
+      project_name: "Street Lighting",
+      action_url: "/projects/infrastructure/proj-1?tab=updates",
+    },
+    "https://openaip.example.com"
+  );
+
+  const restoredHtml = renderTemplateHtml(
+    "project_update_posted",
+    "Project update status",
+    {
+      event_type: "PROJECT_UPDATE_STATUS_CHANGED",
+      visibility_action: "unhidden",
+      project_name: "Street Lighting",
+      action_url: "/projects/infrastructure/proj-1?tab=updates",
+    },
+    "https://openaip.example.com"
+  );
+
+  assertEquals(removedHtml.includes("A project update was removed from public view"), true);
+  assertEquals(restoredHtml.includes("A project update is visible again"), true);
+});
+
+Deno.test("renderTemplateHtml project update templates never render draft wording", () => {
+  const html = renderTemplateHtml(
+    "project_update_posted",
+    "Project update posted",
+    {
+      event_type: "PROJECT_UPDATE_STATUS_CHANGED",
+      transition: "draft->published",
+      project_name: "Street Lighting",
+      update_title: "Streetlight poles installed",
+      action_url: "/projects/infrastructure/proj-1?tab=updates",
+    },
+    "https://openaip.example.com"
+  );
+
+  assertEquals(html.toLowerCase().includes("draft"), false);
 });

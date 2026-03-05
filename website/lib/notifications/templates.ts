@@ -552,6 +552,21 @@ export function buildNotificationTemplate(input: NotifyInput): NotificationTempl
   const transition = input.transition?.trim() || null;
   const note = input.note?.trim() || null;
   const reason = input.reason?.trim() || null;
+  const metadata = asRecord(input.metadata);
+  const isReply =
+    asBoolean(metadata.is_reply) || Object.keys(asRecord(metadata.reply_context)).length > 0;
+  const visibilityAction = asString(metadata.visibility_action)?.toLowerCase() ?? null;
+  const normalizedTransition = transition?.toLowerCase() ?? null;
+  const isRemovedTransition =
+    visibilityAction === "hidden" ||
+    normalizedTransition === "published->hidden" ||
+    normalizedTransition === "active->hidden" ||
+    normalizedTransition === "visible->hidden";
+  const isRestoredTransition =
+    visibilityAction === "unhidden" ||
+    normalizedTransition === "hidden->published" ||
+    normalizedTransition === "hidden->active" ||
+    normalizedTransition === "hidden->visible";
 
   switch (input.eventType) {
     case "AIP_CLAIMED":
@@ -592,43 +607,51 @@ export function buildNotificationTemplate(input: NotifyInput): NotificationTempl
         templateKey: "AIP_RESUBMITTED",
       };
     case "FEEDBACK_CREATED":
+      if (isReply) {
+        return {
+          title: "New Reply in Feedback Thread",
+          message: "A reply was posted in a feedback thread.",
+          emailSubject: "OpenAIP — New reply in a feedback thread",
+          templateKey: "feedback_reply",
+        };
+      }
       return {
-        title: "New Feedback",
+        title: "New Feedback Posted",
         message: "New feedback was posted.",
-        emailSubject: "OpenAIP - New feedback received",
-        templateKey: "FEEDBACK_CREATED",
+        emailSubject: "OpenAIP — New feedback posted",
+        templateKey: "feedback_posted",
       };
     case "FEEDBACK_VISIBILITY_CHANGED":
       return {
-        title: "Feedback Visibility Updated",
+        title: "Feedback Moderation Update",
         message: reason
-          ? `Feedback visibility changed. Reason: ${reason}`
+          ? `Feedback moderation update. Reason: ${reason}`
           : "Feedback visibility was updated by an administrator.",
-        emailSubject: "OpenAIP - Your feedback visibility was updated",
-        templateKey: "FEEDBACK_VISIBILITY_CHANGED",
+        emailSubject: "OpenAIP — Feedback moderation update",
+        templateKey: "feedback_visibility_changed",
       };
     case "PROJECT_UPDATE_STATUS_CHANGED":
-      if (transition === "published->hidden" || transition === "active->hidden") {
+      if (isRemovedTransition) {
         return {
           title: "Project Update Removed",
           message: "A project update was removed from public view.",
-          emailSubject: "OpenAIP - Project update removed",
-          templateKey: "PROJECT_UPDATE_STATUS_CHANGED",
+          emailSubject: "OpenAIP — Project update removed from public view",
+          templateKey: "project_update_posted",
         };
       }
-      if (transition === "hidden->published" || transition === "hidden->active") {
+      if (isRestoredTransition) {
         return {
           title: "Project Update Restored",
           message: "A project update is visible again.",
-          emailSubject: "OpenAIP - Project update restored",
-          templateKey: "PROJECT_UPDATE_STATUS_CHANGED",
+          emailSubject: "OpenAIP — Project update is visible again",
+          templateKey: "project_update_posted",
         };
       }
       return {
         title: "Project Update Posted",
         message: "A project update has been posted.",
-        emailSubject: "OpenAIP - Project update posted",
-        templateKey: "PROJECT_UPDATE_STATUS_CHANGED",
+        emailSubject: "OpenAIP — A project update has been posted",
+        templateKey: "project_update_posted",
       };
     case "OUTBOX_FAILURE_THRESHOLD_REACHED":
       return {
