@@ -2,13 +2,11 @@
 
 import { useEffect, useId, useMemo, useReducer, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabaseBrowser } from "@/lib/supabase/client";
 import CitizenAuthBrandPanel from "@/features/citizen/auth/components/citizen-auth-brand-panel";
 import CitizenAuthSplitShell from "@/features/citizen/auth/components/citizen-auth-split-shell";
 import CitizenCompleteProfileStep from "@/features/citizen/auth/components/steps/citizen-complete-profile-step";
 import CitizenEmailPasswordStep from "@/features/citizen/auth/components/steps/citizen-email-password-step";
 import CitizenVerifyOtpStep from "@/features/citizen/auth/components/steps/citizen-verify-otp-step";
-import CitizenWelcomeStep from "@/features/citizen/auth/components/steps/citizen-welcome-step";
 import type { CitizenAuthMode, CitizenAuthStep } from "@/features/citizen/auth/types";
 import type { CitizenAuthLaunchStep } from "@/features/citizen/auth/utils/auth-query";
 import {
@@ -44,7 +42,6 @@ type FlowAction =
       launchStep: CitizenAuthLaunchStep;
       forceCompleteProfile: boolean;
     }
-  | { type: "CONTINUE_WITH_EMAIL" }
   | { type: "TOGGLE_MODE" }
   | { type: "SIGNUP_SENT_OTP" }
   | { type: "LOGIN_NEEDS_PROFILE" }
@@ -53,7 +50,7 @@ type FlowAction =
   | { type: "RESET" };
 
 const DEFAULT_FLOW_STATE: FlowState = {
-  step: "welcome",
+  step: "email_password",
   mode: "login",
   forceCompleteProfile: false,
 };
@@ -71,19 +68,13 @@ function authFlowReducer(state: FlowState, action: FlowAction): FlowState {
       }
 
       return {
-        step: action.launchStep === "email" ? "email_password" : "welcome",
+        step: "email_password",
         mode: resolvedMode,
         forceCompleteProfile: false,
       };
     }
-    case "CONTINUE_WITH_EMAIL":
-      if (state.forceCompleteProfile || state.step !== "welcome") return state;
-      return { ...state, step: "email_password" };
     case "TOGGLE_MODE":
-      if (
-        state.forceCompleteProfile ||
-        (state.step !== "email_password" && state.step !== "welcome")
-      ) {
+      if (state.forceCompleteProfile || state.step !== "email_password") {
         return state;
       }
       return {
@@ -495,37 +486,6 @@ export default function CitizenAuthModal({
     onModeChange(nextMode);
   };
 
-  const handleContinueWithEmail = () => {
-    setErrorMessage(null);
-    setInfoMessage(null);
-    dispatch({ type: "CONTINUE_WITH_EMAIL" });
-    onModeChange(flow.mode);
-  };
-
-  const handleContinueWithGoogle = async () => {
-    setErrorMessage(null);
-    setInfoMessage(null);
-    setIsLoading(true);
-    try {
-      const supabase = supabaseBrowser();
-      const redirectTo =
-        typeof window !== "undefined" ? `${window.location.origin}/confirm` : undefined;
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo,
-        },
-      });
-      if (error) {
-        throw error;
-      }
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Unable to continue with Google.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const handleEmailPasswordSubmit = async () => {
     if (!isValidEmail(email) || !password) {
       setErrorMessage("Please enter a valid email and password.");
@@ -692,22 +652,6 @@ export default function CitizenAuthModal({
   };
 
   const formPanel = (() => {
-    if (flow.step === "welcome") {
-      return (
-        <CitizenWelcomeStep
-          titleId={titleId}
-          descriptionId={descriptionId}
-          errorMessage={errorMessage}
-          isLoading={isLoading}
-          showGoogleButton={process.env.NEXT_PUBLIC_SUPABASE_GOOGLE_ENABLED === "true"}
-          onContinueWithEmail={handleContinueWithEmail}
-          onContinueWithGoogle={() => {
-            void handleContinueWithGoogle();
-          }}
-        />
-      );
-    }
-
     if (flow.step === "email_password") {
       return (
         <CitizenEmailPasswordStep
@@ -788,6 +732,8 @@ export default function CitizenAuthModal({
       />
     );
   })();
+  const isEntryStep = flow.step === "email_password";
+  const desktopFormFirst = !isEntryStep ? true : flow.mode === "login";
 
   return (
     <CitizenAuthSplitShell
@@ -798,7 +744,7 @@ export default function CitizenAuthModal({
       canClose={!flow.forceCompleteProfile}
       titleId={titleId}
       descriptionId={descriptionId}
-      formFirst={flow.step === "welcome" || flow.step === "email_password"}
+      formFirst={desktopFormFirst}
       formPanel={formPanel}
       brandPanel={
         <CitizenAuthBrandPanel

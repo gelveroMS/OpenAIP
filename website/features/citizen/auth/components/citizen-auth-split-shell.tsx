@@ -44,8 +44,8 @@ export default function CitizenAuthSplitShell({
           }
         }}
         className={cn(
-          "max-w-[calc(100%-1.5rem)] border-0 bg-transparent p-0 shadow-none sm:max-w-[calc(100%-2.5rem)]",
-          "w-full max-w-6xl"
+          "w-full border-0 bg-transparent p-0 shadow-none",
+          "max-w-[calc(100%-2rem)] sm:max-w-[calc(100%-4rem)] md:max-w-[calc(100%-6rem)] lg:max-w-[calc(100%-8rem)] xl:max-w-[1240px]"
         )}
       >
         <DialogTitle className="sr-only">Citizen Authentication</DialogTitle>
@@ -65,10 +65,10 @@ export default function CitizenAuthSplitShell({
           ) : null}
 
           <div className="grid h-full md:grid-cols-2">
-            <section className={cn("h-full", formFirst ? "order-1" : "order-2")}>
+            <section className={cn("order-1 h-full", formFirst ? "md:order-1" : "md:order-2")}>
               {formPanel}
             </section>
-            <section className={cn("h-full", formFirst ? "order-2" : "order-1")}>
+            <section className={cn("order-2 h-full", formFirst ? "md:order-2" : "md:order-1")}>
               {brandPanel}
             </section>
           </div>
