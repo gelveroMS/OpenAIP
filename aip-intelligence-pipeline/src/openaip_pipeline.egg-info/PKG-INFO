@@ -46,7 +46,9 @@ Required keys in `.env`:
 - `OPENAI_API_KEY`
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_KEY`
-- `PIPELINE_INTERNAL_TOKEN` (for `/v1/chat/answer` internal auth)
+- `PIPELINE_HMAC_SECRET` (for `/v1/chat/*` request signing/verification)
+- `PIPELINE_RUNS_HMAC_SECRET` (for `/v1/runs/*` request signing)
+- `PIPELINE_RUNS_ALLOWED_AUDIENCES` (for `/v1/runs/*` caller allowlist)
 
 ## Run
 
@@ -105,6 +107,11 @@ Required for extraction stages:
 
 - `OPENAI_API_KEY`
 
+Required for `/v1/runs/*` authenticated run-control routes:
+
+- `PIPELINE_RUNS_HMAC_SECRET`
+- `PIPELINE_RUNS_ALLOWED_AUDIENCES` (comma-separated, example: `website-backend,ops-runner`)
+
 Common optional runtime vars:
 
 - `PIPELINE_MODEL` (default `gpt-5.2`)
@@ -116,7 +123,74 @@ Common optional runtime vars:
 - `SUPABASE_STORAGE_ARTIFACT_BUCKET` (default `aip-artifacts`)
 - `PIPELINE_DEV_ROUTES` (default `false`)
 - `PIPELINE_ENABLE_RAG` (default `false`)
-- `PIPELINE_INTERNAL_TOKEN` (required by chat route)
+- `PIPELINE_HMAC_SECRET` (required by chat route)
+- `PIPELINE_INTERNAL_TOKEN` (legacy/unused for chat auth)
+- `PIPELINE_RUNS_RATE_LIMIT_WINDOW_SECONDS` (default `60`)
+- `PIPELINE_RUNS_RATE_LIMIT_PER_AUD` (default `30`)
+- `PIPELINE_RUNS_RATE_LIMIT_GLOBAL` (default `120`)
+- `PIPELINE_RUNS_NONCE_TTL_SECONDS` (default `120`)
+- `PIPELINE_RUNS_DEDUPE_TTL_SECONDS` (default `30`)
+- `PIPELINE_EXTRACT_MAX_PAGES` (default `200`; fail code `PDF_PAGE_LIMIT_EXCEEDED`)
+- `PIPELINE_PARSE_TIMEOUT_SECONDS` (default `20`; fail code `PARSE_TIMEOUT`)
+- `PIPELINE_EXTRACT_TIMEOUT_SECONDS` (default `1800`; fail code `EXTRACT_TIMEOUT`)
+- `PIPELINE_EMBED_TIMEOUT_SECONDS` (default `300`; fail code `EMBED_TIMEOUT`)
+- `PIPELINE_RETRY_FAILURE_THRESHOLD` (default `5`; fail code `RUN_RETRY_BLOCKED`)
+- `PIPELINE_RETRY_FAILURE_WINDOW_SECONDS` (default `21600`; lookback window for retry blocking)
+- `PIPELINE_SUPABASE_HTTP_TIMEOUT_SECONDS` (default `120`)
+- `PIPELINE_SUPABASE_DOWNLOAD_TIMEOUT_SECONDS` (default `120`)
+- `PIPELINE_SOURCE_PDF_MAX_BYTES` (default `15728640`; fail code `SOURCE_PDF_TOO_LARGE`)
+
+Guardrail behavior (worker + adapters):
+- Source-PDF download is bounded by timeout and byte cap before extraction starts.
+- Extraction enforces parse timeout, overall extraction timeout, and max page count.
+- Embed stage is timeout-bounded.
+- Repeated failures for the same `created_by + uploaded_file_id + aip_id` are blocked to prevent endless retries.
+- Failure reason is persisted to `public.extraction_runs.error_code` for UI/ops visibility.
+
+## `/v1/runs/*` authentication headers
+
+All run-control routes under `/v1/runs/*` require signed headers:
+
+- `aud`
+- `ts` (unix epoch seconds, max skew ±60s)
+- `nonce`
+- `sig`
+
+Signature format:
+
+```text
+HMAC_SHA256(secret,
+  aud + "\n" + ts + "\n" + nonce + "\n" + METHOD + "\n" + PATH + "\n" + SHA256(raw_body_bytes).hex()
+)
+```
+
+Notes:
+
+- Signature compare is constant-time.
+- Replayed `(aud, nonce)` values are rejected.
+- Excess request bursts are throttled with HTTP `429`.
+
+## `/v1/chat/*` authentication headers
+
+All chat routes under `/v1/chat/*` require signed headers:
+
+- `x-pipeline-aud` (must be `website-backend`)
+- `x-pipeline-ts` (unix epoch seconds, max skew ±60s)
+- `x-pipeline-nonce` (unique UUID per request)
+- `x-pipeline-sig`
+
+Signature format:
+
+```text
+HMAC_SHA256(secret, x-pipeline-aud + "|" + x-pipeline-ts + "|" + x-pipeline-nonce + "|" + raw_body)
+```
+
+Notes:
+
+- Shared secret is `PIPELINE_HMAC_SECRET` (must match website secret).
+- Signature compare is constant-time.
+- Replayed `(aud, nonce, ts, body)` values are rejected via in-memory TTL cache.
+- `PIPELINE_INTERNAL_TOKEN` is legacy/unused for chat route authentication.
 
 ## Validation resources
 

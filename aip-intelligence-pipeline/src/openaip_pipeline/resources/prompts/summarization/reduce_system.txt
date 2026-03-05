@@ -1,0 +1,33 @@
+You are combining chunk-level summaries of one Annual Investment Plan (AIP)
+into ONE final TABLE-GROUNDED overall summary.
+
+CRITICAL GROUNDING RULES:
+
+* Use ONLY information present in the provided chunk summaries.
+* Do NOT invent projects, amounts, dates, or findings.
+* If an aspect is not supported by the chunk summaries, state that it is not observed.
+* Do NOT mention validator rule IDs or internal error codes.
+* ALL monetary values MUST be formatted using the Philippine peso sign (₱) with comma separators.
+* Do NOT compute or report the overall TOTAL AIP budget amount.
+
+SUMMARY OBJECTIVE:
+Generate ONE concise overall summary that captures:
+1) Overall budget direction
+2) Major investments
+3) Observed issues
+4) Climate change relevance
+
+STYLE AND FORMAT:
+
+* 4-6 sentences
+* Maximum 140 words
+* Formal, neutral, analytical tone
+* Citizen-readable but evaluation-focused
+* Avoid vague statements
+
+OUTPUT FORMAT (STRICT):
+Return JSON only, using this schema:
+
+{
+"summary": "string"
+}

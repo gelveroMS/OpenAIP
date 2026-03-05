@@ -80,6 +80,24 @@ type ProfileRow = {
   role: RoleType | null;
 };
 
+type BarangayParentRow = {
+  id: string;
+  city_id: string | null;
+  municipality_id: string | null;
+};
+
+type LocalityNameRow = {
+  id: string;
+  name: string | null;
+};
+
+type BarangayParentCityScope = {
+  id: string;
+  label: string;
+};
+
+const UNKNOWN_CITY_SCOPE_ID = "unknown-city";
+
 const AIP_SELECT_COLUMNS =
   "id,fiscal_year,status,created_at,published_at,barangay_id,city_id,municipality_id,barangay:barangays!aips_barangay_id_fkey(name),city:cities!aips_city_id_fkey(name),municipality:municipalities!aips_municipality_id_fkey(name)";
 
@@ -116,6 +134,11 @@ function normalizeCityName(name: string): string {
   return name.replace(/^city of\s+/i, "").trim();
 }
 
+function toCityLabel(name: string | null | undefined): string {
+  const normalized = normalizeCityName((name ?? "").trim());
+  return normalized ? `City of ${normalized}` : "City of Unknown";
+}
+
 function formatRoleLabel(role: RoleType | null): string {
   if (role === "barangay_official") return "Barangay Official";
   if (role === "city_official") return "City Official";
@@ -147,8 +170,7 @@ function toLguLabel(row: AipRow): string {
     return baseName ? `Brgy. ${baseName}` : "Brgy. Unknown";
   }
 
-  const cityName = normalizeCityName(scopeNameOf(row.city) ?? scopeNameOf(row.municipality) ?? "");
-  return cityName ? `City of ${cityName}` : "City of Unknown";
+  return toCityLabel(scopeNameOf(row.city) ?? scopeNameOf(row.municipality) ?? "");
 }
 
 function sumProjectBudget(projects: ProjectRow[]): number {
@@ -212,15 +234,33 @@ function buildListRecord(input: {
   aip: AipRow;
   projects: ProjectRow[];
   summary: string | null;
+  parentCityByBarangayId?: Map<string, BarangayParentCityScope>;
 }): CitizenAipListRecord {
   const lguLabel = toLguLabel(input.aip);
   const fiscalYear = input.aip.fiscal_year;
+  const isBarangay = !!input.aip.barangay_id;
+  const parentCityScope =
+    isBarangay && input.aip.barangay_id
+      ? input.parentCityByBarangayId?.get(input.aip.barangay_id) ?? null
+      : null;
+
+  const cityScopeId = isBarangay
+    ? parentCityScope?.id ?? UNKNOWN_CITY_SCOPE_ID
+    : input.aip.city_id ?? input.aip.municipality_id ?? UNKNOWN_CITY_SCOPE_ID;
+
+  const cityScopeLabel = isBarangay
+    ? parentCityScope?.label ?? "City of Unknown"
+    : lguLabel;
 
   return {
     id: input.aip.id,
     scopeType: toScopeType(input.aip),
     scopeId: toScopeId(input.aip),
     lguLabel,
+    cityScopeId,
+    cityScopeLabel,
+    barangayScopeId: input.aip.barangay_id,
+    barangayScopeLabel: input.aip.barangay_id ? lguLabel : null,
     title: `${lguLabel} - Annual Investment Plan (AIP) ${fiscalYear}`,
     description:
       input.summary?.slice(0, 280) ??
@@ -230,6 +270,79 @@ function buildListRecord(input: {
     budgetTotal: sumProjectBudget(input.projects),
     projectsCount: input.projects.length,
   };
+}
+
+async function getParentCityScopeByBarangayId(aips: AipRow[]): Promise<Map<string, BarangayParentCityScope>> {
+  const barangayIds = Array.from(
+    new Set(
+      aips
+        .map((row) => row.barangay_id)
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    )
+  );
+
+  if (!barangayIds.length) return new Map();
+
+  const client = await supabaseServer();
+  const { data: barangayRows, error: barangaysError } = await client
+    .from("barangays")
+    .select("id,city_id,municipality_id")
+    .in("id", barangayIds);
+
+  if (barangaysError) throw new Error(barangaysError.message);
+
+  const rows = (barangayRows ?? []) as BarangayParentRow[];
+  const cityIds = Array.from(
+    new Set(
+      rows
+        .map((row) => row.city_id)
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    )
+  );
+
+  const municipalityIds = Array.from(
+    new Set(
+      rows
+        .map((row) => row.municipality_id)
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    )
+  );
+
+  const [citiesResult, municipalitiesResult] = await Promise.all([
+    cityIds.length > 0
+      ? client.from("cities").select("id,name").in("id", cityIds)
+      : Promise.resolve({ data: [] as LocalityNameRow[], error: null }),
+    municipalityIds.length > 0
+      ? client.from("municipalities").select("id,name").in("id", municipalityIds)
+      : Promise.resolve({ data: [] as LocalityNameRow[], error: null }),
+  ]);
+
+  if (citiesResult.error) throw new Error(citiesResult.error.message);
+  if (municipalitiesResult.error) throw new Error(municipalitiesResult.error.message);
+
+  const cityNameById = new Map(
+    ((citiesResult.data ?? []) as LocalityNameRow[]).map((row) => [row.id, row.name])
+  );
+  const municipalityNameById = new Map(
+    ((municipalitiesResult.data ?? []) as LocalityNameRow[]).map((row) => [row.id, row.name])
+  );
+
+  const parentCityByBarangayId = new Map<string, BarangayParentCityScope>();
+  for (const row of rows) {
+    const parentId = row.city_id ?? row.municipality_id ?? UNKNOWN_CITY_SCOPE_ID;
+    const parentName = row.city_id
+      ? cityNameById.get(row.city_id) ?? null
+      : row.municipality_id
+        ? municipalityNameById.get(row.municipality_id) ?? null
+        : null;
+
+    parentCityByBarangayId.set(row.id, {
+      id: parentId,
+      label: toCityLabel(parentName),
+    });
+  }
+
+  return parentCityByBarangayId;
 }
 
 async function getProfilesByIds(userIds: string[]): Promise<Map<string, ProfileRow>> {
@@ -403,9 +516,10 @@ function createSupabaseCitizenAipRepo(): CitizenAipRepo {
 
       const aips = (data ?? []) as AipRow[];
       const aipIds = aips.map((row) => row.id);
-      const [projectsByAipId, summariesByAipId] = await Promise.all([
+      const [projectsByAipId, summariesByAipId, parentCityByBarangayId] = await Promise.all([
         getProjectsByAipIds(aipIds),
         getLatestSummariesByAipIds(aipIds),
+        getParentCityScopeByBarangayId(aips),
       ]);
 
       return aips.map((aip) =>
@@ -413,6 +527,7 @@ function createSupabaseCitizenAipRepo(): CitizenAipRepo {
           aip,
           projects: projectsByAipId.get(aip.id) ?? [],
           summary: parseSummary(summariesByAipId.get(aip.id)),
+          parentCityByBarangayId,
         })
       );
     },

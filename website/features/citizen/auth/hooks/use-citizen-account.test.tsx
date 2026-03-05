@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useCitizenAccount } from "./use-citizen-account";
+import { invalidateCitizenProfileStatusCache } from "@/features/citizen/auth/utils/profile-status-client";
 
 const mockOnAuthStateChange = vi.fn();
 
@@ -62,6 +63,7 @@ function createFetchMock(input: {
 describe("useCitizenAccount", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    invalidateCitizenProfileStatusCache();
     mockOnAuthStateChange.mockReturnValue({
       data: {
         subscription: {

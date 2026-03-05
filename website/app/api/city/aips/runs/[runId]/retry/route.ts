@@ -6,6 +6,9 @@ import {
 import { supabaseServer } from "@/lib/supabase/server";
 import { getActorContext } from "@/lib/domain/get-actor-context";
 import { enforceCsrfProtection } from "@/lib/security/csrf";
+import { deriveRetryResumeStage } from "@/features/aip/server/retry-resume-stage";
+
+type RetryMode = "scratch" | "failed_stage";
 
 export async function POST(
   request: Request,
@@ -27,7 +30,7 @@ export async function POST(
 
     const { data: run, error: runError } = await client
       .from("extraction_runs")
-      .select("id,aip_id,uploaded_file_id,status")
+      .select("id,aip_id,uploaded_file_id,stage,status")
       .eq("id", runId)
       .maybeSingle();
 
@@ -54,7 +57,36 @@ export async function POST(
       return NextResponse.json({ message: "You cannot retry this run." }, { status: 403 });
     }
 
+    let retryMode: RetryMode = "failed_stage";
+    try {
+      const rawBody = await request.text();
+      if (rawBody.trim().length > 0) {
+        const parsed = JSON.parse(rawBody) as { retryMode?: unknown };
+        if (typeof parsed.retryMode !== "undefined") {
+          if (
+            parsed.retryMode !== "scratch" &&
+            parsed.retryMode !== "failed_stage" &&
+            parsed.retryMode !== "latest_success"
+          ) {
+            return NextResponse.json(
+              {
+                message:
+                  "Invalid retry mode. Use 'scratch' or 'failed_stage'.",
+              },
+              { status: 400 }
+            );
+          }
+          retryMode =
+            parsed.retryMode === "latest_success" ? "failed_stage" : parsed.retryMode;
+        }
+      }
+    } catch {
+      return NextResponse.json({ message: "Invalid retry request body." }, { status: 400 });
+    }
+
     let newRun: { id: string; status: string };
+    const resumeFromStage =
+      retryMode === "scratch" ? "extract" : deriveRetryResumeStage(run.stage);
     try {
       newRun = await insertExtractionRun({
         actor: toPrivilegedActorContext(actor),
@@ -62,6 +94,8 @@ export async function POST(
         uploadedFileId: run.uploaded_file_id,
         createdBy: actor.userId,
         modelName: "gpt-5.2",
+        retryOfRunId: run.id,
+        resumeFromStage,
       });
     } catch (error) {
       return NextResponse.json(
@@ -80,6 +114,8 @@ export async function POST(
         runId: newRun.id,
         status: newRun.status,
         aipId: run.aip_id,
+        retryMode,
+        resumeFromStage,
       },
       { status: 200 }
     );

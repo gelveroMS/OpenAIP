@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FeedbackThread } from "./feedback-thread";
+import { invalidateCitizenProfileStatusCache } from "@/features/citizen/auth/utils/profile-status-client";
 
 const mockListProjectFeedback = vi.fn();
 const mockCreateProjectFeedback = vi.fn();
@@ -38,6 +39,7 @@ vi.mock("./feedback.api", async () => {
 describe("FeedbackThread auth status loading", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    invalidateCitizenProfileStatusCache();
     mockListProjectFeedback.mockResolvedValue({ items: [] });
     mockOnAuthStateChange.mockImplementation(
       (callback: (event: string, session: { user: { id: string } } | null) => void) => {

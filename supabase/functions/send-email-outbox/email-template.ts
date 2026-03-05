@@ -17,7 +17,7 @@ type DetailRow = {
 
 type EventTemplateSpec = {
   subtitle: string;
-  heading: string;
+  heading: string | ((context: NormalizedNotificationEmailContext) => string);
   ctaLabel: string;
   detailsLabel: string;
   intro: (context: NormalizedNotificationEmailContext) => string;
@@ -27,26 +27,39 @@ type EventTemplateSpec = {
 };
 
 type NotificationTemplateDetails = {
+  appName: string;
+  appBaseUrl: string;
+  templateKey: string;
   eventType: string;
+  isReply: boolean;
   scopeType: string | null;
   scopeLabel: string | null;
+  audienceLabel: string | null;
   entityType: string | null;
   entityId: string | null;
   actorName: string | null;
+  actorRoleLabel: string | null;
   actorRole: string | null;
   occurredAt: string | null;
   fiscalYear: number | null;
   lguName: string | null;
+  barangayName: string | null;
+  cityName: string | null;
   revisionNotes: string | null;
   revisionReason: string | null;
   entityLabel: string | null;
+  targetLabel: string | null;
   feedbackKind: string | null;
   feedbackExcerpt: string | null;
+  replyExcerpt: string | null;
+  threadLabel: string | null;
   visibilityAction: string | null;
   newVisibility: string | null;
   oldStatusLabel: string | null;
   newStatusLabel: string | null;
   projectName: string | null;
+  updateTitle: string | null;
+  updateExcerpt: string | null;
   moderationAction: string | null;
   moderationReason: string | null;
   windowLabel: string | null;
@@ -88,6 +101,16 @@ function readNumber(value: unknown): number | null {
   if (typeof value === "string") {
     const parsed = Number(value.trim());
     if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function readBoolean(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true") return true;
+    if (normalized === "false") return false;
   }
   return null;
 }
@@ -223,6 +246,22 @@ function toNumberValue(input: Array<unknown>): number | null {
   return readNumber(firstValue(input));
 }
 
+function toBooleanValue(input: Array<unknown>): boolean | null {
+  return readBoolean(firstValue(input));
+}
+
+function toActorRoleLabel(value: string | null): string | null {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === "citizen") return "Citizen";
+  if (normalized === "barangay_official") return "Barangay Official";
+  if (normalized === "city_official" || normalized === "municipal_official") return "City Official";
+  if (normalized === "admin" || normalized === "administrator") return "Administrator";
+  if (normalized === "system") return "System";
+  return humanizeToken(normalized);
+}
+
 function normalizeNotificationContext(args: RenderNotificationEmailArgs): NormalizedNotificationEmailContext {
   const payload = asRecord(args.payload);
   const templateData = asRecord(payload.template_data);
@@ -249,27 +288,46 @@ function normalizeNotificationContext(args: RenderNotificationEmailArgs): Normal
     eventType,
     actionUrl: resolveActionUrl(payload, args.appBaseUrl),
     details: {
+      appName: toStringValue([templateData.app_name, metadata.app_name, payload.app_name], 120) ?? "OpenAIP",
+      appBaseUrl: toStringValue([templateData.app_base_url, payload.app_base_url], MAX_REASON_TEXT) ?? args.appBaseUrl,
+      templateKey: toStringValue([payload.template_key], MAX_REASON_TEXT) ?? args.templateKey,
       eventType,
+      isReply:
+        toBooleanValue([templateData.is_reply, metadata.is_reply, payload.is_reply]) ??
+        (Object.keys(asRecord(templateData.reply_context)).length > 0 ||
+          Object.keys(asRecord(metadata.reply_context)).length > 0),
       scopeType: toStringValue([templateData.scope_type, metadata.scope_type, payload.scope_type]),
       scopeLabel: toStringValue([templateData.scope_label, metadata.scope_label]),
+      audienceLabel: toStringValue([templateData.audience_label, metadata.audience_label], MAX_REASON_TEXT),
       entityType: toStringValue([templateData.entity_type, metadata.entity_type, payload.entity_type]),
       entityId: toStringValue([templateData.entity_id, metadata.entity_id, payload.entity_id]),
       actorName: toStringValue([templateData.actor_name, metadata.actor_name, payload.actor_name], 120),
+      actorRoleLabel:
+        toStringValue([templateData.actor_role_label, metadata.actor_role_label], 120) ??
+        toActorRoleLabel(toStringValue([templateData.actor_role, metadata.actor_role, payload.actor_role], 120)),
       actorRole: toStringValue([templateData.actor_role, metadata.actor_role, payload.actor_role], 120),
       occurredAt: formatOccurredAtPht(occurredAtRaw),
       fiscalYear: toNumberValue([templateData.fiscal_year, metadata.fiscal_year, payload.fiscal_year]),
       lguName: toStringValue([templateData.lgu_name, metadata.lgu_name]),
+      barangayName: toStringValue([templateData.barangay_name, metadata.barangay_name]),
+      cityName: toStringValue([templateData.city_name, metadata.city_name]),
       revisionNotes: toStringValue([templateData.revision_notes, metadata.revision_notes], MAX_REASON_TEXT),
       revisionReason: toStringValue(
         [templateData.revision_reason, metadata.revision_reason],
         MAX_REASON_TEXT
       ),
       entityLabel: toStringValue([templateData.entity_label, metadata.entity_label], MAX_REASON_TEXT),
+      targetLabel: toStringValue([templateData.target_label, metadata.target_label], MAX_REASON_TEXT),
       feedbackKind: toStringValue([templateData.feedback_kind, metadata.feedback_kind], MAX_REASON_TEXT),
       feedbackExcerpt: toStringValue(
-        [templateData.feedback_excerpt, metadata.feedback_excerpt],
+        [templateData.feedback_excerpt, metadata.feedback_excerpt, templateData.excerpt, metadata.excerpt],
         MAX_FEEDBACK_EXCERPT
       ),
+      replyExcerpt: toStringValue(
+        [templateData.reply_excerpt, metadata.reply_excerpt, templateData.excerpt, metadata.excerpt],
+        MAX_FEEDBACK_EXCERPT
+      ),
+      threadLabel: toStringValue([templateData.thread_label, metadata.thread_label], MAX_REASON_TEXT),
       visibilityAction: toStringValue(
         [templateData.visibility_action, metadata.visibility_action],
         MAX_REASON_TEXT
@@ -284,6 +342,11 @@ function normalizeNotificationContext(args: RenderNotificationEmailArgs): Normal
         MAX_REASON_TEXT
       ),
       projectName: toStringValue([templateData.project_name, metadata.project_name], MAX_REASON_TEXT),
+      updateTitle: toStringValue([templateData.update_title, metadata.update_title], MAX_REASON_TEXT),
+      updateExcerpt: toStringValue(
+        [templateData.update_excerpt, metadata.update_excerpt, templateData.excerpt, metadata.excerpt],
+        MAX_FEEDBACK_EXCERPT
+      ),
       moderationAction: toStringValue(
         [templateData.moderation_action, metadata.moderation_action],
         MAX_REASON_TEXT
@@ -317,7 +380,102 @@ function fyLabel(fiscalYear: number | null): string | null {
   return `FY ${fiscalYear}`;
 }
 
+function quoteExcerpt(value: string | null): string | null {
+  if (!value) return null;
+  return `"${value}"`;
+}
+
+type ProjectUpdateVariant = "posted" | "removed" | "restored";
+
+function normalizeStatusToken(value: string | null): string | null {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function isVisibleStatus(value: string | null): boolean {
+  const normalized = normalizeStatusToken(value);
+  return normalized === "published" || normalized === "active" || normalized === "visible";
+}
+
+function resolveProjectUpdateVariant(context: NormalizedNotificationEmailContext): ProjectUpdateVariant {
+  const action = normalizeStatusToken(context.details.visibilityAction);
+  if (action === "hidden") return "removed";
+  if (action === "unhidden" || action === "restored") return "restored";
+
+  const newStatus = normalizeStatusToken(context.details.newStatusLabel);
+  const oldStatus = normalizeStatusToken(context.details.oldStatusLabel);
+  if (newStatus === "hidden") return "removed";
+  if (isVisibleStatus(newStatus) && oldStatus === "hidden") return "restored";
+
+  return "posted";
+}
+
+function resolveCanonicalTemplateKey(context: NormalizedNotificationEmailContext): string {
+  const rawTemplateKey = context.details.templateKey.trim();
+  const lowerTemplateKey = rawTemplateKey.toLowerCase();
+  const upperTemplateKey = rawTemplateKey.toUpperCase();
+
+  if (lowerTemplateKey === "aip_extraction_succeeded") return "aip_extraction_succeeded";
+  if (lowerTemplateKey === "aip_extraction_failed") return "aip_extraction_failed";
+  if (lowerTemplateKey === "project_update_posted") return "project_update_posted";
+  if (lowerTemplateKey === "feedback_posted") return "feedback_posted";
+  if (lowerTemplateKey === "feedback_reply") return "feedback_reply";
+  if (lowerTemplateKey === "feedback_visibility_changed") return "feedback_visibility_changed";
+
+  if (upperTemplateKey === "AIP_EXTRACTION_SUCCEEDED") return "aip_extraction_succeeded";
+  if (upperTemplateKey === "AIP_EXTRACTION_FAILED") return "aip_extraction_failed";
+  if (upperTemplateKey === "PROJECT_UPDATE_STATUS_CHANGED") return "project_update_posted";
+  if (upperTemplateKey === "FEEDBACK_VISIBILITY_CHANGED") return "feedback_visibility_changed";
+  if (upperTemplateKey === "FEEDBACK_CREATED") {
+    return context.details.isReply ? "feedback_reply" : "feedback_posted";
+  }
+
+  return context.eventType.toUpperCase();
+}
+
 const TEMPLATE_REGISTRY: Record<string, EventTemplateSpec> = {
+  aip_extraction_succeeded: {
+    subtitle: "AIP Processing",
+    heading: "AIP processing completed",
+    ctaLabel: "Open AIP",
+    detailsLabel: "DETAILS",
+    intro: (context) => {
+      const aipLabel = context.details.entityLabel ?? "this AIP";
+      return `Your upload has finished processing for ${aipLabel}.`;
+    },
+    details: (context) =>
+      buildDetailsRows([
+        { label: "LGU", value: context.details.lguName },
+        { label: "AIP", value: context.details.entityLabel },
+        { label: "Run ID", value: context.details.runId },
+        { label: "Stage", value: context.details.stage },
+        { label: "Completed at", value: context.details.occurredAt },
+      ]),
+  },
+  aip_extraction_failed: {
+    subtitle: "AIP Processing",
+    heading: "AIP processing failed",
+    ctaLabel: "Review failed run",
+    detailsLabel: "FAILURE DETAILS",
+    intro: (context) => {
+      const aipLabel = context.details.entityLabel ?? "this AIP";
+      return `Processing for ${aipLabel} failed. Review the details and retry when ready.`;
+    },
+    details: (context) =>
+      buildDetailsRows([
+        { label: "LGU", value: context.details.lguName },
+        { label: "AIP", value: context.details.entityLabel },
+        { label: "Run ID", value: context.details.runId },
+        { label: "Failed stage", value: context.details.stage },
+        { label: "Error code", value: context.details.errorCode },
+        { label: "Error message", value: context.details.errorMessage },
+        { label: "Failed at", value: context.details.occurredAt },
+      ]),
+    advisoryTitle: "Suggested Action",
+    advisoryBody:
+      "Review the failed run details, confirm the uploaded PDF is valid, and retry extraction.",
+  },
   AIP_CLAIMED: {
     subtitle: "AIP Review Update",
     heading: "AIP Claimed for Review",
@@ -431,71 +589,125 @@ const TEMPLATE_REGISTRY: Record<string, EventTemplateSpec> = {
         { label: "Revision reason", value: context.details.revisionReason ?? context.details.revisionNotes },
       ]),
   },
-  FEEDBACK_CREATED: {
+  feedback_posted: {
     subtitle: "Citizen Engagement",
-    heading: "New Feedback Received",
-    ctaLabel: "View and Reply",
-    detailsLabel: "FEEDBACK PREVIEW",
-    intro: (context) =>
-      context.details.entityLabel
-        ? `A user posted new feedback on ${context.details.entityLabel}.`
-        : "A user posted new feedback.",
+    heading: "New feedback posted",
+    ctaLabel: "View feedback",
+    detailsLabel: "DETAILS",
+    intro: (context) => {
+      const target = context.details.targetLabel ?? context.details.entityLabel;
+      return target
+        ? `Someone posted feedback on ${target}.`
+        : "Someone posted new feedback.";
+    },
     details: (context) =>
       buildDetailsRows([
         { label: "From", value: context.details.actorName },
-        { label: "Role", value: context.details.actorRole },
+        { label: "Role", value: context.details.actorRoleLabel ?? toActorRoleLabel(context.details.actorRole) },
         { label: "LGU", value: context.details.lguName },
         { label: "Type", value: humanizeToken(context.details.feedbackKind) },
         { label: "Posted at", value: context.details.occurredAt },
-        { label: "Excerpt", value: context.details.feedbackExcerpt },
+        { label: "Excerpt", value: quoteExcerpt(context.details.feedbackExcerpt) },
       ]),
     advisoryTitle: "Privacy Reminder",
     advisoryBody:
-      "Do not include personal beneficiary information in replies. Keep responses professional and evidence-based.",
+      "Avoid posting personal data. Keep feedback and responses constructive and relevant to the project discussion.",
   },
-  FEEDBACK_VISIBILITY_CHANGED: {
-    subtitle: "Moderation Update",
-    heading: "Feedback Visibility Updated",
-    ctaLabel: "View Feedback",
+  feedback_reply: {
+    subtitle: "Citizen Engagement",
+    heading: "New reply in feedback thread",
+    ctaLabel: "Open reply",
     detailsLabel: "DETAILS",
     intro: (context) => {
-      const target = context.details.entityLabel ? ` on ${context.details.entityLabel}` : "";
-      const action = context.details.visibilityAction ?? "updated";
-      return `Your feedback${target} was ${action} by an administrator.`;
+      const target = context.details.targetLabel ?? context.details.entityLabel;
+      if (target) {
+        return `There is a new reply in an existing feedback thread related to ${target}.`;
+      }
+      return "There is a new reply in an existing feedback thread.";
     },
     details: (context) =>
       buildDetailsRows([
-        { label: "Status", value: context.details.newVisibility },
+        { label: "Reply from", value: context.details.actorName },
+        { label: "Role", value: context.details.actorRoleLabel ?? toActorRoleLabel(context.details.actorRole) },
+        { label: "LGU", value: context.details.lguName },
+        { label: "Related to", value: context.details.targetLabel ?? context.details.entityLabel },
+        { label: "Replied at", value: context.details.occurredAt },
+        { label: "Excerpt", value: quoteExcerpt(context.details.replyExcerpt ?? context.details.feedbackExcerpt) },
+      ]),
+  },
+  feedback_visibility_changed: {
+    subtitle: "Moderation Update",
+    heading: "Feedback moderation update",
+    ctaLabel: "View feedback",
+    detailsLabel: "DETAILS",
+    intro: (context) => {
+      const actionToken = normalizeStatusToken(context.details.visibilityAction);
+      const actionLabel =
+        actionToken === "hidden"
+          ? "hidden"
+          : actionToken === "unhidden"
+            ? "made visible again"
+            : "updated";
+      return `An administrator ${actionLabel} your feedback to maintain constructive discussion.`;
+    },
+    details: (context) =>
+      buildDetailsRows([
+        {
+          label: "Status",
+          value:
+            humanizeToken(context.details.visibilityAction) ??
+            context.details.newVisibility,
+        },
         { label: "Updated at", value: context.details.occurredAt },
         { label: "Reason", value: context.details.moderationReason },
-        { label: "Excerpt", value: context.details.feedbackExcerpt },
+        { label: "Target", value: context.details.targetLabel ?? context.details.entityLabel },
+        { label: "LGU", value: context.details.lguName },
+        { label: "Excerpt", value: quoteExcerpt(context.details.feedbackExcerpt) },
       ]),
-    advisoryTitle: "Note",
+    advisoryTitle: "Moderation Note",
     advisoryBody:
-      "OpenAIP moderates feedback to maintain constructive public discussion. If you believe this is an error, contact your LGU.",
+      "OpenAIP moderation aims to keep public discussion constructive, respectful, and relevant to planning decisions.",
   },
-  PROJECT_UPDATE_STATUS_CHANGED: {
+  project_update_posted: {
     subtitle: "Project Updates",
-    heading: "Project Update Status Changed",
-    ctaLabel: "View Project Update",
+    heading: (context) => {
+      const variant = resolveProjectUpdateVariant(context);
+      if (variant === "removed") return "A project update was removed from public view";
+      if (variant === "restored") return "A project update is visible again";
+      return "A project update has been posted";
+    },
+    ctaLabel: "View project update",
     detailsLabel: "DETAILS",
     intro: (context) => {
-      const name = context.details.projectName ?? "the project";
-      const status = context.details.newStatusLabel ?? "updated";
-      return `An update for ${name} is now ${status}.`;
+      const variant = resolveProjectUpdateVariant(context);
+      const projectName = context.details.projectName ?? "this project";
+      if (variant === "removed") {
+        return `A project update for ${projectName} was removed from public view.`;
+      }
+      if (variant === "restored") {
+        return `A project update for ${projectName} is visible to the public again.`;
+      }
+      return `There is a new update for ${projectName}.`;
     },
-    details: (context) =>
-      buildDetailsRows([
+    details: (context) => {
+      const variant = resolveProjectUpdateVariant(context);
+      const statusLabel =
+        variant === "removed"
+          ? "Hidden"
+          : variant === "restored"
+            ? "Visible"
+            : "Posted";
+      return buildDetailsRows([
         { label: "LGU", value: context.details.lguName },
-        { label: "Old status", value: context.details.oldStatusLabel },
-        { label: "New status", value: context.details.newStatusLabel },
-        { label: "Updated by", value: context.details.actorName },
-        { label: "Role", value: context.details.actorRole },
-        { label: "Updated at", value: context.details.occurredAt },
-      ]),
-    advisoryTitle: "Visibility",
-    advisoryBody:
-      "Only published updates are visible to citizens. Hidden updates remain restricted.",
+        { label: "Project", value: context.details.projectName },
+        { label: "Status", value: statusLabel },
+        { label: "Posted by", value: context.details.actorName },
+        { label: "Role", value: context.details.actorRoleLabel ?? toActorRoleLabel(context.details.actorRole) },
+        { label: "Posted at", value: context.details.occurredAt },
+        { label: "Update title", value: context.details.updateTitle },
+        { label: "Excerpt", value: quoteExcerpt(context.details.updateExcerpt) },
+      ]);
+    },
   },
   OUTBOX_FAILURE_THRESHOLD_REACHED: {
     subtitle: "System Alert",
@@ -614,7 +826,12 @@ function renderDetailRowsText(rows: DetailRow[]): string {
 }
 
 function renderNotificationHtml(context: NormalizedNotificationEmailContext): string {
-  const spec = TEMPLATE_REGISTRY[context.eventType] ?? GENERIC_TEMPLATE;
+  const resolvedTemplateKey = resolveCanonicalTemplateKey(context);
+  const spec =
+    TEMPLATE_REGISTRY[resolvedTemplateKey] ??
+    TEMPLATE_REGISTRY[context.eventType] ??
+    GENERIC_TEMPLATE;
+  const heading = typeof spec.heading === "function" ? spec.heading(context) : spec.heading;
   const detailRows = spec.details(context);
   const intro = cleanText(spec.intro(context), MAX_GENERIC_TEXT) ?? "A new notification is available.";
   const includeMessage =
@@ -625,13 +842,15 @@ function renderNotificationHtml(context: NormalizedNotificationEmailContext): st
     "<html><body>",
     '<div style="font-family: Arial, Helvetica, sans-serif; line-height: 1.6; color: #0f172a;">',
     '<div style="padding: 18px 20px; border-bottom: 1px solid #e2e8f0;">',
-    '<div style="font-size: 18px; font-weight: 700; letter-spacing: 0.2px;">OpenAIP</div>',
+    `<div style="font-size: 18px; font-weight: 700; letter-spacing: 0.2px;">${escapeHtml(
+      context.details.appName
+    )}</div>`,
     `<div style="font-size: 12px; color: #475569; margin-top: 2px;">${escapeHtml(
       spec.subtitle
     )}</div>`,
     "</div>",
     '<div style="padding: 20px;">',
-    `<h2 style="margin: 0 0 10px; font-size: 18px;">${escapeHtml(spec.heading)}</h2>`,
+    `<h2 style="margin: 0 0 10px; font-size: 18px;">${escapeHtml(heading)}</h2>`,
     `<p style="margin: 0 0 14px; color: #334155;">${escapeHtml(intro)}</p>`,
     includeMessage
       ? `<p style="margin: 0 0 14px; color: #334155;">${escapeHtml(context.message)}</p>`
@@ -667,13 +886,18 @@ function renderNotificationHtml(context: NormalizedNotificationEmailContext): st
 }
 
 function renderNotificationText(context: NormalizedNotificationEmailContext): string {
-  const spec = TEMPLATE_REGISTRY[context.eventType] ?? GENERIC_TEMPLATE;
+  const resolvedTemplateKey = resolveCanonicalTemplateKey(context);
+  const spec =
+    TEMPLATE_REGISTRY[resolvedTemplateKey] ??
+    TEMPLATE_REGISTRY[context.eventType] ??
+    GENERIC_TEMPLATE;
+  const heading = typeof spec.heading === "function" ? spec.heading(context) : spec.heading;
   const detailRows = spec.details(context);
   const intro = cleanText(spec.intro(context), MAX_GENERIC_TEXT) ?? "A new notification is available.";
   const lines = [
-    `OpenAIP - ${spec.subtitle}`,
+    `${context.details.appName} - ${spec.subtitle}`,
     "",
-    spec.heading,
+    heading,
     "",
     intro,
   ];

@@ -97,8 +97,9 @@ describe("useAdminDashboardData initial snapshot hydration", () => {
 
   it("fetches reactive metrics after filters change and resolves loading state", async () => {
     const repo = mockGetAdminDashboardRepo();
-    const { result } = renderHook(() =>
-      useAdminDashboardData({ filters: initialFilters, snapshot: initialSnapshot })
+    const { result } = renderHook(
+      () => useAdminDashboardData({ filters: initialFilters, snapshot: initialSnapshot }),
+      { wrapper: StrictMode }
     );
 
     act(() => {
@@ -130,6 +131,34 @@ describe("useAdminDashboardData initial snapshot hydration", () => {
     });
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
+    });
+  });
+
+  it("clears loading and surfaces errors after reactive fetch failures in StrictMode", async () => {
+    const repo = mockGetAdminDashboardRepo();
+    repo.getSummary.mockRejectedValue(new Error("Simulated dashboard failure"));
+
+    const { result } = renderHook(
+      () => useAdminDashboardData({ filters: initialFilters, snapshot: initialSnapshot }),
+      { wrapper: StrictMode }
+    );
+
+    act(() => {
+      result.current.setFilters({
+        ...initialFilters,
+        dateFrom: "2026-03-03",
+      });
+    });
+
+    await waitFor(() => {
+      expect(repo.getSummary).toHaveBeenCalledTimes(1);
+      expect(repo.getAipStatusDistribution).toHaveBeenCalledTimes(1);
+      expect(repo.getReviewBacklog).toHaveBeenCalledTimes(1);
+      expect(repo.getUsageMetrics).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+      expect(result.current.error).toBe("Simulated dashboard failure");
     });
   });
 });

@@ -11,6 +11,7 @@
 'use client'
 
 import { supabaseBrowser } from '@/lib/supabase/client'
+import { PasswordPolicyChecklist } from '@/components/auth/password-policy-checklist'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -24,7 +25,12 @@ import { Label } from '@/components/ui/label'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { AuthParameters } from '@/types'
-import { validatePasswordWithPolicy } from "@/lib/security/password-policy";
+import { fetchPasswordPolicy } from '@/lib/security/password-policy-client'
+import {
+  getPasswordPolicyRuleStatus,
+  validatePasswordWithPolicy,
+  type PasswordPolicyLike,
+} from '@/lib/security/password-policy'
 
 function readTokensFromHash() {
   if (typeof window === "undefined" || !window.location.hash) return null
@@ -67,17 +73,28 @@ function scrubSensitiveAuthParams() {
  */
 export function UpdatePasswordForm({role}:AuthParameters) {
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [passwordPolicy, setPasswordPolicy] = useState<{
-    minLength: number;
-    requireUppercase: boolean;
-    requireLowercase: boolean;
-    requireNumbers: boolean;
-    requireSpecialCharacters: boolean;
-  } | null>(null)
+  const [passwordPolicy, setPasswordPolicy] = useState<PasswordPolicyLike | null>(null)
   const router = useRouter()
   const supabase = useMemo(() => supabaseBrowser(), [])
+
+  const policyRules = useMemo(
+    () => (passwordPolicy ? getPasswordPolicyRuleStatus(password, passwordPolicy) : []),
+    [password, passwordPolicy]
+  )
+  const policyErrors = useMemo(
+    () => (passwordPolicy ? validatePasswordWithPolicy(password, passwordPolicy) : []),
+    [password, passwordPolicy]
+  )
+  const passwordsMatch = password === confirmPassword
+  const canSubmit =
+    !isLoading &&
+    password.length > 0 &&
+    confirmPassword.length > 0 &&
+    passwordsMatch &&
+    policyErrors.length === 0
 
   const ensureInviteSession = useCallback(async () => {
     const { data } = await supabase.auth.getSession()
@@ -113,30 +130,9 @@ export function UpdatePasswordForm({role}:AuthParameters) {
   useEffect(() => {
     let active = true;
     const loadPolicy = async () => {
-      try {
-        const response = await fetch("/api/system/security-policy", {
-          cache: "no-store",
-        });
-        const payload = (await response.json().catch(() => null)) as
-          | {
-              securitySettings?: {
-                passwordPolicy?: {
-                  minLength: number;
-                  requireUppercase: boolean;
-                  requireLowercase: boolean;
-                  requireNumbers: boolean;
-                  requireSpecialCharacters: boolean;
-                };
-              };
-            }
-          | null;
-
-        if (!active) return;
-        if (!response.ok || !payload?.securitySettings?.passwordPolicy) return;
-        setPasswordPolicy(payload.securitySettings.passwordPolicy);
-      } catch {
-        // Ignore policy fetch errors; server route remains authoritative.
-      }
+      const policy = await fetchPasswordPolicy()
+      if (!active || !policy) return
+      setPasswordPolicy(policy)
     };
     void loadPolicy();
     return () => {
@@ -156,11 +152,13 @@ export function UpdatePasswordForm({role}:AuthParameters) {
         throw new Error("Auth session missing. Reopen the invite/reset link from your email.")
       }
 
-      if (passwordPolicy) {
-        const errors = validatePasswordWithPolicy(password, passwordPolicy);
-        if (errors.length > 0) {
-          throw new Error(errors[0]);
-        }
+      if (!passwordsMatch) {
+        throw new Error("Passwords do not match.")
+      }
+
+      const errors = passwordPolicy ? validatePasswordWithPolicy(password, passwordPolicy) : []
+      if (errors.length > 0) {
+        throw new Error(errors[0])
       }
 
       const response = await fetch("/auth/update-password", {
@@ -206,8 +204,25 @@ export function UpdatePasswordForm({role}:AuthParameters) {
                   onChange={(e) => setPassword(e.target.value)}
                 />
               </div>
+              {passwordPolicy ? (
+                <PasswordPolicyChecklist rules={policyRules} className="space-y-1" />
+              ) : null}
+              <div className="grid gap-2">
+                <Label htmlFor="confirm-password">Confirm new password</Label>
+                <Input
+                  id="confirm-password"
+                  type="password"
+                  placeholder="Confirm new password"
+                  required
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                />
+              </div>
+              {confirmPassword.length > 0 && !passwordsMatch ? (
+                <p className="text-sm text-red-500">Passwords do not match.</p>
+              ) : null}
               {error && <p className="text-sm text-red-500">{error}</p>}
-              <Button type="submit" className="w-full" disabled={isLoading}>
+              <Button type="submit" className="w-full" disabled={!canSubmit}>
                 {isLoading ? 'Saving...' : 'Save new password'}
               </Button>
             </div>

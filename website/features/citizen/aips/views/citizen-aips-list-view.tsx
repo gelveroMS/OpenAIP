@@ -1,19 +1,20 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AipListCard from "@/features/citizen/aips/components/aip-list-card";
+import AipListFilters from "@/features/citizen/aips/components/aip-list-filters";
 import CitizenExplainerCard from "@/features/citizen/components/citizen-explainer-card";
-import CitizenFiltersBar from "@/features/citizen/components/citizen-filters-bar";
 import CitizenPageHero from "@/features/citizen/components/citizen-page-hero";
-import type { AipFilterLguOption, AipListItem } from "@/features/citizen/aips/types";
+import type { AipListItem } from "@/features/citizen/aips/types";
 
 type Props = {
   items: AipListItem[];
 };
 
-function toLguKey(option: { scopeType: string; scopeId: string }): string {
-  return `${option.scopeType}:${option.scopeId}`;
-}
+const ALL_YEARS = "all-years";
+const ALL_CITIES = "all-cities";
+const ALL_BARANGAYS = "all-barangays";
+const UNKNOWN_CITY_ID = "unknown-city";
 
 function sortItems(input: AipListItem[]): AipListItem[] {
   return [...input].sort((left, right) => {
@@ -24,116 +25,149 @@ function sortItems(input: AipListItem[]): AipListItem[] {
   });
 }
 
+function normalizeCityLabel(label: string | null | undefined): string {
+  const trimmed = label?.trim() ?? "";
+  if (!trimmed) return "City of Unknown";
+  if (/\bcity\b/i.test(trimmed)) return trimmed;
+  return `City of ${trimmed}`;
+}
+
+function getCityScope(item: AipListItem): { id: string; label: string } {
+  const cityScopeId = item.cityScopeId?.trim() ?? "";
+  const cityScopeLabel = item.cityScopeLabel?.trim() ?? "";
+
+  if (cityScopeId) {
+    return {
+      id: cityScopeId,
+      label: normalizeCityLabel(cityScopeLabel || item.lguLabel),
+    };
+  }
+
+  if (item.scopeType === "city") {
+    return {
+      id: item.scopeId,
+      label: normalizeCityLabel(item.lguLabel),
+    };
+  }
+
+  return {
+    id: UNKNOWN_CITY_ID,
+    label: "City of Unknown",
+  };
+}
+
+function getBarangayScope(item: AipListItem): { id: string; label: string; cityId: string } | null {
+  if (item.scopeType !== "barangay") return null;
+
+  const barangayId = (item.barangayScopeId?.trim() || item.scopeId.trim()) ?? "";
+  if (!barangayId) return null;
+
+  const cityScope = getCityScope(item);
+  return {
+    id: barangayId,
+    label: item.barangayScopeLabel?.trim() || item.lguLabel,
+    cityId: cityScope.id,
+  };
+}
+
 export default function CitizenAipsListView({ items }: Props) {
   const sortedItems = useMemo(() => sortItems(items), [items]);
+  const [selectedYear, setSelectedYear] = useState<string>(ALL_YEARS);
+  const [selectedCity, setSelectedCity] = useState<string>(ALL_CITIES);
+  const [selectedBarangay, setSelectedBarangay] = useState<string>(ALL_BARANGAYS);
 
-  const lguOptions = useMemo<AipFilterLguOption[]>(() => {
-    const map = new Map<string, AipFilterLguOption>();
-    for (const item of sortedItems) {
-      const key = toLguKey(item);
-      if (map.has(key)) continue;
-      map.set(key, {
-        key,
-        scopeType: item.scopeType,
-        scopeId: item.scopeId,
-        label: item.lguLabel,
-      });
-    }
-    return Array.from(map.values()).sort((left, right) =>
-      left.label.localeCompare(right.label)
-    );
-  }, [sortedItems]);
-
-  const years = useMemo(() => {
+  const years = useMemo<number[]>(() => {
     return Array.from(new Set(sortedItems.map((item) => item.fiscalYear))).sort((a, b) => b - a);
   }, [sortedItems]);
 
-  const lgusByYear = useMemo(() => {
-    const map = new Map<number, string[]>();
-    for (const item of sortedItems) {
-      const key = toLguKey(item);
-      const list = map.get(item.fiscalYear) ?? [];
-      if (!list.includes(key)) list.push(key);
-      map.set(item.fiscalYear, list);
+  const yearScopedItems = useMemo(() => {
+    if (selectedYear === ALL_YEARS) return sortedItems;
+    const year = Number(selectedYear);
+    return sortedItems.filter((item) => item.fiscalYear === year);
+  }, [selectedYear, sortedItems]);
+
+  const cityOptions = useMemo(() => {
+    const map = new Map<string, { value: string; label: string }>();
+    for (const item of yearScopedItems) {
+      const cityScope = getCityScope(item);
+      if (map.has(cityScope.id)) continue;
+      map.set(cityScope.id, {
+        value: cityScope.id,
+        label: cityScope.label,
+      });
     }
-    return map;
-  }, [sortedItems]);
 
-  const yearsByLgu = useMemo(() => {
-    const map = new Map<string, number[]>();
-    for (const item of sortedItems) {
-      const key = toLguKey(item);
-      const list = map.get(key) ?? [];
-      if (!list.includes(item.fiscalYear)) list.push(item.fiscalYear);
-      map.set(key, list.sort((a, b) => b - a));
+    return [
+      { value: ALL_CITIES, label: "All Cities" },
+      ...Array.from(map.values()).sort((left, right) => left.label.localeCompare(right.label)),
+    ];
+  }, [yearScopedItems]);
+
+  const barangayOptions = useMemo(() => {
+    const map = new Map<string, { value: string; label: string; cityId: string }>();
+
+    for (const item of yearScopedItems) {
+      const barangayScope = getBarangayScope(item);
+      if (!barangayScope) continue;
+
+      if (selectedCity !== ALL_CITIES && barangayScope.cityId !== selectedCity) continue;
+      if (map.has(barangayScope.id)) continue;
+
+      map.set(barangayScope.id, {
+        value: barangayScope.id,
+        label: barangayScope.label,
+        cityId: barangayScope.cityId,
+      });
     }
-    return map;
-  }, [sortedItems]);
 
-  const defaultYear = years[0] ?? null;
-  const defaultLguKey = defaultYear !== null ? (lgusByYear.get(defaultYear)?.[0] ?? null) : null;
+    return [
+      { value: ALL_BARANGAYS, label: "All Barangays" },
+      ...Array.from(map.values())
+        .sort((left, right) => left.label.localeCompare(right.label))
+        .map((option) => ({ value: option.value, label: option.label })),
+    ];
+  }, [selectedCity, yearScopedItems]);
 
-  const [selectedYear, setSelectedYear] = useState<number | null>(defaultYear);
-  const [selectedLguKey, setSelectedLguKey] = useState<string | null>(defaultLguKey);
-  const [searchQuery, setSearchQuery] = useState("");
+  useEffect(() => {
+    if (selectedCity === ALL_CITIES) return;
+    if (cityOptions.some((option) => option.value === selectedCity)) return;
+    setSelectedCity(ALL_CITIES);
+  }, [cityOptions, selectedCity]);
 
-  const activeYear = selectedYear ?? defaultYear;
-  const activeLguKey = selectedLguKey ?? defaultLguKey;
+  useEffect(() => {
+    if (selectedBarangay === ALL_BARANGAYS) return;
+    if (barangayOptions.some((option) => option.value === selectedBarangay)) return;
+    setSelectedBarangay(ALL_BARANGAYS);
+  }, [barangayOptions, selectedBarangay]);
 
   const filteredAips = useMemo(() => {
-    if (activeYear === null || !activeLguKey) return [];
-    const loweredQuery = searchQuery.trim().toLowerCase();
     return sortedItems.filter((item) => {
-      const yearMatch = item.fiscalYear === activeYear;
-      const lguMatch = toLguKey(item) === activeLguKey;
-      const searchMatch =
-        !loweredQuery ||
-        item.title.toLowerCase().includes(loweredQuery) ||
-        item.description.toLowerCase().includes(loweredQuery) ||
-        item.lguLabel.toLowerCase().includes(loweredQuery);
+      if (selectedYear !== ALL_YEARS && item.fiscalYear !== Number(selectedYear)) {
+        return false;
+      }
 
-      return yearMatch && lguMatch && searchMatch;
+      const cityScope = getCityScope(item);
+      if (selectedCity !== ALL_CITIES && cityScope.id !== selectedCity) {
+        return false;
+      }
+
+      if (selectedBarangay !== ALL_BARANGAYS) {
+        const barangayScope = getBarangayScope(item);
+        if (!barangayScope) return false;
+        return barangayScope.id === selectedBarangay;
+      }
+
+      return true;
     });
-  }, [activeLguKey, activeYear, searchQuery, sortedItems]);
+  }, [selectedBarangay, selectedCity, selectedYear, sortedItems]);
 
-  const yearOptionsForLgu = useMemo(() => {
-    if (!activeLguKey) return years;
-    return yearsByLgu.get(activeLguKey) ?? years;
-  }, [activeLguKey, years, yearsByLgu]);
-
-  const lguOptionsForYear = useMemo(() => {
-    if (activeYear === null) return lguOptions;
-    const keys = new Set(lgusByYear.get(activeYear) ?? []);
-    return lguOptions.filter((option) => keys.has(option.key));
-  }, [activeYear, lguOptions, lgusByYear]);
-
-  const yearSelectOptions = yearOptionsForLgu.map((year) => ({
-    value: String(year),
-    label: String(year),
-  }));
-
-  const lguSelectOptions = lguOptionsForYear.map((option) => ({
-    value: option.key,
-    label: option.label,
-  }));
-
-  const handleYearChange = (value: string) => {
-    const nextYear = Number(value);
-    if (!Number.isInteger(nextYear)) return;
-    const validLguKeys = lgusByYear.get(nextYear) ?? [];
-    const nextLgu =
-      activeLguKey && validLguKeys.includes(activeLguKey) ? activeLguKey : validLguKeys[0] ?? null;
-    setSelectedYear(nextYear);
-    setSelectedLguKey(nextLgu);
-  };
-
-  const handleLguChange = (value: string) => {
-    const validYears = yearsByLgu.get(value) ?? [];
-    const nextYear =
-      activeYear !== null && validYears.includes(activeYear) ? activeYear : validYears[0] ?? null;
-    setSelectedLguKey(value);
-    setSelectedYear(nextYear);
-  };
+  const yearOptions = useMemo(
+    () => [
+      { value: ALL_YEARS, label: "All Years" },
+      ...years.map((year) => ({ value: String(year), label: String(year) })),
+    ],
+    [years]
+  );
 
   return (
     <section className="space-y-6">
@@ -156,16 +190,16 @@ export default function CitizenAipsListView({ items }: Props) {
         </>
       </CitizenExplainerCard>
 
-      <CitizenFiltersBar
-        yearOptions={yearSelectOptions}
-        yearValue={activeYear !== null ? String(activeYear) : ""}
-        onYearChange={handleYearChange}
-        lguOptions={lguSelectOptions}
-        lguValue={activeLguKey ?? ""}
-        onLguChange={handleLguChange}
-        searchValue={searchQuery}
-        onSearchChange={setSearchQuery}
-        searchPlaceholder="Search AIPs..."
+      <AipListFilters
+        yearOptions={yearOptions}
+        yearValue={selectedYear}
+        onYearChange={setSelectedYear}
+        cityOptions={cityOptions}
+        cityValue={selectedCity}
+        onCityChange={setSelectedCity}
+        barangayOptions={barangayOptions}
+        barangayValue={selectedBarangay}
+        onBarangayChange={setSelectedBarangay}
       />
 
       <p className="text-sm text-slate-500">

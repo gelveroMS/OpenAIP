@@ -30,6 +30,16 @@ const nextConfig: NextConfig = {
         destination: "/about-us",
         permanent: false,
       },
+      {
+        source: "/health-projects",
+        destination: "/projects/health",
+        permanent: false,
+      },
+      {
+        source: "/infrastructure-projects",
+        destination: "/projects/infrastructure",
+        permanent: false,
+      },
     ];
   },
 };

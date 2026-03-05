@@ -28,13 +28,16 @@ export function inferImageContentType(path: string, blobType?: string): string {
   return "application/octet-stream";
 }
 
-export function toImageResponse(data: Blob, path: string): NextResponse {
+export function toImageResponse(
+  data: Blob,
+  path: string,
+  preferredContentType?: string
+): NextResponse {
   return new NextResponse(data.stream(), {
     status: 200,
     headers: {
-      "content-type": inferImageContentType(path, data.type),
+      "content-type": inferImageContentType(path, preferredContentType ?? data.type),
       "cache-control": IMAGE_CACHE_CONTROL,
     },
   });
 }
-

@@ -2,11 +2,13 @@
 
 import { Lock, Mail } from "lucide-react";
 import Link from "next/link";
+import { PasswordPolicyChecklist } from "@/components/auth/password-policy-checklist";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import CitizenAuthHeader from "@/features/citizen/auth/components/citizen-auth-header";
 import type { CitizenAuthMode } from "@/features/citizen/auth/types";
+import type { PasswordPolicyRuleStatus } from "@/lib/security/password-policy";
 
 type CitizenEmailPasswordStepProps = {
   titleId: string;
@@ -14,8 +16,10 @@ type CitizenEmailPasswordStepProps = {
   mode: CitizenAuthMode;
   email: string;
   password: string;
+  policyRules: PasswordPolicyRuleStatus[];
   errorMessage: string | null;
   isLoading: boolean;
+  disableSubmit: boolean;
   onEmailChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
   onSubmit: () => void;
@@ -28,8 +32,10 @@ export default function CitizenEmailPasswordStep({
   mode,
   email,
   password,
+  policyRules,
   errorMessage,
   isLoading,
+  disableSubmit,
   onEmailChange,
   onPasswordChange,
   onSubmit,
@@ -94,7 +100,6 @@ export default function CitizenEmailPasswordStep({
                 id="citizen-auth-password"
                 type="password"
                 autoComplete={isLogin ? "current-password" : "new-password"}
-                minLength={8}
                 required
                 value={password}
                 onChange={(event) => onPasswordChange(event.target.value)}
@@ -102,6 +107,9 @@ export default function CitizenEmailPasswordStep({
               />
             </div>
           </div>
+          {!isLogin && policyRules.length > 0 ? (
+            <PasswordPolicyChecklist rules={policyRules} className="space-y-1" />
+          ) : null}
 
           {isLogin ? (
             <div className="text-right">
@@ -126,7 +134,7 @@ export default function CitizenEmailPasswordStep({
           <Button
             type="submit"
             className="h-12 w-full rounded-xl bg-[#022E45] text-base font-semibold text-white hover:bg-[#01304A] focus-visible:ring-2 focus-visible:ring-[#0EA5C6]/40"
-            disabled={isLoading}
+            disabled={isLoading || disableSubmit}
           >
             {isLoading
               ? isLogin

@@ -1,19 +1,42 @@
 "use client";
 
 import Link from "next/link";
-import { Bell } from "lucide-react";
+import { usePathname } from "next/navigation";
+import {
+  AlertTriangle,
+  Bell,
+  ClipboardCheck,
+  ClipboardList,
+  CornerDownRight,
+  Globe,
+  Inbox,
+  Megaphone,
+  MessageSquare,
+  Pencil,
+  RefreshCw,
+  Shield,
+  XCircle,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { formatNotificationRelativeTime } from "@/features/notifications/components/notification-time";
-import { buildTrackedNotificationOpenHref } from "@/lib/notifications/open-link";
+import NotificationsRealtimeListener from "@/features/notifications/realtime-listener";
+import { buildNotificationDestinationHref } from "@/lib/notifications/open-link";
+import { buildDisplay } from "@/lib/notifications/templates";
+import type { NotificationIconKey } from "@/lib/notifications/templates";
 import { withCsrfHeader } from "@/lib/security/csrf";
+import { supabaseBrowser } from "@/lib/supabase/client";
 import { cn } from "@/lib/ui/utils";
 
 type NotificationItem = {
   id: string;
+  recipient_role: string | null;
+  scope_type: string | null;
+  event_type: string;
   title: string;
   message: string;
   action_url: string | null;
+  metadata: Record<string, unknown>;
   created_at: string;
   read_at: string | null;
 };
@@ -71,19 +94,6 @@ async function listNotifications(
   return (await response.json()) as NotificationResponse;
 }
 
-async function markOneRead(notificationId: string): Promise<void> {
-  const response = await fetch(
-    `/api/notifications/${encodeURIComponent(notificationId)}/read`,
-    withCsrfHeader({
-      method: "PATCH",
-    })
-  );
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as { message?: string } | null;
-    throw new Error(payload?.message ?? "Failed to mark notification as read.");
-  }
-}
-
 async function markAllRead(): Promise<void> {
   const response = await fetch(
     "/api/notifications/read-all",
@@ -97,10 +107,43 @@ async function markAllRead(): Promise<void> {
   }
 }
 
+function getIcon(iconKey: NotificationIconKey) {
+  switch (iconKey) {
+    case "clipboard-check":
+      return ClipboardCheck;
+    case "pencil-alert":
+      return Pencil;
+    case "globe":
+      return Globe;
+    case "inbox":
+      return Inbox;
+    case "refresh-cw":
+      return RefreshCw;
+    case "message-square":
+      return MessageSquare;
+    case "corner-down-right":
+      return CornerDownRight;
+    case "shield":
+      return Shield;
+    case "megaphone":
+      return Megaphone;
+    case "alert-triangle":
+      return AlertTriangle;
+    case "clipboard-list":
+      return ClipboardList;
+    case "x-circle":
+      return XCircle;
+    default:
+      return Bell;
+  }
+}
+
 export default function NotificationsInbox({
   title = "Notifications",
   description = "Latest updates across workflow, feedback, and moderation events.",
 }: Props) {
+  const pathname = usePathname();
+  const [userId, setUserId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterStatus>("all");
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [offset, setOffset] = useState(0);
@@ -110,15 +153,36 @@ export default function NotificationsInbox({
   const [hasNext, setHasNext] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
   const [markAllBusy, setMarkAllBusy] = useState(false);
+
+  useEffect(() => {
+    let isActive = true;
+    const client = supabaseBrowser();
+    void client.auth.getUser().then(({ data }) => {
+      if (!isActive) return;
+      setUserId(data.user?.id ?? null);
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   const syncUnreadTotal = useCallback(async () => {
     try {
       const next = await fetchUnreadCount();
       setUnreadTotal(next);
     } catch {
-      // Keep the current badge total if the count refresh fails.
+      // Keep the current unread count when refresh fails.
+    }
+  }, []);
+
+  const refreshAllTotal = useCallback(async () => {
+    try {
+      const data = await listNotifications(0, "all");
+      setAllTotal(data.total);
+    } catch {
+      // Keep the current all tab count when refresh fails.
     }
   }, []);
 
@@ -155,30 +219,6 @@ export default function NotificationsInbox({
     void loadPage(0, nextFilter);
   };
 
-  const handleMarkRead = async (id: string) => {
-    setBusyId(id);
-    try {
-      await markOneRead(id);
-      setItems((current) =>
-        activeFilter === "unread"
-          ? current.filter((item) => item.id !== id)
-          : current.map((item) =>
-              item.id === id ? { ...item, read_at: item.read_at ?? new Date().toISOString() } : item
-            )
-      );
-      if (activeFilter === "unread") {
-        setFilteredTotal((current) => Math.max(0, current - 1));
-      }
-      await syncUnreadTotal();
-    } catch (actionError) {
-      setError(
-        actionError instanceof Error ? actionError.message : "Failed to mark notification as read."
-      );
-    } finally {
-      setBusyId(null);
-    }
-  };
-
   const handleMarkAllRead = async () => {
     setMarkAllBusy(true);
     try {
@@ -205,20 +245,32 @@ export default function NotificationsInbox({
     }
   };
 
+  const handleRealtimeEvent = useCallback(async () => {
+    await Promise.all([syncUnreadTotal(), refreshAllTotal()]);
+    await loadPage(0, activeFilter);
+  }, [activeFilter, loadPage, refreshAllTotal, syncUnreadTotal]);
+
   const prevOffset = Math.max(0, offset - PAGE_SIZE);
-  const emptyStateMessage = activeFilter === "unread" ? "No unread notifications." : "No notifications found.";
+  const emptyStateMessage =
+    activeFilter === "unread" ? "No unread notifications." : "No notifications found.";
   const visibleTotal = activeFilter === "all" ? allTotal : unreadTotal;
   const showPagination = !loading && filteredTotal > 0;
 
-  const renderedItems = useMemo(
-    () =>
-      items.map((item) => ({
+  const renderedItems = useMemo(() => {
+    const fallbackHref = pathname || "/notifications";
+    return items.map((item) => {
+      const display = buildDisplay(item, "page");
+      return {
         ...item,
         isUnread: item.read_at === null,
-        primaryText: item.message || item.title,
-      })),
-    [items]
-  );
+        display,
+        destinationHref: buildNotificationDestinationHref({
+          next: display.actionUrl ?? fallbackHref,
+          notificationId: item.id,
+        }),
+      };
+    });
+  }, [items, pathname]);
 
   return (
     <section className="space-y-6">
@@ -288,67 +340,57 @@ export default function NotificationsInbox({
       ) : null}
 
       <div className="space-y-3">
-        {renderedItems.map((item) => (
-          <article
-            key={item.id}
-            className={cn(
-              "rounded-[22px] border px-5 py-4 shadow-sm transition-colors",
-              item.isUnread
-                ? "border-[#4B8191]/50 bg-[#F4FAFC]"
-                : "border-slate-200 bg-white"
-            )}
-          >
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-500">
-                <Bell className="h-5 w-5" />
-              </span>
-
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium leading-6 text-slate-800">{item.primaryText}</p>
-                <p className="mt-2 text-xs font-medium text-slate-400">
-                  {formatNotificationRelativeTime(item.created_at)}
-                </p>
-                {item.action_url ? (
-                  <Link
-                    href={buildTrackedNotificationOpenHref({
-                        next: item.action_url,
-                        notificationId: item.id,
-                      })}
-                    className="mt-3 inline-flex text-xs font-semibold text-[#0E7490] underline-offset-2 hover:underline"
-                  >
-                    Open related page
-                  </Link>
-                ) : null}
-              </div>
-
-              <div className="flex items-center justify-between gap-3 sm:flex-col sm:items-end">
-                {item.isUnread ? (
-                  <span
-                    className="h-2.5 w-2.5 rounded-full bg-[#16B7E8]"
-                    aria-label="Unread notification"
-                  />
-                ) : (
-                  <span className="text-xs font-medium text-slate-400">Read</span>
+        {renderedItems.map((item) => {
+          const ItemIcon = getIcon(item.display.iconKey);
+          return (
+            <Link key={item.id} href={item.destinationHref} className="block">
+              <article
+                className={cn(
+                  "rounded-[22px] border px-5 py-4 shadow-sm transition-colors hover:border-slate-300",
+                  item.isUnread ? "border-[#4B8191]/50 bg-[#F4FAFC]" : "border-slate-200 bg-white"
                 )}
+              >
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                  <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-500">
+                    <ItemIcon className="h-5 w-5" />
+                  </span>
 
-                {item.isUnread ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="rounded-xl border-slate-300 px-3 text-xs font-semibold text-[#022437] hover:bg-slate-50"
-                    disabled={busyId === item.id}
-                    onClick={() => {
-                      void handleMarkRead(item.id);
-                    }}
-                  >
-                    Mark as read
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-          </article>
-        ))}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold leading-6 text-slate-800">{item.display.title}</p>
+                      {item.display.pill ? (
+                        <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+                          {item.display.pill}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <p className="mt-1 text-xs font-medium text-slate-500">{item.display.context}</p>
+                    {item.display.excerpt ? (
+                      <p className="mt-2 line-clamp-2 whitespace-pre-line text-sm text-slate-700">
+                        {item.display.excerpt}
+                      </p>
+                    ) : null}
+                    <p className="mt-2 text-xs font-medium text-slate-400">
+                      {formatNotificationRelativeTime(item.created_at)}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 sm:flex-col sm:items-end">
+                    {item.isUnread ? (
+                      <span
+                        className="h-2.5 w-2.5 rounded-full bg-[#16B7E8]"
+                        aria-label="Unread notification"
+                      />
+                    ) : (
+                      <span className="text-xs font-medium text-slate-400">Read</span>
+                    )}
+                  </div>
+                </div>
+              </article>
+            </Link>
+          );
+        })}
       </div>
 
       {showPagination ? (
@@ -383,6 +425,13 @@ export default function NotificationsInbox({
           </div>
         </div>
       ) : null}
+
+      <NotificationsRealtimeListener
+        userId={userId}
+        onEvent={() => {
+          void handleRealtimeEvent();
+        }}
+      />
     </section>
   );
 }

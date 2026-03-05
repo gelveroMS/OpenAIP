@@ -11,6 +11,10 @@ import {
 } from "@/features/citizen/auth/utils/auth-query";
 import { addCitizenAuthChangedListener } from "@/features/citizen/auth/utils/auth-sync";
 import {
+  getCitizenProfileStatus,
+  invalidateCitizenProfileStatusCache,
+} from "@/features/citizen/auth/utils/profile-status-client";
+import {
   createProjectFeedback,
   createProjectFeedbackReply,
   listProjectFeedback,
@@ -38,15 +42,6 @@ type ReplyComposerState = {
   rootId: string;
   parentFeedbackId: string;
   replyToAuthor: string;
-};
-
-type ProfileStatusPayload = {
-  ok?: boolean;
-  isComplete?: boolean;
-  userId?: string;
-  isBlocked?: boolean;
-  blockedUntil?: string | null;
-  blockedReason?: string | null;
 };
 
 const EMPTY_STATE_TEXT =
@@ -200,7 +195,7 @@ export function FeedbackThread({
     return true;
   }, [isAuthenticated, isBlocked, isProfileComplete, openAuthModal]);
 
-  const refreshAuthState = React.useCallback(async () => {
+  const refreshAuthState = React.useCallback(async (force = false) => {
     if (authStatusRequestRef.current) {
       return authStatusRequestRef.current;
     }
@@ -210,19 +205,10 @@ export function FeedbackThread({
         setIsAuthLoading(true);
       }
 
-      const response = await fetch("/profile/status", {
-        method: "GET",
-        cache: "no-store",
-      });
-      const payload = (await response.json().catch(() => null)) as ProfileStatusPayload | null;
+      const statusResult = await getCitizenProfileStatus({ force });
       if (!mountedRef.current) return;
 
-      if (
-        !response.ok ||
-        !payload?.ok ||
-        typeof payload.userId !== "string" ||
-        !payload.userId.trim().length
-      ) {
+      if (statusResult.kind === "anonymous" || statusResult.kind === "error") {
         setIsAuthenticated(false);
         setIsProfileComplete(false);
         setIsBlocked(false);
@@ -233,12 +219,12 @@ export function FeedbackThread({
       }
 
       setIsAuthenticated(true);
-      setIsProfileComplete(payload.isComplete === true);
-      setIsBlocked(payload.isBlocked === true);
-      setBlockedUntil(typeof payload.blockedUntil === "string" ? payload.blockedUntil : null);
+      setIsProfileComplete(statusResult.isComplete);
+      setIsBlocked(statusResult.isBlocked);
+      setBlockedUntil(statusResult.blockedUntil);
       setBlockedReason(
-        typeof payload.blockedReason === "string" && payload.blockedReason.trim().length > 0
-          ? payload.blockedReason.trim()
+        typeof statusResult.blockedReason === "string" && statusResult.blockedReason.trim().length > 0
+          ? statusResult.blockedReason.trim()
           : null
       );
       setIsAuthLoading(false);
@@ -275,32 +261,22 @@ export function FeedbackThread({
     mountedRef.current = true;
     const supabase = supabaseBrowser();
 
-    void refreshAuthState();
+    void refreshAuthState(false);
 
     const cleanupAuthChanged = addCitizenAuthChangedListener(() => {
-      void refreshAuthState();
+      invalidateCitizenProfileStatusCache();
+      void refreshAuthState(true);
     });
-    const handleFocus = () => {
-      void refreshAuthState();
-    };
-    const handleVisibilityChange = () => {
-      if (typeof document === "undefined") return;
-      if (document.visibilityState !== "visible") return;
-      void refreshAuthState();
-    };
-    window.addEventListener("focus", handleFocus);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     const { data: listener } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "INITIAL_SESSION") return;
-      void refreshAuthState();
+      if (event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") return;
+      invalidateCitizenProfileStatusCache();
+      void refreshAuthState(true);
     });
 
     return () => {
       mountedRef.current = false;
       cleanupAuthChanged();
-      window.removeEventListener("focus", handleFocus);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
       listener.subscription.unsubscribe();
     };
   }, [refreshAuthState]);

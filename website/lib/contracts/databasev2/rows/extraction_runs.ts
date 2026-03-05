@@ -5,7 +5,9 @@ export type ExtractionRunRow = {
   id: UUID;
   aip_id: UUID;
   uploaded_file_id: UUID | null;
+  retry_of_run_id: UUID | null;
   stage: PipelineStage;
+  resume_from_stage: PipelineStage | null;
   status: PipelineStatus;
   model_name: string | null;
   model_version: string | null;

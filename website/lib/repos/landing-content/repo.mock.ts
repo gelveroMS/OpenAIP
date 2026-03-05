@@ -79,7 +79,7 @@ type ScopeProfile = {
   scopeLabel: string;
   totalBudget: number;
   projectCount: number;
-  activeUsers: number;
+  citizenCount: number;
 };
 
 const SCOPE_PROFILES_BY_ID: Record<string, ScopeProfile> = {
@@ -91,7 +91,7 @@ const SCOPE_PROFILES_BY_ID: Record<string, ScopeProfile> = {
     scopeLabel: "City",
     totalBudget: 1_200_000_000,
     projectCount: 124,
-    activeUsers: 2_430,
+    citizenCount: 0,
   },
   [MOCK_SCOPE_IDS.banayBanay]: {
     scopeType: "barangay",
@@ -101,7 +101,7 @@ const SCOPE_PROFILES_BY_ID: Record<string, ScopeProfile> = {
     scopeLabel: "Barangay",
     totalBudget: 320_000_000,
     projectCount: 42,
-    activeUsers: 610,
+    citizenCount: 610,
   },
   [MOCK_SCOPE_IDS.pulo]: {
     scopeType: "barangay",
@@ -111,7 +111,7 @@ const SCOPE_PROFILES_BY_ID: Record<string, ScopeProfile> = {
     scopeLabel: "Barangay",
     totalBudget: 280_000_000,
     projectCount: 39,
-    activeUsers: 540,
+    citizenCount: 540,
   },
   [MOCK_SCOPE_IDS.sanIsidro]: {
     scopeType: "barangay",
@@ -121,7 +121,7 @@ const SCOPE_PROFILES_BY_ID: Record<string, ScopeProfile> = {
     scopeLabel: "Barangay",
     totalBudget: 190_000_000,
     projectCount: 26,
-    activeUsers: 410,
+    citizenCount: 410,
   },
   [MOCK_SCOPE_IDS.mamatid]: {
     scopeType: "barangay",
@@ -131,9 +131,19 @@ const SCOPE_PROFILES_BY_ID: Record<string, ScopeProfile> = {
     scopeLabel: "Barangay",
     totalBudget: 160_000_000,
     projectCount: 21,
-    activeUsers: 370,
+    citizenCount: 370,
   },
 };
+
+function citizenCountForScope(profile: ScopeProfile): number {
+  if (profile.scopeType === "barangay") {
+    return profile.citizenCount;
+  }
+
+  return Object.values(SCOPE_PROFILES_BY_ID)
+    .filter((entry) => entry.scopeType === "barangay")
+    .reduce((sum, entry) => sum + entry.citizenCount, 0);
+}
 
 const BUDGET_BY_SCOPE_BY_YEAR: Record<number, Record<string, number>> = {
   2026: {
@@ -298,7 +308,7 @@ function buildLandingContent(input: {
       projectCount: input.hasData ? input.profile.projectCount : 0,
       projectDeltaLabel: input.hasData ? "+12 vs FY 2025" : undefined,
       aipStatus: input.hasData ? "Published" : "No published AIP",
-      activeUsers: input.hasData ? input.profile.activeUsers : 0,
+      citizenCount: citizenCountForScope(input.profile),
       map: {
         center: { lat: selectedMarker.lat, lng: selectedMarker.lng },
         zoom: 13,

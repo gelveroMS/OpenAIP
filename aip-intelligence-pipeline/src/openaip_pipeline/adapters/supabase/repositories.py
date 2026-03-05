@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from typing import Any
+from urllib.error import HTTPError
 
 from openaip_pipeline.adapters.supabase.client import SupabaseRestClient
 from openaip_pipeline.adapters.supabase.dto import ExtractionRunDTO, UploadedFileDTO
@@ -145,6 +146,18 @@ def _first_source_ref(project: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+def _normalize_resume_stage(value: Any) -> str:
+    text = _normalize_text_or_none(value)
+    if not text:
+        return "extract"
+    lowered = text.lower()
+    if lowered == "embed":
+        return "categorize"
+    if lowered in STAGE_START_MESSAGES:
+        return lowered
+    return "extract"
+
+
 class PipelineRepository:
     def __init__(self, client: SupabaseRestClient):
         self.client = client
@@ -166,7 +179,10 @@ class PipelineRepository:
     def claim_next_queued_run(self) -> ExtractionRunDTO | None:
         rows = self.client.select(
             "extraction_runs",
-            select="id,aip_id,uploaded_file_id,model_name,status,stage,created_at",
+            select=(
+                "id,aip_id,uploaded_file_id,retry_of_run_id,resume_from_stage,"
+                "model_name,status,stage,created_at"
+            ),
             filters={"status": "eq.queued"},
             order="created_at.asc",
             limit=1,
@@ -174,22 +190,26 @@ class PipelineRepository:
         if not rows:
             return None
         candidate = rows[0]
+        initial_stage = _normalize_resume_stage(candidate.get("resume_from_stage"))
         claimed = self.client.update(
             "extraction_runs",
             {
                 "status": "running",
-                "stage": "extract",
+                "stage": initial_stage,
                 "started_at": now_utc_iso(),
                 "finished_at": None,
                 "error_code": None,
                 "error_message": None,
                 "overall_progress_pct": 0,
                 "stage_progress_pct": 0,
-                "progress_message": STAGE_START_MESSAGES["extract"],
+                "progress_message": STAGE_START_MESSAGES[initial_stage],
                 "progress_updated_at": now_utc_iso(),
             },
             filters={"id": f"eq.{candidate['id']}", "status": "eq.queued"},
-            select="id,aip_id,uploaded_file_id,model_name,status,stage,created_at",
+            select=(
+                "id,aip_id,uploaded_file_id,retry_of_run_id,resume_from_stage,"
+                "model_name,status,stage,created_at"
+            ),
         )
         if not claimed:
             return None
@@ -202,11 +222,17 @@ class PipelineRepository:
         uploaded_file_id: str | None,
         model_name: str,
         created_by: str | None = None,
+        retry_of_run_id: str | None = None,
+        resume_from_stage: str | None = None,
     ) -> ExtractionRunDTO:
+        normalized_resume_stage = _normalize_resume_stage(resume_from_stage) if resume_from_stage else None
+        stage = normalized_resume_stage or "extract"
         row = {
             "aip_id": aip_id,
             "uploaded_file_id": uploaded_file_id,
-            "stage": "extract",
+            "retry_of_run_id": retry_of_run_id,
+            "stage": stage,
+            "resume_from_stage": normalized_resume_stage,
             "status": "queued",
             "model_name": model_name,
             "created_by": created_by,
@@ -214,7 +240,10 @@ class PipelineRepository:
         inserted = self.client.insert(
             "extraction_runs",
             row,
-            select="id,aip_id,uploaded_file_id,model_name,status,stage,created_at",
+            select=(
+                "id,aip_id,uploaded_file_id,retry_of_run_id,resume_from_stage,"
+                "model_name,status,stage,created_at"
+            ),
         )
         if not inserted:
             raise RuntimeError("Failed to enqueue extraction run.")
@@ -224,7 +253,8 @@ class PipelineRepository:
         rows = self.client.select(
             "extraction_runs",
             select=(
-                "id,aip_id,uploaded_file_id,stage,status,error_code,error_message,"
+                "id,aip_id,uploaded_file_id,retry_of_run_id,resume_from_stage,"
+                "stage,status,error_code,error_message,"
                 "started_at,finished_at,created_at,overall_progress_pct,stage_progress_pct,"
                 "progress_message,progress_updated_at"
             ),
@@ -357,6 +387,37 @@ class PipelineRepository:
             raise RuntimeError(f"Failed to insert artifact: {artifact_type}")
         return str(rows[0]["id"])
 
+    def get_stage_artifact(self, *, run_id: str, artifact_type: str) -> dict[str, Any] | None:
+        rows = self.client.select(
+            "extraction_artifacts",
+            select="artifact_json",
+            filters={
+                "run_id": f"eq.{run_id}",
+                "artifact_type": f"eq.{artifact_type}",
+            },
+            order="created_at.desc",
+            limit=1,
+        )
+        if not rows:
+            return None
+        payload = rows[0].get("artifact_json")
+        if not isinstance(payload, dict):
+            return None
+        return payload
+
+    def get_parent_run_id(self, *, run_id: str) -> str | None:
+        rows = self.client.select(
+            "extraction_runs",
+            select="retry_of_run_id",
+            filters={"id": f"eq.{run_id}"},
+            limit=1,
+        )
+        if not rows:
+            return None
+        parent = rows[0].get("retry_of_run_id")
+        text = _normalize_text_or_none(parent)
+        return text
+
     def upsert_aip_totals(self, *, aip_id: str, totals: Any) -> None:
         if not isinstance(totals, list) or not totals:
             return
@@ -417,7 +478,7 @@ class PipelineRepository:
             filters={"aip_id": f"eq.{aip_id}"},
         )
         existing_by_ref = {
-            row["aip_ref_code"]: row
+            row["aip_ref_code"].lower(): row
             for row in existing_rows
             if isinstance(row.get("aip_ref_code"), str) and row.get("aip_ref_code")
         }
@@ -427,7 +488,8 @@ class PipelineRepository:
             ref_code = str(raw.get("aip_ref_code") or "").strip()
             if not ref_code:
                 continue
-            existing = existing_by_ref.get(ref_code)
+            ref_key = ref_code.lower()
+            existing = existing_by_ref.get(ref_key)
             if existing and bool(existing.get("is_human_edited")):
                 continue
             amounts = raw.get("amounts") if isinstance(raw.get("amounts"), dict) else {}
@@ -473,7 +535,36 @@ class PipelineRepository:
                 continue
             create_payload = dict(payload)
             create_payload["aip_id"] = aip_id
-            self.client.insert("projects", create_payload)
+            try:
+                inserted = self.client.insert("projects", create_payload, select="id,aip_ref_code,is_human_edited")
+                if inserted:
+                    existing_by_ref[ref_key] = inserted[0]
+            except HTTPError as error:
+                if error.code != 409:
+                    raise RuntimeError(
+                        (
+                            "Failed to insert project row. "
+                            f"aip_id={aip_id} aip_ref_code={ref_code} error={error}"
+                        )
+                    ) from error
+                conflict_rows = self.client.select(
+                    "projects",
+                    select="id,aip_ref_code,is_human_edited",
+                    filters={"aip_id": f"eq.{aip_id}", "aip_ref_code": f"eq.{ref_code}"},
+                    limit=1,
+                )
+                if not conflict_rows:
+                    raise RuntimeError(
+                        (
+                            "Project insert returned HTTP 409 but lookup found no conflicting row. "
+                            f"aip_id={aip_id} aip_ref_code={ref_code} error={error}"
+                        )
+                    ) from error
+                conflict_row = conflict_rows[0]
+                existing_by_ref[ref_key] = conflict_row
+                if bool(conflict_row.get("is_human_edited")):
+                    continue
+                self.client.update("projects", payload, filters={"id": f"eq.{conflict_row['id']}"})
 
     def upsert_aip_line_items(self, *, aip_id: str, projects: Any) -> list[dict[str, Any]]:
         if not isinstance(projects, list) or not projects:

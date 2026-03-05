@@ -7,6 +7,10 @@ import { getCitizenChatRepo } from "@/lib/repos/citizen-chat/repo";
 import type { CitizenChatMessage, CitizenChatSession } from "@/lib/repos/citizen-chat/repo";
 import { buildCitizenAuthHref, setReturnToInSessionStorage } from "@/features/citizen/auth/utils/auth-query";
 import { addCitizenAuthChangedListener } from "@/features/citizen/auth/utils/auth-sync";
+import {
+  getCitizenProfileStatus,
+  invalidateCitizenProfileStatusCache,
+} from "@/features/citizen/auth/utils/profile-status-client";
 import { CITIZEN_CHAT_LIMITS } from "../constants/ui";
 import { mapEvidenceFromCitations, mapFollowUpsFromRetrievalMeta } from "../mappers/chat-message-presenter";
 import type {
@@ -94,15 +98,6 @@ async function requestAssistantReply(params: {
   return payload as CitizenChatReplyResult;
 }
 
-type ProfileStatusPayload = {
-  ok?: boolean;
-  isComplete?: boolean;
-  userId?: string;
-  isBlocked?: boolean;
-  blockedUntil?: string | null;
-  blockedReason?: string | null;
-};
-
 export function useCitizenChatbot() {
   const repo = useMemo(() => getCitizenChatRepo(), []);
   const supabase = useMemo(() => supabaseBrowser(), []);
@@ -166,38 +161,23 @@ export function useCitizenChatbot() {
     setErrorMessage(null);
   }, []);
 
-  const refreshAuthStatus = useCallback(async () => {
+  const refreshAuthStatus = useCallback(async (force = false) => {
     setIsAuthResolved(false);
     setIsProfileResolved(false);
     try {
-      const response = await fetch("/profile/status", {
-        method: "GET",
-        cache: "no-store",
-      });
-      const payload = (await response.json().catch(() => null)) as ProfileStatusPayload | null;
-
-      if (response.status === 401) {
+      const statusResult = await getCitizenProfileStatus({ force });
+      if (statusResult.kind === "anonymous" || statusResult.kind === "error") {
         clearAuthDependentState();
         return;
       }
 
-      if (
-        !response.ok ||
-        !payload?.ok ||
-        typeof payload.userId !== "string" ||
-        !payload.userId.trim().length
-      ) {
-        clearAuthDependentState();
-        return;
-      }
-
-      setUserId(payload.userId);
-      setIsProfileComplete(payload.isComplete === true);
-      setIsBlocked(payload.isBlocked === true);
-      setBlockedUntil(typeof payload.blockedUntil === "string" ? payload.blockedUntil : null);
+      setUserId(statusResult.userId);
+      setIsProfileComplete(statusResult.isComplete);
+      setIsBlocked(statusResult.isBlocked);
+      setBlockedUntil(statusResult.blockedUntil);
       setBlockedReason(
-        typeof payload.blockedReason === "string" && payload.blockedReason.trim().length > 0
-          ? payload.blockedReason.trim()
+        typeof statusResult.blockedReason === "string" && statusResult.blockedReason.trim().length > 0
+          ? statusResult.blockedReason.trim()
           : null
       );
       setErrorState("none");
@@ -211,31 +191,21 @@ export function useCitizenChatbot() {
   }, [clearAuthDependentState]);
 
   useEffect(() => {
-    void refreshAuthStatus();
+    void refreshAuthStatus(false);
 
     const cleanupAuthChanged = addCitizenAuthChangedListener(() => {
-      void refreshAuthStatus();
+      invalidateCitizenProfileStatusCache();
+      void refreshAuthStatus(true);
     });
-    const handleFocus = () => {
-      void refreshAuthStatus();
-    };
-    const handleVisibilityChange = () => {
-      if (typeof document === "undefined") return;
-      if (document.visibilityState !== "visible") return;
-      void refreshAuthStatus();
-    };
-    window.addEventListener("focus", handleFocus);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "INITIAL_SESSION") return;
-      void refreshAuthStatus();
+      if (event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") return;
+      invalidateCitizenProfileStatusCache();
+      void refreshAuthStatus(true);
     });
 
     return () => {
       cleanupAuthChanged();
-      window.removeEventListener("focus", handleFocus);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
       authListener.subscription.unsubscribe();
     };
   }, [refreshAuthStatus, supabase.auth]);

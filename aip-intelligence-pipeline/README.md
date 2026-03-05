@@ -90,7 +90,7 @@ Common optional runtime vars:
 
 - `PIPELINE_MODEL` (default `gpt-5.2`)
 - `PIPELINE_EMBEDDING_MODEL` (default `text-embedding-3-large`)
-- `PIPELINE_BATCH_SIZE` (default `25`)
+- `PIPELINE_BATCH_SIZE` (default `25`; optional per-chunk max cap for categorization)
 - `PIPELINE_WORKER_POLL_SECONDS` (default `3`)
 - `PIPELINE_WORKER_RUN_ONCE` (default `false`)
 - `PIPELINE_ARTIFACT_INLINE_MAX_BYTES` (default `32768`)
@@ -110,9 +110,20 @@ Common optional runtime vars:
 - `PIPELINE_EMBED_TIMEOUT_SECONDS` (default `300`; fail code `EMBED_TIMEOUT`)
 - `PIPELINE_RETRY_FAILURE_THRESHOLD` (default `5`; fail code `RUN_RETRY_BLOCKED`)
 - `PIPELINE_RETRY_FAILURE_WINDOW_SECONDS` (default `21600`; lookback window for retry blocking)
+- `PIPELINE_SUMMARIZE_CONTEXT_WINDOW_TOKENS` (default `128000`; map/reduce context budget target)
+- `PIPELINE_SUMMARIZE_RESPONSE_BUFFER_TOKENS` (default `2000`; reserved response token budget)
+- `PIPELINE_SUMMARIZE_PROJECT_FIELD_CHAR_LIMIT` (default `500`; per-field char cap in compact summary payload)
+- `PIPELINE_VALIDATE_CONTEXT_WINDOW_TOKENS` (default `128000`; validation context budget target)
+- `PIPELINE_VALIDATE_RESPONSE_BUFFER_TOKENS` (default `2000`; reserved validation response token budget)
+- `PIPELINE_VALIDATE_PROJECT_FIELD_CHAR_LIMIT` (default `500`; per-field char cap in compact validation payload)
+- `PIPELINE_CATEGORIZE_CONTEXT_WINDOW_TOKENS` (default `128000`; categorization context budget target)
+- `PIPELINE_CATEGORIZE_RESPONSE_BUFFER_TOKENS` (default `2000`; reserved categorization response token budget)
+- `PIPELINE_CATEGORIZE_PROJECT_FIELD_CHAR_LIMIT` (default `500`; per-field char cap in compact categorization payload)
 - `PIPELINE_SUPABASE_HTTP_TIMEOUT_SECONDS` (default `120`)
 - `PIPELINE_SUPABASE_DOWNLOAD_TIMEOUT_SECONDS` (default `120`)
 - `PIPELINE_SOURCE_PDF_MAX_BYTES` (default `15728640`; fail code `SOURCE_PDF_TOO_LARGE`)
+- `PIPELINE_OPENAI_TIMEOUT_SECONDS` (default `600`; HTTP timeout per OpenAI request)
+- `PIPELINE_OPENAI_MAX_RETRIES` (default `3`; SDK retry attempts per OpenAI request)
 
 Guardrail behavior (worker + adapters):
 - Source-PDF download is bounded by timeout and byte cap before extraction starts.
@@ -120,6 +131,8 @@ Guardrail behavior (worker + adapters):
 - Embed stage is timeout-bounded.
 - Repeated failures for the same `created_by + uploaded_file_id + aip_id` are blocked to prevent endless retries.
 - Failure reason is persisted to `public.extraction_runs.error_code` for UI/ops visibility.
+- Retry runs may resume from `validate`, `summarize`, or `categorize` using retry lineage fields on `public.extraction_runs` (`retry_of_run_id`, `resume_from_stage`).
+- If prerequisite artifacts in the retry lineage are missing or invalid, worker falls back to full `extract`.
 
 ## `/v1/runs/*` authentication headers
 
@@ -201,8 +214,9 @@ These prompt files are runtime source-of-truth for extraction instructions.
 
 ## Summarization prompt resources
 
-Summarization prompt source:
+Summarization prompt sources:
 - `src/openaip_pipeline/resources/prompts/summarization/system.txt`
+- `src/openaip_pipeline/resources/prompts/summarization/reduce_system.txt`
 
 This prompt file is runtime source-of-truth for summarization instructions.
 

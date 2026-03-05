@@ -4,6 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CitizenAccountProfile } from "@/features/citizen/auth/types";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { addCitizenAuthChangedListener } from "@/features/citizen/auth/utils/auth-sync";
+import {
+  getCitizenProfileStatus,
+  invalidateCitizenProfileStatusCache,
+} from "@/features/citizen/auth/utils/profile-status-client";
 
 type ProfileApiResponse = {
   ok?: boolean;
@@ -12,15 +16,6 @@ type ProfileApiResponse = {
   };
 } & Partial<CitizenAccountProfile>;
 
-type ProfileStatusResponse = {
-  ok?: boolean;
-  isComplete?: boolean;
-  userId?: string;
-  error?: {
-    message?: string;
-  };
-};
-
 type UseCitizenAccountResult = {
   isLoading: boolean;
   isAuthenticated: boolean;
@@ -28,14 +23,6 @@ type UseCitizenAccountResult = {
   error: string | null;
   refresh: () => Promise<void>;
 };
-
-function toErrorMessage(payload: ProfileApiResponse | null, fallback: string): string {
-  const fromPayload = payload?.error?.message;
-  if (typeof fromPayload === "string" && fromPayload.trim().length > 0) {
-    return fromPayload;
-  }
-  return fallback;
-}
 
 function isCompleteProfilePayload(payload: ProfileApiResponse | null): payload is CitizenAccountProfile {
   if (!payload || payload.ok !== true) return false;
@@ -66,7 +53,7 @@ export function useCitizenAccount(): UseCitizenAccountResult {
     };
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refreshInternal = useCallback(async (force = false) => {
     if (inFlightRefreshRef.current) {
       return inFlightRefreshRef.current;
     }
@@ -76,14 +63,10 @@ export function useCitizenAccount(): UseCitizenAccountResult {
         setIsLoading(true);
       }
 
-      const statusResponse = await fetch("/profile/status", {
-        method: "GET",
-        cache: "no-store",
-      });
-      const statusPayload = (await statusResponse.json().catch(() => null)) as ProfileStatusResponse | null;
+      const statusResult = await getCitizenProfileStatus({ force });
       if (!mountedRef.current) return;
 
-      if (statusResponse.status === 401) {
+      if (statusResult.kind === "anonymous") {
         setIsAuthenticated(false);
         setProfile(null);
         setError(null);
@@ -91,15 +74,10 @@ export function useCitizenAccount(): UseCitizenAccountResult {
         return;
       }
 
-      if (
-        !statusResponse.ok ||
-        !statusPayload?.ok ||
-        typeof statusPayload.userId !== "string" ||
-        !statusPayload.userId.trim().length
-      ) {
+      if (statusResult.kind === "error") {
         setIsAuthenticated(false);
         setProfile(null);
-        setError(toErrorMessage(statusPayload as ProfileApiResponse | null, "Unable to load account status."));
+        setError(statusResult.message);
         setIsLoading(false);
         return;
       }
@@ -143,27 +121,24 @@ export function useCitizenAccount(): UseCitizenAccountResult {
     }
   }, []);
 
+  const refresh = useCallback(async () => {
+    await refreshInternal(false);
+  }, [refreshInternal]);
+
   useEffect(() => {
-    void refresh();
+    void refreshInternal(false);
 
     const cleanupAuthChanged = addCitizenAuthChangedListener(() => {
-      void refresh();
+      invalidateCitizenProfileStatusCache();
+      void refreshInternal(true);
     });
-    const handleFocus = () => {
-      void refresh();
-    };
-    const handleVisibilityChange = () => {
-      if (typeof document === "undefined") return;
-      if (document.visibilityState !== "visible") return;
-      void refresh();
-    };
-    window.addEventListener("focus", handleFocus);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") {
         return;
       }
+
+      invalidateCitizenProfileStatusCache();
 
       if (!session?.user?.id) {
         setIsAuthenticated(false);
@@ -173,16 +148,14 @@ export function useCitizenAccount(): UseCitizenAccountResult {
         return;
       }
 
-      void refresh();
+      void refreshInternal(true);
     });
 
     return () => {
       cleanupAuthChanged();
-      window.removeEventListener("focus", handleFocus);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
       listener.subscription.unsubscribe();
     };
-  }, [refresh, supabase.auth]);
+  }, [refreshInternal, supabase.auth]);
 
   return {
     isLoading,

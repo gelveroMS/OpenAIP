@@ -1,13 +1,29 @@
 "use client";
 
 import Link from "next/link";
-import { Bell } from "lucide-react";
+import {
+  AlertTriangle,
+  Bell,
+  ClipboardCheck,
+  ClipboardList,
+  CornerDownRight,
+  Globe,
+  Inbox,
+  Megaphone,
+  MessageSquare,
+  Pencil,
+  RefreshCw,
+  Shield,
+  XCircle,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { formatNotificationRelativeTime } from "@/features/notifications/components/notification-time";
 import NotificationsRealtimeListener from "@/features/notifications/realtime-listener";
-import { withCsrfHeader } from "@/lib/security/csrf";
+import { buildNotificationDestinationHref } from "@/lib/notifications/open-link";
+import { onNotificationRead } from "@/lib/notifications/read-events";
+import { buildDisplay, type NotificationIconKey } from "@/lib/notifications/templates";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { cn } from "@/lib/ui/utils";
 
@@ -18,8 +34,12 @@ type Props = {
 
 type NotificationPreviewItem = {
   id: string;
+  event_type: string | null;
+  scope_type: string | null;
+  recipient_role: string | null;
   title: string;
   message: string;
+  metadata: Record<string, unknown>;
   action_url: string | null;
   created_at: string;
   read_at: string | null;
@@ -58,15 +78,34 @@ async function fetchUnreadPreview(): Promise<NotificationPreviewItem[]> {
   return payload.items.slice(0, PREVIEW_LIMIT);
 }
 
-async function markOneRead(notificationId: string): Promise<void> {
-  const response = await fetch(
-    `/api/notifications/${encodeURIComponent(notificationId)}/read`,
-    withCsrfHeader({
-      method: "PATCH",
-    })
-  );
-  if (!response.ok) {
-    throw new Error("Failed to mark notification as read.");
+function getIcon(iconKey: NotificationIconKey) {
+  switch (iconKey) {
+    case "clipboard-check":
+      return ClipboardCheck;
+    case "pencil-alert":
+      return Pencil;
+    case "globe":
+      return Globe;
+    case "inbox":
+      return Inbox;
+    case "refresh-cw":
+      return RefreshCw;
+    case "message-square":
+      return MessageSquare;
+    case "corner-down-right":
+      return CornerDownRight;
+    case "shield":
+      return Shield;
+    case "megaphone":
+      return Megaphone;
+    case "alert-triangle":
+      return AlertTriangle;
+    case "clipboard-list":
+      return ClipboardList;
+    case "x-circle":
+      return XCircle;
+    default:
+      return Bell;
   }
 }
 
@@ -129,17 +168,22 @@ export default function NotificationsBell({ href, className }: Props) {
     [loadPreview]
   );
 
-  const handlePreviewClick = useCallback(
-    (item: NotificationPreviewItem) => {
-      setPreviewItems((current) => current.filter((entry) => entry.id !== item.id));
+  const handlePreviewClick = useCallback(() => {
+    setPreviewOpen(false);
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = onNotificationRead((notificationId) => {
+      setPreviewItems((current) => current.filter((item) => item.id !== notificationId));
       setUnreadCount((current) => Math.max(0, current - 1));
-      setPreviewOpen(false);
-      void markOneRead(item.id).catch(async () => {
-        await refreshUnread();
-      });
-    },
-    [refreshUnread]
-  );
+      void refreshUnread();
+      if (previewOpen) {
+        void loadPreview();
+      }
+    });
+
+    return unsubscribe;
+  }, [loadPreview, previewOpen, refreshUnread]);
 
   return (
     <>
@@ -169,7 +213,7 @@ export default function NotificationsBell({ href, className }: Props) {
         >
           <div className="border-b border-slate-100 px-4 py-3">
             <p className="text-base font-semibold text-slate-900">Notifications</p>
-            <p className="mt-1 text-xs text-slate-500">{`${unreadCount} unread update${unreadCount === 1 ? "" : "s"}`}</p>
+            <p className="mt-1 text-xs text-slate-500">{`${unreadCount} unread updates`}</p>
           </div>
 
           <div className="max-h-[360px] overflow-y-auto px-4 py-2">
@@ -182,32 +226,53 @@ export default function NotificationsBell({ href, className }: Props) {
             ) : null}
 
             {!previewLoading
-              ? previewItems.map((item, index) => (
-                  <Link
-                    key={item.id}
-                    href={item.action_url ?? href}
-                    className={cn(
-                      "flex w-full items-start gap-3 py-3 text-left transition-colors hover:bg-slate-50",
-                      index > 0 ? "border-t border-slate-100" : ""
-                    )}
-                    onClick={() => {
-                      handlePreviewClick(item);
-                    }}
-                  >
-                    <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-500">
-                      <Bell className="h-4 w-4" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="line-clamp-2 text-sm font-medium leading-5 text-slate-800">
-                        {item.message}
+              ? previewItems.map((item, index) => {
+                  const display = buildDisplay(item, "dropdown");
+                  const ItemIcon = getIcon(display.iconKey);
+                  const destinationHref = buildNotificationDestinationHref({
+                    next: display.actionUrl ?? href,
+                    notificationId: item.id,
+                  });
+
+                  return (
+                    <Link
+                      key={item.id}
+                      href={destinationHref}
+                      className={cn(
+                        "flex w-full items-start gap-3 py-3 text-left transition-colors hover:bg-slate-50",
+                        index > 0 ? "border-t border-slate-100" : ""
+                      )}
+                      onClick={() => {
+                        handlePreviewClick();
+                      }}
+                    >
+                      <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-500">
+                        <ItemIcon className="h-4 w-4" />
                       </span>
-                      <span className="mt-1 block text-xs text-slate-400">
-                        {formatNotificationRelativeTime(item.created_at)}
+
+                      <span className="min-w-0 flex-1">
+                        <span className="line-clamp-2 text-sm font-semibold leading-5 text-slate-800">
+                          {display.title}
+                        </span>
+                        <span className="mt-0.5 block line-clamp-1 text-xs text-slate-500">
+                          {display.context}
+                        </span>
+                        <span className="mt-1 block text-xs text-slate-400">
+                          {formatNotificationRelativeTime(item.created_at)}
+                        </span>
+                        {display.pill ? (
+                          <span className="mt-1 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+                            {display.pill}
+                          </span>
+                        ) : null}
                       </span>
-                    </span>
-                    <span className="mt-2 h-2.5 w-2.5 shrink-0 rounded-full bg-[#022437]" />
-                  </Link>
-                ))
+
+                      {item.read_at === null ? (
+                        <span className="mt-2 h-2.5 w-2.5 shrink-0 rounded-full bg-[#022437]" />
+                      ) : null}
+                    </Link>
+                  );
+                })
               : null}
           </div>
 
@@ -215,6 +280,9 @@ export default function NotificationsBell({ href, className }: Props) {
             <Link
               href={href}
               className="block rounded-xl bg-[#022437] px-4 py-2 text-center text-sm font-semibold text-white transition-colors hover:bg-[#0B3440]"
+              onClick={() => {
+                setPreviewOpen(false);
+              }}
             >
               View all notifications
             </Link>
@@ -226,23 +294,41 @@ export default function NotificationsBell({ href, className }: Props) {
         userId={userId}
         onEvent={(event) => {
           if (event.eventType === "INSERT") {
-            setUnreadCount((current) => current + 1);
+            if (event.row.read_at === null) {
+              setUnreadCount((current) => current + 1);
+            }
+            const display = buildDisplay(
+              {
+                event_type: event.row.event_type,
+                scope_type: event.row.scope_type,
+                recipient_role: event.row.recipient_role,
+                title: event.row.title,
+                message: event.row.message,
+                metadata: event.row.metadata,
+                action_url: event.row.action_url,
+              },
+              "dropdown"
+            );
             setPreviewItems((current) =>
               [
                 {
                   id: event.row.id,
+                  event_type: event.row.event_type,
+                  scope_type: event.row.scope_type,
+                  recipient_role: event.row.recipient_role,
                   title: event.row.title || "New notification",
                   message: event.row.message || "You have a new update.",
-                  action_url: null,
-                  created_at: new Date().toISOString(),
+                  metadata: event.row.metadata,
+                  action_url: event.row.action_url,
+                  created_at: event.row.created_at ?? new Date().toISOString(),
                   read_at: event.row.read_at,
                 },
                 ...current.filter((item) => item.id !== event.row.id),
               ].slice(0, PREVIEW_LIMIT)
             );
             setToast({
-              title: event.row.title || "New notification",
-              message: event.row.message || "You have a new update.",
+              title: display.title || "New notification",
+              message: display.context || display.excerpt || "You have a new update.",
             });
             return;
           }

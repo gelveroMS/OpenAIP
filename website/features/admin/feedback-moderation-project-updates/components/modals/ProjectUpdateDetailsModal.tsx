@@ -5,6 +5,7 @@ import { CalendarDays, User2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Card } from "@/components/ui/card";
 import type { ProjectUpdateDetailsModel } from "@/lib/repos/feedback-moderation-project-updates/types";
+import { isProjectMediaProxyUrl } from "@/lib/projects/media";
 
 export default function ProjectUpdateDetailsModal({
   open,
@@ -66,7 +67,14 @@ export default function ProjectUpdateDetailsModal({
                         key={url}
                         className="relative h-16 w-16 overflow-hidden rounded-lg border border-slate-200 bg-slate-50"
                       >
-                        <Image src={url} alt="Attachment" fill className="object-cover" sizes="64px" />
+                        <Image
+                          src={url}
+                          alt="Attachment"
+                          fill
+                          className="object-cover"
+                          sizes="64px"
+                          unoptimized={isProjectMediaProxyUrl(url) ? true : undefined}
+                        />
                       </div>
                     ))
                   ) : (
