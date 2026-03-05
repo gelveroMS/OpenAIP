@@ -59,7 +59,9 @@ type ExtractionRunStatusRow = {
   id: string;
   aip_id: string;
   uploaded_file_id: string | null;
+  retry_of_run_id?: string | null;
   stage: string;
+  resume_from_stage?: string | null;
   status: string;
   error_code: string | null;
   error_message: string | null;
@@ -136,6 +138,14 @@ export type UploadProjectMediaObjectResult = {
   sizeBytes: number;
 };
 
+type RetryResumeStage = "extract" | "validate" | "summarize" | "categorize";
+const RESUME_STAGE_SET = new Set<RetryResumeStage>([
+  "extract",
+  "validate",
+  "summarize",
+  "categorize",
+]);
+
 function getAdminClient(): SupabaseAdminClient {
   return supabaseAdmin();
 }
@@ -144,6 +154,15 @@ function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     value
   );
+}
+
+function normalizeRetryResumeStage(
+  value: string | null | undefined
+): RetryResumeStage | null {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return null;
+  if (!RESUME_STAGE_SET.has(normalized as RetryResumeStage)) return null;
+  return normalized as RetryResumeStage;
 }
 
 function toJsonObject(metadata: unknown): Record<string, unknown> {
@@ -625,6 +644,8 @@ export async function insertExtractionRun(input: {
   uploadedFileId: string | null;
   createdBy: string;
   modelName?: string;
+  retryOfRunId?: string | null;
+  resumeFromStage?: RetryResumeStage | null;
 }): Promise<{ id: string; status: string }> {
   assertActorPresent(input.actor, "Unauthorized.");
   assertActorRole(
@@ -635,6 +656,15 @@ export async function insertExtractionRun(input: {
   assertNonEmptyString(input.aipId, "AIP id is required.");
   assertNonEmptyString(input.createdBy, "Actor user id is required.");
   assertInvariant(input.actor.user_id === input.createdBy, 403, "Unauthorized.");
+  const normalizedResumeFromStage = normalizeRetryResumeStage(input.resumeFromStage);
+  const normalizedRetryOfRunId = input.retryOfRunId?.trim() || null;
+  if (normalizedRetryOfRunId && !isUuid(normalizedRetryOfRunId)) {
+    throw new InvariantError(400, "Retry run id must be a valid UUID.");
+  }
+  if (normalizedResumeFromStage && !normalizedRetryOfRunId) {
+    throw new InvariantError(400, "Resume stage requires retry lineage.");
+  }
+  const queuedStage = normalizedResumeFromStage ?? "extract";
 
   const admin = getAdminClient();
   const { data, error } = await admin
@@ -642,7 +672,9 @@ export async function insertExtractionRun(input: {
     .insert({
       aip_id: input.aipId,
       uploaded_file_id: input.uploadedFileId,
-      stage: "extract",
+      retry_of_run_id: normalizedRetryOfRunId,
+      stage: queuedStage,
+      resume_from_stage: normalizedResumeFromStage,
       status: "queued",
       model_name: input.modelName ?? "gpt-5.2",
       created_by: input.createdBy,
@@ -664,6 +696,8 @@ export async function insertExtractionRun(input: {
       aip_id: input.aipId,
       uploaded_file_id: input.uploadedFileId,
       model_name: input.modelName ?? "gpt-5.2",
+      retry_of_run_id: normalizedRetryOfRunId,
+      resume_from_stage: normalizedResumeFromStage,
     },
   });
 

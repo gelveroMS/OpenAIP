@@ -122,6 +122,8 @@ Guardrail behavior (worker + adapters):
 - Embed stage is timeout-bounded.
 - Repeated failures for the same `created_by + uploaded_file_id + aip_id` are blocked to prevent endless retries.
 - Failure reason is persisted to `public.extraction_runs.error_code` for UI/ops visibility.
+- Retry runs may resume from `validate`, `summarize`, or `categorize` using retry lineage fields on `public.extraction_runs` (`retry_of_run_id`, `resume_from_stage`).
+- If prerequisite artifacts in the retry lineage are missing or invalid, worker falls back to full `extract`.
 
 ## `/v1/runs/*` authentication headers
 

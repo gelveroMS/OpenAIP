@@ -9,6 +9,8 @@ class ExtractionRunDTO:
     id: str
     aip_id: str
     uploaded_file_id: str | None
+    retry_of_run_id: str | None
+    resume_from_stage: str | None
     model_name: str | None
     status: str
     stage: str
@@ -20,6 +22,8 @@ class ExtractionRunDTO:
             id=str(row["id"]),
             aip_id=str(row["aip_id"]),
             uploaded_file_id=row.get("uploaded_file_id"),
+            retry_of_run_id=row.get("retry_of_run_id"),
+            resume_from_stage=row.get("resume_from_stage"),
             model_name=row.get("model_name"),
             status=str(row.get("status") or ""),
             stage=str(row.get("stage") or ""),

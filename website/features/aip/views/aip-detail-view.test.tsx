@@ -587,8 +587,15 @@ describe("AipDetailView sidebar behavior", () => {
 
     expect(screen.getByTestId("breadcrumb-nav")).toBeInTheDocument();
     expect(screen.getByText("Annual Investment Program 2026")).toBeInTheDocument();
-    expect(screen.getByText("Extraction Failed")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Retry Extraction" })).toBeInTheDocument();
+    expect(screen.getByText("Pipeline Failed")).toBeInTheDocument();
+    expect(screen.getByText("Completed stages:")).toBeInTheDocument();
+    expect(screen.getByText("None")).toBeInTheDocument();
+    expect(screen.getByText("Failed at:")).toBeInTheDocument();
+    expect(screen.getByText("Extraction")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Restart from Failed Stage" })
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Restart from Scratch" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Dismiss" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("aip-pdf-container")).not.toBeInTheDocument();
     expect(screen.queryByTestId("aip-details-table-view")).not.toBeInTheDocument();
@@ -689,7 +696,7 @@ describe("AipDetailView sidebar behavior", () => {
     });
   });
 
-  it("shows failed-run focused layout with retry-only actions", async () => {
+  it("shows failed-run focused layout with stage context and dual retry actions", async () => {
     mockSearchParams = new URLSearchParams("run=run-001");
     vi.stubGlobal(
       "fetch",
@@ -733,7 +740,7 @@ describe("AipDetailView sidebar behavior", () => {
         run: {
           id: "run-001",
           aip_id: "aip-001",
-          stage: "extract",
+          stage: "summarize",
           status: "failed",
           error_message: "Extraction exceeded timeout (1800.00s) after 91 page(s).",
           overall_progress_pct: 36,
@@ -745,18 +752,25 @@ describe("AipDetailView sidebar behavior", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("Extraction Failed")).toBeInTheDocument();
+      expect(screen.getByText("Pipeline Failed")).toBeInTheDocument();
     });
 
     expect(screen.getByTestId("breadcrumb-nav")).toBeInTheDocument();
     expect(screen.getByText("Annual Investment Program 2026")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Retry Extraction" })).toBeInTheDocument();
+    expect(screen.getByText("Completed stages:")).toBeInTheDocument();
+    expect(screen.getByText("Extraction > Validation")).toBeInTheDocument();
+    expect(screen.getByText("Failed at:")).toBeInTheDocument();
+    expect(screen.getByText("Summarization")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Restart from Failed Stage" })
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Restart from Scratch" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Dismiss" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("aip-pdf-container")).not.toBeInTheDocument();
     expect(screen.queryByTestId("aip-details-table-view")).not.toBeInTheDocument();
   });
 
-  it("keeps retry flow working from failed-run focused layout", async () => {
+  it("keeps failed-stage retry flow working from failed-run focused layout", async () => {
     mockSearchParams = new URLSearchParams("run=run-001");
     const retryResponse = createDeferred<Response>();
     vi.stubGlobal(
@@ -816,13 +830,26 @@ describe("AipDetailView sidebar behavior", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Retry Extraction" })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Restart from Failed Stage" })
+      ).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Retry Extraction" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Restart from Failed Stage" })
+    );
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Retrying..." })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Restarting..." })).toBeInTheDocument();
+    });
+
+    const retryCall = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.find(
+      (args) => String(args[0]).includes("/api/barangay/aips/runs/run-001/retry")
+    );
+    expect(retryCall).toBeDefined();
+    expect(retryCall?.[1]).toMatchObject({ method: "POST" });
+    expect(JSON.parse(String((retryCall?.[1] as RequestInit).body))).toEqual({
+      retryMode: "failed_stage",
     });
 
     retryResponse.resolve(
@@ -844,6 +871,96 @@ describe("AipDetailView sidebar behavior", () => {
     });
 
     expect(screen.queryByRole("button", { name: "Dismiss" })).not.toBeInTheDocument();
+  });
+
+  it("sends scratch retry mode when restarting from scratch", async () => {
+    mockSearchParams = new URLSearchParams("run=run-001");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/barangay/aips/runs/run-001/retry")) {
+          return new Response(
+            JSON.stringify({
+              runId: "run-003",
+              status: "queued",
+              aipId: "aip-001",
+              retryMode: "scratch",
+              resumeFromStage: "extract",
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }
+          );
+        }
+        if (url.includes("/api/barangay/aips/runs/run-001")) {
+          return new Response(
+            JSON.stringify({
+              runId: "run-001",
+              aipId: "aip-001",
+              stage: "extract",
+              status: "running",
+              errorMessage: null,
+              overallProgressPct: 10,
+              stageProgressPct: 25,
+              progressMessage: "Extracting from snapshot...",
+              progressUpdatedAt: "2026-02-21T00:00:30.000Z",
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }
+          );
+        }
+        return new Response(JSON.stringify({ run: null }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      })
+    );
+
+    render(<AipDetailView aip={baseAip("draft")} scope="barangay" />);
+
+    await waitFor(() => {
+      expect(latestRealtimeArgs?.enabled).toBe(true);
+    });
+
+    act(() => {
+      latestRealtimeArgs?.onRunEvent?.({
+        eventType: "UPDATE",
+        run: {
+          id: "run-001",
+          aip_id: "aip-001",
+          stage: "validate",
+          status: "failed",
+          error_message: "Validation failed.",
+          overall_progress_pct: 50,
+          stage_progress_pct: 10,
+          progress_message: "Validation failed.",
+          progress_updated_at: "2026-02-21T00:04:00.000Z",
+        },
+      } as ExtractionRunRealtimeEvent);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Restart from Scratch" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Restart from Scratch" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("aip-processing-inline-status")).toBeInTheDocument();
+    });
+
+    const retryCall = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.find(
+      (args) => String(args[0]).includes("/api/barangay/aips/runs/run-001/retry")
+    );
+    expect(retryCall).toBeDefined();
+    expect(retryCall?.[1]).toMatchObject({ method: "POST" });
+    expect(JSON.parse(String((retryCall?.[1] as RequestInit).body))).toEqual({
+      retryMode: "scratch",
+    });
   });
 
   it("shows a non-blocking notice when realtime status tracking fails", async () => {

@@ -1420,8 +1420,10 @@ create table if not exists public.extraction_runs (
 
   aip_id uuid not null references public.aips(id) on delete cascade,
   uploaded_file_id uuid null references public.uploaded_files(id) on delete set null,
+  retry_of_run_id uuid null references public.extraction_runs(id) on delete set null,
 
   stage public.pipeline_stage not null default 'extract',
+  resume_from_stage public.pipeline_stage null,
   status public.pipeline_status not null default 'queued',
 
   model_name text null,
@@ -1438,6 +1440,10 @@ create table if not exists public.extraction_runs (
   created_by uuid null references public.profiles(id) on delete set null,
   created_at timestamptz not null default now(),
 
+  constraint extraction_runs_resume_from_stage_requires_retry_chk check (
+    resume_from_stage is null
+    or retry_of_run_id is not null
+  ),
   constraint chk_extraction_runs_time_order check (
     started_at is null
     or finished_at is null
@@ -1450,7 +1456,26 @@ alter table public.extraction_runs
   add column if not exists overall_progress_pct smallint null,
   add column if not exists stage_progress_pct smallint null,
   add column if not exists progress_message text null,
-  add column if not exists progress_updated_at timestamptz null;
+  add column if not exists progress_updated_at timestamptz null,
+  add column if not exists retry_of_run_id uuid null references public.extraction_runs(id) on delete set null,
+  add column if not exists resume_from_stage public.pipeline_stage null;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'extraction_runs_resume_from_stage_requires_retry_chk'
+  ) then
+    alter table public.extraction_runs
+      add constraint extraction_runs_resume_from_stage_requires_retry_chk
+      check (
+        resume_from_stage is null
+        or retry_of_run_id is not null
+      );
+  end if;
+end
+$$;
 
 do $$
 begin
@@ -1491,6 +1516,9 @@ create index if not exists idx_extraction_runs_aip_id
 
 create index if not exists idx_extraction_runs_uploaded_file_id
   on public.extraction_runs(uploaded_file_id);
+
+create index if not exists idx_extraction_runs_retry_of_run_id
+  on public.extraction_runs(retry_of_run_id);
 
 create index if not exists idx_extraction_runs_status
   on public.extraction_runs(status);

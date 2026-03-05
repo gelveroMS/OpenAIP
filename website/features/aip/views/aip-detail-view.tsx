@@ -56,6 +56,20 @@ const PIPELINE_STAGES: PipelineStageUi[] = [
   "categorize",
   "embed",
 ];
+const PIPELINE_STAGE_ORDER_FOR_FAILURE: PipelineStageUi[] = [
+  "extract",
+  "validate",
+  "summarize",
+  "categorize",
+  "embed",
+];
+const PIPELINE_STAGE_LABELS: Record<PipelineStageUi, string> = {
+  extract: "Extraction",
+  validate: "Validation",
+  summarize: "Summarization",
+  categorize: "Categorization",
+  embed: "Embedding",
+};
 
 const PIPELINE_STATUS: PipelineStatusUi[] = ["queued", "running", "succeeded", "failed"];
 const FINALIZE_REFRESH_MAX_ATTEMPTS = 5;
@@ -148,6 +162,14 @@ type RunSnapshotPayload = {
   progressUpdatedAt?: string | null;
 };
 
+type RetryFailedRunMode = "scratch" | "failed_stage";
+
+type FailedRunState = {
+  runId: string;
+  stage: PipelineStageUi;
+  message: string | null;
+};
+
 function mapRealtimeEventToRunStatusPayload(
   event: ExtractionRunRealtimeEvent
 ): RunStatusPayload {
@@ -184,6 +206,16 @@ function clampProgress(value: number): number {
 
 function hasSummaryText(summaryText: string | undefined): boolean {
   return typeof summaryText === "string" && summaryText.trim().length > 0;
+}
+
+function getPipelineStageLabel(stage: PipelineStageUi): string {
+  return PIPELINE_STAGE_LABELS[stage];
+}
+
+function getCompletedPipelineStageLabels(failedStage: PipelineStageUi): string[] {
+  const failedIndex = PIPELINE_STAGE_ORDER_FOR_FAILURE.indexOf(failedStage);
+  if (failedIndex <= 0) return [];
+  return PIPELINE_STAGE_ORDER_FOR_FAILURE.slice(0, failedIndex).map(getPipelineStageLabel);
 }
 
 function wait(ms: number): Promise<void> {
@@ -286,11 +318,9 @@ export default function AipDetailView({
   const [processingRun, setProcessingRun] = useState<AipProcessingRunView | null>(null);
   const [processingState, setProcessingState] = useState<AipProcessingState>("idle");
   const [runNotice, setRunNotice] = useState<string | null>(null);
-  const [failedRun, setFailedRun] = useState<{
-    runId: string;
-    message: string | null;
-  } | null>(null);
-  const [isRetrying, setIsRetrying] = useState(false);
+  const [failedRun, setFailedRun] = useState<FailedRunState | null>(null);
+  const [retryingMode, setRetryingMode] = useState<RetryFailedRunMode | null>(null);
+  const isRetrying = retryingMode !== null;
   const [retryError, setRetryError] = useState<string | null>(null);
   const [isFinalizingAfterSuccess, setIsFinalizingAfterSuccess] = useState(false);
   const [finalizingNotice, setFinalizingNotice] = useState<string | null>(null);
@@ -388,6 +418,7 @@ export default function AipDetailView({
           setFinalizingNotice(null);
           setFailedRun({
             runId: payload.failedRun.runId,
+            stage: payload.failedRun.stage,
             message: payload.failedRun.errorMessage,
           });
           setRetryError(null);
@@ -499,6 +530,7 @@ export default function AipDetailView({
       setActiveRunId(null);
       setFailedRun({
         runId: payload.runId,
+        stage: payload.stage,
         message: payload.errorMessage ?? payload.progressMessage ?? null,
       });
       setRetryError(null);
@@ -665,18 +697,21 @@ export default function AipDetailView({
     }
   }, [aip.id, isCityScope, router]);
 
-  const handleRetryFailedRun = useCallback(async () => {
+  const handleRetryFailedRun = useCallback(async (mode: RetryFailedRunMode) => {
     if (!failedRun) return;
 
     try {
-      setIsRetrying(true);
+      setRetryingMode(mode);
       setRetryError(null);
       setRunNotice(null);
       const runApiScope = isCityScope ? "city" : "barangay";
 
       const response = await fetch(
         `/api/${runApiScope}/aips/runs/${encodeURIComponent(failedRun.runId)}/retry`,
-        withCsrfHeader({ method: "POST" })
+        withCsrfHeader({
+          method: "POST",
+          body: JSON.stringify({ retryMode: mode }),
+        })
       );
 
       const payload = (await response.json()) as {
@@ -698,7 +733,7 @@ export default function AipDetailView({
         error instanceof Error ? error.message : "Failed to retry extraction run."
       );
     } finally {
-      setIsRetrying(false);
+      setRetryingMode(null);
     }
   }, [failedRun, isCityScope]);
 
@@ -1041,8 +1076,23 @@ export default function AipDetailView({
 
           {shouldShowFailedRunOnly && failedNoticeRun ? (
             <Alert className="border-rose-200 bg-rose-50">
-              <AlertTitle className="text-rose-900">Extraction Failed</AlertTitle>
+              <AlertTitle className="text-rose-900">Pipeline Failed</AlertTitle>
               <AlertDescription className="space-y-3 text-rose-800">
+                <p>
+                  <span className="font-semibold">Completed stages:</span>{" "}
+                  {(() => {
+                    const completedStages = getCompletedPipelineStageLabels(
+                      failedNoticeRun.stage
+                    );
+                    return completedStages.length > 0
+                      ? completedStages.join(" > ")
+                      : "None";
+                  })()}
+                </p>
+                <p>
+                  <span className="font-semibold">Failed at:</span>{" "}
+                  {getPipelineStageLabel(failedNoticeRun.stage)}
+                </p>
                 <p>
                   {failedNoticeRun.message ??
                     "We were unable to complete the AIP extraction pipeline."}
@@ -1051,10 +1101,26 @@ export default function AipDetailView({
                 <div className="flex flex-wrap gap-2">
                   <Button
                     className="bg-rose-600 hover:bg-rose-700"
-                    onClick={handleRetryFailedRun}
+                    onClick={() => {
+                      void handleRetryFailedRun("failed_stage");
+                    }}
                     disabled={isRetrying}
                   >
-                    {isRetrying ? "Retrying..." : "Retry Extraction"}
+                    {retryingMode === "failed_stage"
+                      ? "Restarting..."
+                      : "Restart from Failed Stage"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="border-rose-300 text-rose-900 hover:bg-rose-100"
+                    onClick={() => {
+                      void handleRetryFailedRun("scratch");
+                    }}
+                    disabled={isRetrying}
+                  >
+                    {retryingMode === "scratch"
+                      ? "Restarting..."
+                      : "Restart from Scratch"}
                   </Button>
                 </div>
               </AlertDescription>
