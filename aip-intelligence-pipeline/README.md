@@ -110,6 +110,9 @@ Common optional runtime vars:
 - `PIPELINE_EMBED_TIMEOUT_SECONDS` (default `300`; fail code `EMBED_TIMEOUT`)
 - `PIPELINE_RETRY_FAILURE_THRESHOLD` (default `5`; fail code `RUN_RETRY_BLOCKED`)
 - `PIPELINE_RETRY_FAILURE_WINDOW_SECONDS` (default `21600`; lookback window for retry blocking)
+- `PIPELINE_SUMMARIZE_CONTEXT_WINDOW_TOKENS` (default `128000`; map/reduce context budget target)
+- `PIPELINE_SUMMARIZE_RESPONSE_BUFFER_TOKENS` (default `2000`; reserved response token budget)
+- `PIPELINE_SUMMARIZE_PROJECT_FIELD_CHAR_LIMIT` (default `500`; per-field char cap in compact summary payload)
 - `PIPELINE_SUPABASE_HTTP_TIMEOUT_SECONDS` (default `120`)
 - `PIPELINE_SUPABASE_DOWNLOAD_TIMEOUT_SECONDS` (default `120`)
 - `PIPELINE_SOURCE_PDF_MAX_BYTES` (default `15728640`; fail code `SOURCE_PDF_TOO_LARGE`)
@@ -205,8 +208,9 @@ These prompt files are runtime source-of-truth for extraction instructions.
 
 ## Summarization prompt resources
 
-Summarization prompt source:
+Summarization prompt sources:
 - `src/openaip_pipeline/resources/prompts/summarization/system.txt`
+- `src/openaip_pipeline/resources/prompts/summarization/reduce_system.txt`
 
 This prompt file is runtime source-of-truth for summarization instructions.
 

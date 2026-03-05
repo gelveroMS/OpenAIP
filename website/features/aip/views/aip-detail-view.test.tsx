@@ -593,7 +593,7 @@ describe("AipDetailView sidebar behavior", () => {
     expect(screen.getByText("Failed at:")).toBeInTheDocument();
     expect(screen.getByText("Extraction")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Restart from Failed Stage" })
+      screen.getByRole("button", { name: "Restart from Extraction Stage" })
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Restart from Scratch" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Dismiss" })).not.toBeInTheDocument();
@@ -762,7 +762,7 @@ describe("AipDetailView sidebar behavior", () => {
     expect(screen.getByText("Failed at:")).toBeInTheDocument();
     expect(screen.getByText("Summarization")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Restart from Failed Stage" })
+      screen.getByRole("button", { name: "Restart from Summarization Stage" })
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Restart from Scratch" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Dismiss" })).not.toBeInTheDocument();
@@ -831,12 +831,12 @@ describe("AipDetailView sidebar behavior", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByRole("button", { name: "Restart from Failed Stage" })
+        screen.getByRole("button", { name: "Restart from Extraction Stage" })
       ).toBeInTheDocument();
     });
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Restart from Failed Stage" })
+      screen.getByRole("button", { name: "Restart from Extraction Stage" })
     );
 
     await waitFor(() => {

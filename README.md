@@ -180,6 +180,9 @@ PIPELINE_WORKER_POLL_SECONDS=3
 PIPELINE_WORKER_RUN_ONCE=false
 PIPELINE_PROGRESS_HEARTBEAT_SECONDS=5
 PIPELINE_SUMMARIZE_EXPECTED_SECONDS=60
+PIPELINE_SUMMARIZE_CONTEXT_WINDOW_TOKENS=128000
+PIPELINE_SUMMARIZE_RESPONSE_BUFFER_TOKENS=2000
+PIPELINE_SUMMARIZE_PROJECT_FIELD_CHAR_LIMIT=500
 PIPELINE_EXTRACT_MAX_PAGES=200
 PIPELINE_PARSE_TIMEOUT_SECONDS=20
 PIPELINE_EXTRACT_TIMEOUT_SECONDS=1800
@@ -253,6 +256,9 @@ Pipeline env reference:
 | `PIPELINE_WORKER_RUN_ONCE` | No | Server-only | Exit after one polling cycle |
 | `PIPELINE_PROGRESS_HEARTBEAT_SECONDS` | No | Server-only | Progress heartbeat interval |
 | `PIPELINE_SUMMARIZE_EXPECTED_SECONDS` | No | Server-only | Summarization progress estimate |
+| `PIPELINE_SUMMARIZE_CONTEXT_WINDOW_TOKENS` | No | Server-only | Summarization map/reduce context budget target (default `128000`) |
+| `PIPELINE_SUMMARIZE_RESPONSE_BUFFER_TOKENS` | No | Server-only | Reserved response token budget for summarization requests (default `2000`) |
+| `PIPELINE_SUMMARIZE_PROJECT_FIELD_CHAR_LIMIT` | No | Server-only | Per-field character cap in compact summarization payloads (default `500`) |
 | `PIPELINE_EXTRACT_MAX_PAGES` | No | Server-only | Hard page cap per source PDF; fails with `PDF_PAGE_LIMIT_EXCEEDED` (default `200`) |
 | `PIPELINE_PARSE_TIMEOUT_SECONDS` | No | Server-only | Timeout budget for initial PDF parse/read (default `20`) |
 | `PIPELINE_EXTRACT_TIMEOUT_SECONDS` | No | Server-only | Timeout budget for extraction stage page loop (default `1800`) |

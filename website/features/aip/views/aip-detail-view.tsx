@@ -1045,6 +1045,9 @@ export default function AipDetailView({
 
   const failedNoticeRun = failedRun;
   const shouldShowFailedRunOnly = !shouldBlockWithProcessingUi && Boolean(failedNoticeRun);
+  const failedStageRetryLabel = failedNoticeRun
+    ? `Restart from ${getPipelineStageLabel(failedNoticeRun.stage)} Stage`
+    : "Restart from Failed Stage";
 
   return (
     <div className="space-y-6">
@@ -1108,7 +1111,7 @@ export default function AipDetailView({
                   >
                     {retryingMode === "failed_stage"
                       ? "Restarting..."
-                      : "Restart from Failed Stage"}
+                      : failedStageRetryLabel}
                   </Button>
                   <Button
                     variant="outline"

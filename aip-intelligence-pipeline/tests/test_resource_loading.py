@@ -14,6 +14,12 @@ def test_resource_loading() -> None:
     assert "Maximum 140 words" in summary_prompt
     assert "Return JSON only" in summary_prompt
     assert '"summary": "string"' in summary_prompt
+    summary_reduce_prompt = read_text("prompts/summarization/reduce_system.txt")
+    assert "combining chunk-level summaries" in summary_reduce_prompt
+    assert "4-6 sentences" in summary_reduce_prompt
+    assert "Maximum 140 words" in summary_reduce_prompt
+    assert "Return JSON only" in summary_reduce_prompt
+    assert '"summary": "string"' in summary_reduce_prompt
 
     barangay_validation_prompt = read_text("prompts/validation/barangay_system.txt")
     assert "R001" in barangay_validation_prompt
