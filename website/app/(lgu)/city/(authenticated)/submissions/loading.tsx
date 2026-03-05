@@ -1,5 +1,5 @@
 import SmartFullPageLoader from "@/components/ui/SmartFullPageLoader";
 
-export default function CityProjectsLoading() {
+export default function BarangayAipsLoading() {
   return <SmartFullPageLoader target="lgu-main" />;
 }

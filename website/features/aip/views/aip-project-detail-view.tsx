@@ -266,7 +266,7 @@ export default function AipProjectDetailView({
     <div className="space-y-2">
       <BreadcrumbNav items={breadcrumb} />
 
-      <Card className="border-slate-200">
+      <Card className="border-slate-200 bg-card">
         <CardContent className="flex items-center justify-between gap-4 px-6 py-0">
           <div className="space-y-1">
             <h1 className="text-2xl font-bold text-slate-900">{project.programProjectDescription}</h1>
@@ -311,7 +311,7 @@ export default function AipProjectDetailView({
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
         <div className="space-y-4 md:col-span-2">
-          <div className="rounded-lg border border-slate-200 p-4">
+          <div className="rounded-lg border border-slate-200 bg-card p-4">
             <div className="text-sm font-semibold text-slate-900">Project Information</div>
 
             <div className="mt-4 space-y-4">
@@ -628,7 +628,7 @@ export default function AipProjectDetailView({
 
         <div className="space-y-4">
           {shouldShowOfficialCommentPanel ? (
-            <div className="rounded-lg border border-slate-200 p-4">
+            <div className="rounded-lg border border-slate-200 bg-card p-4">
               <div className="text-sm font-semibold text-slate-900">
                 Official Comment / Justification
               </div>
@@ -695,7 +695,7 @@ export default function AipProjectDetailView({
             </div>
           ) : null}
 
-          <div className="rounded-lg border border-slate-200 p-4">
+          <div className="rounded-lg border bg-card border-slate-200 p-4">
             <div className="text-sm font-semibold text-slate-900">Workflow Feedback</div>
             <p className="mt-1 text-xs text-slate-500">
               Official and reviewer feedback from the AIP submission workflow.
