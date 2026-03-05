@@ -53,6 +53,7 @@ const DROPDOWN_TITLE_MAX = 60;
 const FEEDBACK_EXCERPT_MAX = 120;
 const REVISION_EXCERPT_MAX = 120;
 const PIPELINE_EXCERPT_MAX = 180;
+const AIP_EXTRACTION_EXCERPT_MAX = 120;
 
 function withActorPrefix(actorName: string | null | undefined, fallback: string): string {
   const actor = actorName?.trim();
@@ -381,6 +382,38 @@ export function buildDisplay(
         actionUrl,
       };
     }
+    case "AIP_EXTRACTION_SUCCEEDED": {
+      return {
+        title:
+          surface === "dropdown"
+            ? withDropdownTitleLimit("Your AIP upload was processed successfully.")
+            : "AIP processing completed",
+        context,
+        excerpt:
+          surface === "page"
+            ? "Extraction and validation completed successfully."
+            : undefined,
+        iconKey: "clipboard-check",
+        actionUrl,
+      };
+    }
+    case "AIP_EXTRACTION_FAILED": {
+      const errorMessageRaw = asString(metadata.error_message) ?? messageFallback ?? "";
+      const excerpt =
+        safeTruncate(firstLine(errorMessageRaw), AIP_EXTRACTION_EXCERPT_MAX) ||
+        "No error details were provided.";
+      return {
+        title:
+          surface === "dropdown"
+            ? withDropdownTitleLimit("AIP processing failed. Please review and retry.")
+            : "AIP processing failed",
+        context,
+        excerpt,
+        iconKey: "x-circle",
+        pill: "Alert",
+        actionUrl,
+      };
+    }
     case "FEEDBACK_CREATED": {
       const reply = isReplyEvent(metadata);
       const feedbackKind = pickFeedbackKindLabel(metadata);
@@ -605,6 +638,20 @@ export function buildNotificationTemplate(input: NotifyInput): NotificationTempl
         message: "A revised barangay AIP was resubmitted for city review.",
         emailSubject: "OpenAIP - AIP resubmitted after revision",
         templateKey: "AIP_RESUBMITTED",
+      };
+    case "AIP_EXTRACTION_SUCCEEDED":
+      return {
+        title: "AIP Processing Completed",
+        message: "Your AIP upload was processed successfully.",
+        emailSubject: "OpenAIP - AIP upload processing completed",
+        templateKey: "aip_extraction_succeeded",
+      };
+    case "AIP_EXTRACTION_FAILED":
+      return {
+        title: "AIP Processing Failed",
+        message: "AIP processing failed. Please review and retry.",
+        emailSubject: "OpenAIP - AIP upload processing failed",
+        templateKey: "aip_extraction_failed",
       };
     case "FEEDBACK_CREATED":
       if (isReply) {

@@ -248,7 +248,7 @@ def process_run(*, repo: PipelineRepository, settings: Settings, run: dict[str, 
         validation_res = validation_fn(
             extraction_res.json_str,
             model=model_name,
-            num_batches=4,
+            batch_size=25,
             on_progress=validation_progress,
         )
         repo.set_run_progress(run_id=run_id, stage=current_stage, stage_progress_pct=100, progress_message="Validation complete.")

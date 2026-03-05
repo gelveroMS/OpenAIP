@@ -113,6 +113,8 @@ Common optional runtime vars:
 - `PIPELINE_SUPABASE_HTTP_TIMEOUT_SECONDS` (default `120`)
 - `PIPELINE_SUPABASE_DOWNLOAD_TIMEOUT_SECONDS` (default `120`)
 - `PIPELINE_SOURCE_PDF_MAX_BYTES` (default `15728640`; fail code `SOURCE_PDF_TOO_LARGE`)
+- `PIPELINE_OPENAI_TIMEOUT_SECONDS` (default `600`; HTTP timeout per OpenAI request)
+- `PIPELINE_OPENAI_MAX_RETRIES` (default `3`; SDK retry attempts per OpenAI request)
 
 Guardrail behavior (worker + adapters):
 - Source-PDF download is bounded by timeout and byte cap before extraction starts.

@@ -116,6 +116,45 @@ describe("notification display templates", () => {
     expect(pipeline.excerpt).toBe("embedding failed");
   });
 
+  it("renders extraction success and failure notifications for uploader flows", () => {
+    const success = buildDisplay(
+      {
+        event_type: "AIP_EXTRACTION_SUCCEEDED",
+        metadata: {
+          entity_type: "aip",
+          fiscal_year: 2026,
+          lgu_name: "Barangay Uno",
+          run_id: "run-success-1",
+        },
+      },
+      "dropdown"
+    );
+
+    const failed = buildDisplay(
+      {
+        event_type: "AIP_EXTRACTION_FAILED",
+        metadata: {
+          entity_type: "aip",
+          fiscal_year: 2026,
+          lgu_name: "Barangay Uno",
+          stage: "validate",
+          error_message: "Validation timeout\nTrace details...",
+        },
+      },
+      "page"
+    );
+
+    expect(success.title).toBe("Your AIP upload was processed successfully.");
+    expect(success.iconKey).toBe("clipboard-check");
+    expect(success.context).toContain("AIP FY 2026");
+
+    expect(failed.title).toBe("AIP processing failed");
+    expect(failed.iconKey).toBe("x-circle");
+    expect(failed.pill).toBe("Alert");
+    expect(failed.excerpt).toBe("Validation timeout");
+    expect(failed.context).toContain("Barangay Uno");
+  });
+
   it("sanitizes and truncates excerpts safely", () => {
     const value = safeTruncate("<script>alert(1)</script>" + "x".repeat(200), 40);
     expect(value).not.toContain("<script>");

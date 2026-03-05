@@ -12,21 +12,10 @@ from openaip_pipeline.core.resources import read_text
 from openaip_pipeline.services.openai_utils import build_openai_client, safe_usage_dict
 
 
-def _split_into_n_chunks(items: list[Any], n: int) -> list[list[Any]]:
-    if n <= 0:
-        raise ValueError("n must be >= 1")
-    total = len(items)
-    if total == 0:
-        return [[] for _ in range(n)]
-    base = total // n
-    rem = total % n
-    chunks: list[list[Any]] = []
-    start = 0
-    for index in range(n):
-        size = base + (1 if index < rem else 0)
-        chunks.append(items[start : start + size])
-        start += size
-    return chunks
+def _split_into_fixed_size_chunks(items: list[Any], chunk_size: int) -> list[list[Any]]:
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be >= 1")
+    return [items[start : start + chunk_size] for start in range(0, len(items), chunk_size)]
 
 
 class ValidationResult:
@@ -134,7 +123,7 @@ def _validate_total_barangay(project: dict[str, Any]) -> list[str]:
 def validate_projects_json_str(
     extraction_json_str: str,
     model: str = "gpt-5.2",
-    num_batches: int = 4,
+    batch_size: int = 25,
     on_progress: Callable[[int, int, int, int, str], None] | None = None,
     client: OpenAI | None = None,
 ) -> ValidationResult:
@@ -153,7 +142,8 @@ def validate_projects_json_str(
     merged_projects = json.loads(json.dumps(projects, ensure_ascii=False))
 
     if total_projects > 0:
-        chunks = _split_into_n_chunks(projects, num_batches)
+        chunks = _split_into_fixed_size_chunks(projects, batch_size)
+        total_batches = len(chunks)
         overall_start = time.perf_counter()
         chunk_usages: list[dict[str, Any]] = []
         chunk_times: list[float] = []
@@ -196,8 +186,8 @@ def validate_projects_json_str(
                     done_projects,
                     total_projects,
                     batch_index,
-                    num_batches,
-                    f"Validating projects {done_projects}/{total_projects} (batch {batch_index}/{num_batches})...",
+                    total_batches,
+                    f"Validating projects {done_projects}/{total_projects} (batch {batch_index}/{total_batches})...",
                 )
         usage_total = _sum_usage(chunk_usages)
         overall_elapsed = round(time.perf_counter() - overall_start, 4)

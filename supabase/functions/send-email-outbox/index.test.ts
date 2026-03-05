@@ -254,6 +254,16 @@ Deno.test("renderTemplateHtml supports event-specific headings", () => {
     { key: "AIP_PUBLISHED", expectedHeading: "AIP Published", expectedSubtitle: "Publication Notice" },
     { key: "AIP_SUBMITTED", expectedHeading: "AIP Submitted for Review", expectedSubtitle: "City Review Queue" },
     { key: "AIP_RESUBMITTED", expectedHeading: "AIP Resubmitted", expectedSubtitle: "City Review Queue" },
+    {
+      key: "aip_extraction_succeeded",
+      expectedHeading: "AIP processing completed",
+      expectedSubtitle: "AIP Processing",
+    },
+    {
+      key: "aip_extraction_failed",
+      expectedHeading: "AIP processing failed",
+      expectedSubtitle: "AIP Processing",
+    },
     { key: "FEEDBACK_CREATED", expectedHeading: "New feedback posted", expectedSubtitle: "Citizen Engagement" },
     { key: "feedback_reply", expectedHeading: "New reply in feedback thread", expectedSubtitle: "Citizen Engagement" },
     {
@@ -358,4 +368,84 @@ Deno.test("renderTemplateHtml project update templates never render draft wordin
   );
 
   assertEquals(html.toLowerCase().includes("draft"), false);
+});
+
+Deno.test("renderTemplateHtml renders uploader extraction success and failure templates", () => {
+  const successHtml = renderTemplateHtml(
+    "aip_extraction_succeeded",
+    "AIP processing completed",
+    {
+      event_type: "AIP_EXTRACTION_SUCCEEDED",
+      entity_label: "AIP FY 2026",
+      lgu_name: "Barangay Uno",
+      run_id: "run-001",
+      stage: "categorize",
+      occurred_at: "2026-03-06T01:00:00.000Z",
+      action_url: "/barangay/aips/aip-1?run=run-001",
+      notification_ref: "AIP_EXTRACTION_SUCCEEDED:aip:aip-1:run:run-001:status->succeeded",
+    },
+    "https://openaip.example.com"
+  );
+
+  const failedHtml = renderTemplateHtml(
+    "aip_extraction_failed",
+    "AIP processing failed",
+    {
+      event_type: "AIP_EXTRACTION_FAILED",
+      entity_label: "AIP FY 2026",
+      lgu_name: "Barangay Uno",
+      run_id: "run-002",
+      stage: "validate",
+      error_code: "PARSE_TIMEOUT",
+      error_message: "Validation timed out while parsing totals.",
+      occurred_at: "2026-03-06T01:10:00.000Z",
+      action_url: "/barangay/aips/aip-1?run=run-002",
+      notification_ref: "AIP_EXTRACTION_FAILED:aip:aip-1:run:run-002:status->failed",
+    },
+    "https://openaip.example.com"
+  );
+
+  assertEquals(successHtml.includes("AIP processing completed"), true);
+  assertEquals(successHtml.includes("Open AIP"), true);
+  assertEquals(successHtml.includes("Run ID: <strong>run-001</strong>"), true);
+  assertEquals(successHtml.includes("/api/notifications/open?dedupe="), true);
+
+  assertEquals(failedHtml.includes("AIP processing failed"), true);
+  assertEquals(failedHtml.includes("Review failed run"), true);
+  assertEquals(failedHtml.includes("Error code: <strong>PARSE_TIMEOUT</strong>"), true);
+  assertEquals(
+    failedHtml.includes("Error message: <strong>Validation timed out while parsing totals.</strong>"),
+    true
+  );
+});
+
+Deno.test("renderTemplateHtml resolves uppercase extraction template keys", () => {
+  const successHtml = renderTemplateHtml(
+    "AIP_EXTRACTION_SUCCEEDED",
+    "AIP processing completed",
+    {
+      event_type: "AIP_EXTRACTION_SUCCEEDED",
+      entity_label: "AIP FY 2026",
+      lgu_name: "City of Sample",
+      run_id: "run-010",
+      action_url: "/city/aips/aip-10?run=run-010",
+    },
+    "https://openaip.example.com"
+  );
+
+  const failedHtml = renderTemplateHtml(
+    "AIP_EXTRACTION_FAILED",
+    "AIP processing failed",
+    {
+      event_type: "AIP_EXTRACTION_FAILED",
+      entity_label: "AIP FY 2026",
+      run_id: "run-011",
+      error_message: "Failed to parse document",
+      action_url: "/city/aips/aip-10?run=run-011",
+    },
+    "https://openaip.example.com"
+  );
+
+  assertEquals(successHtml.includes("AIP processing completed"), true);
+  assertEquals(failedHtml.includes("AIP processing failed"), true);
 });

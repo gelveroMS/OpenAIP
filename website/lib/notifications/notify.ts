@@ -741,6 +741,7 @@ export async function notify(input: NotifyInput): Promise<NotifyResult> {
         actionUrlOverride: input.actionUrl ?? null,
         transition,
         aipId: resolvedAipId,
+        runId: (input.metadata?.run_id as string | null | undefined) ?? null,
         projectId: resolvedProjectId,
         feedbackId: resolvedFeedbackId,
         rootFeedbackId: resolvedRootFeedbackId,

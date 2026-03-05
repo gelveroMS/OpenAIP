@@ -416,11 +416,15 @@ function resolveCanonicalTemplateKey(context: NormalizedNotificationEmailContext
   const lowerTemplateKey = rawTemplateKey.toLowerCase();
   const upperTemplateKey = rawTemplateKey.toUpperCase();
 
+  if (lowerTemplateKey === "aip_extraction_succeeded") return "aip_extraction_succeeded";
+  if (lowerTemplateKey === "aip_extraction_failed") return "aip_extraction_failed";
   if (lowerTemplateKey === "project_update_posted") return "project_update_posted";
   if (lowerTemplateKey === "feedback_posted") return "feedback_posted";
   if (lowerTemplateKey === "feedback_reply") return "feedback_reply";
   if (lowerTemplateKey === "feedback_visibility_changed") return "feedback_visibility_changed";
 
+  if (upperTemplateKey === "AIP_EXTRACTION_SUCCEEDED") return "aip_extraction_succeeded";
+  if (upperTemplateKey === "AIP_EXTRACTION_FAILED") return "aip_extraction_failed";
   if (upperTemplateKey === "PROJECT_UPDATE_STATUS_CHANGED") return "project_update_posted";
   if (upperTemplateKey === "FEEDBACK_VISIBILITY_CHANGED") return "feedback_visibility_changed";
   if (upperTemplateKey === "FEEDBACK_CREATED") {
@@ -431,6 +435,47 @@ function resolveCanonicalTemplateKey(context: NormalizedNotificationEmailContext
 }
 
 const TEMPLATE_REGISTRY: Record<string, EventTemplateSpec> = {
+  aip_extraction_succeeded: {
+    subtitle: "AIP Processing",
+    heading: "AIP processing completed",
+    ctaLabel: "Open AIP",
+    detailsLabel: "DETAILS",
+    intro: (context) => {
+      const aipLabel = context.details.entityLabel ?? "this AIP";
+      return `Your upload has finished processing for ${aipLabel}.`;
+    },
+    details: (context) =>
+      buildDetailsRows([
+        { label: "LGU", value: context.details.lguName },
+        { label: "AIP", value: context.details.entityLabel },
+        { label: "Run ID", value: context.details.runId },
+        { label: "Stage", value: context.details.stage },
+        { label: "Completed at", value: context.details.occurredAt },
+      ]),
+  },
+  aip_extraction_failed: {
+    subtitle: "AIP Processing",
+    heading: "AIP processing failed",
+    ctaLabel: "Review failed run",
+    detailsLabel: "FAILURE DETAILS",
+    intro: (context) => {
+      const aipLabel = context.details.entityLabel ?? "this AIP";
+      return `Processing for ${aipLabel} failed. Review the details and retry when ready.`;
+    },
+    details: (context) =>
+      buildDetailsRows([
+        { label: "LGU", value: context.details.lguName },
+        { label: "AIP", value: context.details.entityLabel },
+        { label: "Run ID", value: context.details.runId },
+        { label: "Failed stage", value: context.details.stage },
+        { label: "Error code", value: context.details.errorCode },
+        { label: "Error message", value: context.details.errorMessage },
+        { label: "Failed at", value: context.details.occurredAt },
+      ]),
+    advisoryTitle: "Suggested Action",
+    advisoryBody:
+      "Review the failed run details, confirm the uploaded PDF is valid, and retry extraction.",
+  },
   AIP_CLAIMED: {
     subtitle: "AIP Review Update",
     heading: "AIP Claimed for Review",
