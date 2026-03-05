@@ -30,7 +30,7 @@ export async function GET(
       return notFoundResponse();
     }
 
-    return toImageResponse(media.imageData, media.objectName);
+    return toImageResponse(media.imageData, media.objectName, media.mimeType);
   } catch (error) {
     if (isInvariantError(error)) {
       return NextResponse.json({ message: error.message }, { status: error.status });

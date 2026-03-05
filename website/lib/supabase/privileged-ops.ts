@@ -22,6 +22,7 @@ type ProjectUpdateMediaLookupRow = {
   id: string;
   bucket_id: string;
   object_name: string;
+  mime_type: string;
   project_id: string;
   update_id: string;
 };
@@ -339,14 +340,14 @@ export function toPrivilegedActorContextFromProfile(
 export async function readProjectMediaBlob(input: {
   actor: PrivilegedActorContext | null;
   mediaId: string;
-}): Promise<{ imageData: Blob; objectName: string } | null> {
+}): Promise<{ imageData: Blob; objectName: string; mimeType: string } | null> {
   assertNonEmptyString(input.mediaId, "Media id is required.");
   const mediaId = input.mediaId.trim();
   const admin = getAdminClient();
 
   const { data: mediaData, error: mediaError } = await admin
     .from("project_update_media")
-    .select("id,bucket_id,object_name,project_id,update_id")
+    .select("id,bucket_id,object_name,mime_type,project_id,update_id")
     .eq("id", mediaId)
     .maybeSingle();
   if (mediaError || !mediaData) {
@@ -410,6 +411,7 @@ export async function readProjectMediaBlob(input: {
   return {
     imageData,
     objectName: media.object_name,
+    mimeType: media.mime_type,
   };
 }
 

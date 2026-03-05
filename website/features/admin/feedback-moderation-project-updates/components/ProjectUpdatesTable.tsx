@@ -19,6 +19,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { ProjectUpdateRowModel, ProjectUpdateStatus } from "@/lib/repos/feedback-moderation-project-updates/types";
+import { isProjectMediaProxyUrl } from "@/lib/projects/media";
 
 const statusBadgeClass = (status: ProjectUpdateStatus) => {
   switch (status) {
@@ -69,6 +70,9 @@ export default function ProjectUpdatesTable({
                       fill
                       className="object-cover"
                       sizes="40px"
+                      unoptimized={
+                        isProjectMediaProxyUrl(row.previewUrl) ? true : undefined
+                      }
                     />
                   ) : (
                     <FileText className="h-5 w-5 text-slate-400" />

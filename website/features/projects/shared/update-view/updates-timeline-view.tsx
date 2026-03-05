@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import type { ProjectUpdateUi } from "@/features/projects/types";
 import { CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { isProjectMediaProxyUrl } from "@/lib/projects/media";
 import { cn } from "@/lib/ui/utils";
 
 type ViewerState = {
@@ -255,6 +256,11 @@ export default function UpdatesTimelineView({
                                     fill
                                     className="object-cover transition duration-200 group-hover:scale-[1.02] group-hover:brightness-95"
                                     sizes="(max-width: 640px) 92vw, (max-width: 768px) 85vw, 420px"
+                                    unoptimized={
+                                      isProjectMediaProxyUrl(u.photoUrls[0] ?? "")
+                                        ? true
+                                        : undefined
+                                    }
                                   />
                                 </div>
                               </button>
@@ -282,6 +288,7 @@ export default function UpdatesTimelineView({
                                       fill
                                       className="object-cover transition duration-200 group-hover:scale-[1.03] group-hover:brightness-90"
                                       sizes="(max-width: 640px) 112px, 128px"
+                                      unoptimized={isProjectMediaProxyUrl(src) ? true : undefined}
                                     />
                                     {isOverflowThumb ? (
                                       <span className="absolute inset-0 grid place-items-center bg-black/60 text-base font-semibold text-white">
@@ -346,6 +353,7 @@ export default function UpdatesTimelineView({
                   className="object-contain"
                   sizes="96vw"
                   priority
+                  unoptimized={isProjectMediaProxyUrl(activeImageSrc) ? true : undefined}
                 />
               </div>
             ) : null}
