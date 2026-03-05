@@ -90,9 +90,9 @@ export default function HeroMotion({ title, subtitle, cta }: HeroMotionProps) {
       <div className="relative z-20 h-full px-10 sm:px-16 lg:px-24">
         <div className="grid h-full grid-cols-12 items-center">
           <div className="col-span-12 lg:col-span-7">
-            <div className="py-6 sm:py-8 lg:py-10">
+            <div className="pt-12 pb-6 sm:pt-12 sm:pb-8 lg:pt-16 lg:pb-12">
               <motion.h1
-                className="max-w-[680px] text-[clamp(2.8rem,7vw,5.2rem)] font-semibold leading-[1] tracking-tight text-linen"
+                className="max-w-[680px] text-[clamp(2.6rem,7vw,5.2rem)] font-semibold leading-[1] tracking-tight text-linen"
                 variants={headlineContainerVariants}
               >
                 {titleLines.map((line, index) => (
@@ -103,7 +103,7 @@ export default function HeroMotion({ title, subtitle, cta }: HeroMotionProps) {
               </motion.h1>
 
               <motion.p
-                className="mt-5 max-w-[640px] text-[17px] leading-8 text-white/80 md:text-[19px] md:leading-[31px]"
+                className="mt-5 max-w-[640px] text-[12px] leading-7 text-white/80 md:text-[17px] md:leading-[29px]"
                 variants={subtitleVariants}
               >
                 {subtitle}

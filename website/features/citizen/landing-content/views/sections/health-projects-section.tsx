@@ -318,7 +318,11 @@ export default function HealthProjectsSection({ vm }: HealthProjectsSectionProps
       className="relative bg-[#EFF4F7]"
     >
       <div
-        className="pointer-events-none absolute inset-0 bg-[url('/citizen-dashboard/health-bg.svg')] bg-cover bg-center opacity-5"
+        className="pointer-events-none absolute inset-0 bg-[url('/citizen-dashboard/health-bg.webp')] bg-cover bg-center opacity-50"
+        aria-hidden="true"
+      />
+      <div
+        className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.95)_5%,rgba(255,255,255,0.85)_50%,rgba(255,255,255,0)_100%)]"
         aria-hidden="true"
       />
       <motion.div

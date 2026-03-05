@@ -116,16 +116,17 @@ export function AipProcessingStatusContent({
       ) : (
         <>
           <div className="bg-gradient-to-b from-[#F1FAFF] to-white px-10 pb-10">
-            <div className="flex items-center justify-between gap-4">
+            <div className="grid w-full grid-cols-4 items-start justify-items-center">
               {STAGES.map((stage, index) => {
                 const completed = isStageComplete(stage.key, run?.progressByStage ?? null, run?.status ?? null);
                 const active = activeIndex === index;
+                const connectorActive = completed || index < activeIndex;
                 return (
-                  <div key={stage.key} className="flex flex-1 flex-col items-center gap-3">
-                    <div className="flex w-full items-center gap-3">
+                  <div key={stage.key} className="flex min-w-0 flex-col items-center gap-3">
+                    <div className="relative w-full">
                       <div
                         className={cn(
-                          "flex h-12 w-12 items-center justify-center rounded-full border-2 text-sm font-semibold",
+                          "relative z-10 mx-auto flex h-12 w-12 items-center justify-center rounded-full border-2 text-sm font-semibold",
                           completed || active
                             ? "border-[#0E5D6F] bg-[#0E5D6F] text-white shadow"
                             : "border-slate-200 bg-white text-slate-400"
@@ -136,13 +137,13 @@ export function AipProcessingStatusContent({
                       {index < STAGES.length - 1 ? (
                         <div
                           className={cn(
-                            "h-1 flex-1 rounded-full",
-                            completed ? "bg-[#0E5D6F]" : "bg-slate-200"
+                            "absolute left-1/2 right-[-50%] top-1/2 z-0 h-1 -translate-y-1/2 rounded-full",
+                            connectorActive ? "bg-[#0E5D6F]" : "bg-slate-200"
                           )}
                         />
                       ) : null}
                     </div>
-                    <div className={cn("text-xs font-semibold", active ? "text-[#0E5D6F]" : "text-slate-500")}>
+                    <div className={cn("w-full text-center text-xs font-semibold", active ? "text-[#0E5D6F]" : "text-slate-500")}>
                       {stage.label}
                     </div>
                     <div className="w-full space-y-2">

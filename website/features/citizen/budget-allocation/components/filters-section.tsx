@@ -12,12 +12,12 @@ type FiltersSectionProps = {
 
 export default function FiltersSection({ filters, onYearChange, onLguChange }: FiltersSectionProps) {
   return (
-    <section className="mx-auto flex max-w-6xl justify-end px-6 pb-6 pt-2">
+    <section className="mx-auto flex max-w-6xl justify-end px-6 pb-6 pt-0">
       <div className="grid w-fit gap-6 md:grid-cols-2">
         <div className="space-y-2 justify-self-end">
           <Label className="text-lg font-medium text-slate-700">Fiscal Year</Label>
           <Select value={String(filters.selectedYear)} onValueChange={(value) => onYearChange(Number(value))}>
-            <SelectTrigger className="h-12 rounded-2xl border-gray-300 bg-white text-base focus-visible:ring-cyan-500/40">
+            <SelectTrigger className="h-12 w-36 rounded-2xl border-gray-300 bg-white text-base focus-visible:ring-cyan-500/40">
               <SelectValue placeholder="Select year" />
             </SelectTrigger>
             <SelectContent>

@@ -25,7 +25,7 @@ export default function CitizenChatSidebar({
   onDeleteSession: (id: string) => Promise<void>;
 }) {
   return (
-    <aside className="flex min-h-0 flex-col rounded-2xl bg-white">
+    <aside className="flex min-h-0 flex-col overflow-hidden rounded-2xl bg-white">
       <div className="p-5">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Conversations</h2>

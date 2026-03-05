@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import type { CitizenAuthVariant } from "@/features/citizen/auth/types";
+import { cn } from "@/lib/ui/utils";
 
 type CitizenAuthBrandPanelProps = {
   variant: CitizenAuthVariant;
@@ -25,43 +26,39 @@ const COPY = {
   },
 } as const;
 
+const BACKGROUND_BY_VARIANT: Record<
+  CitizenAuthVariant,
+  { src: string; positionClass: string }
+> = {
+  signup_cta: {
+    src: "/login/Login.webp",
+    positionClass: "object-right",
+  },
+  login_cta: {
+    src: "/login/sign-up.webp",
+    positionClass: "object-left",
+  },
+};
+
 export default function CitizenAuthBrandPanel({
   variant,
   onToggleAuth,
   disableToggle = false,
 }: CitizenAuthBrandPanelProps) {
   const copy = COPY[variant];
+  const background = BACKGROUND_BY_VARIANT[variant];
 
   return (
     <aside className="relative flex h-full min-h-[320px] items-center justify-center overflow-hidden bg-[#022437] px-8 py-10 text-white md:px-10">
       <Image
-        src="/login/building.png"
+        src={background.src}
         alt=""
         fill
-        className="object-cover object-center"
+        className={cn("object-cover", background.positionClass)}
         sizes="(min-width: 768px) 50vw, 100vw"
         priority
       />
-      <div className="absolute inset-0 bg-[#001925]/68" aria-hidden />
-      <div
-        className="absolute inset-0 bg-gradient-to-b from-[#013146]/65 via-[#013146]/40 to-[#013146]/80"
-        aria-hidden
-      />
-      <Image
-        src="/login/faded-logo.png"
-        alt=""
-        width={360}
-        height={360}
-        className="pointer-events-none absolute -left-12 top-1/2 hidden -translate-y-1/2 opacity-30 lg:block"
-        aria-hidden
-      />
-      <Image
-        src="/citizen-dashboard/city.png"
-        alt=""
-        fill
-        className="pointer-events-none object-cover object-bottom opacity-25"
-        aria-hidden
-      />
+      <div className="absolute inset-0 bg-[#001925]/42" aria-hidden />
 
       <div className="relative z-10 flex w-full max-w-md flex-col items-center justify-center gap-6 text-center">
         <h3 className="text-4xl font-bold leading-tight text-white">{copy.title}</h3>

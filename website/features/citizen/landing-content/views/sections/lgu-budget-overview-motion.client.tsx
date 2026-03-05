@@ -14,11 +14,17 @@ type LguBudgetOverviewMotionProps = {
   mapPanelHeightClass: string;
 };
 
+const NO_PREVIOUS_YEAR_DATA_LABEL = "No data from previous year";
+
 export default function LguBudgetOverviewMotion({
   vm,
   mapPanelHeightClass,
 }: LguBudgetOverviewMotionProps) {
   const reducedMotion = useReducedMotion() ?? false;
+  const getDeltaBadgeClassName = (label: string) =>
+    label === NO_PREVIOUS_YEAR_DATA_LABEL
+      ? "inline-flex px-0 py-0 text-[11px] font-medium text-slate-500"
+      : "inline-flex rounded-md bg-[#10B981]/10 px-2 py-1 text-xs font-medium text-[#0D7B62]";
 
   const headerVariant: Variants = {
     hidden: { opacity: 0, y: reducedMotion ? 0 : 16 },
@@ -136,7 +142,7 @@ export default function LguBudgetOverviewMotion({
                   <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">Total Budget</p>
                   <p className="text-4xl font-bold leading-none text-[#0C2C3A]">{formatPeso(vm.totalBudget)}</p>
                   {vm.budgetDeltaLabel ? (
-                    <div className="inline-flex rounded-md bg-[#10B981]/10 px-2 py-1 text-xs font-medium text-[#0D7B62]">
+                    <div className={getDeltaBadgeClassName(vm.budgetDeltaLabel)}>
                       {vm.budgetDeltaLabel}
                     </div>
                   ) : null}
@@ -151,7 +157,7 @@ export default function LguBudgetOverviewMotion({
                     <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">Total Projects</p>
                     <p className="mt-5 text-4xl font-semibold leading-none text-[#0C2C3A]">{formatNumber(vm.projectCount)}</p>
                     {vm.projectDeltaLabel ? (
-                      <span className="mt-4 inline-flex rounded-md bg-[#10B981]/10 px-2 py-1 text-xs font-medium text-[#0D7B62]">
+                      <span className={`mt-4 ${getDeltaBadgeClassName(vm.projectDeltaLabel)}`}>
                         {vm.projectDeltaLabel}
                       </span>
                     ) : null}

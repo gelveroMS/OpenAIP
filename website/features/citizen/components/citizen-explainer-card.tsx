@@ -30,7 +30,7 @@ export default function CitizenExplainerCard({
           <div className="space-y-3">
             <h2 className="leading-7 text-lg font-bold text-[#022437]">{title}</h2>
             {children ?? (
-              <p className="text-sm leading-relaxed text-slate-600 md:text-[15px]">
+              <p className="text-xs leading-6 text-slate-600 md:text-sm md:leading-6">
                 {body}
               </p>
             )}

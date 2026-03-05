@@ -12,7 +12,7 @@ type LegacyHeroShape = Partial<{
   ctaHref: string;
 }>;
 
-const HERO_BG_SRC = "/citizen-dashboard/hero.svg";
+const HERO_BG_SRC = "/citizen-dashboard/hero.webp";
 
 export default function HeroSection({ vm }: HeroSectionProps) {
   const legacyVm = vm as LandingHeroVM & LegacyHeroShape;

@@ -310,15 +310,19 @@ export default function CitizenBudgetAllocationView() {
 
   return (
     <section className="pb-16">
-      <div className="mx-auto max-w-6xl px-6 pt-6">
+      <div className="mx-auto max-w-6xl px-6 pt-2">
         <CitizenPageHero
           title={vm.hero.title.toUpperCase()}
           subtitle={vm.hero.subtitle}
-          imageSrc="/citizen-dashboard/hero2.svg"
+          imageSrc="/citizen-dashboard/hero2.webp"
         />
       </div>
-      <section className="mx-auto max-w-6xl px-6 py-8">
-        <CitizenExplainerCard title="What is Budget Allocation?" body={vm.explainer.body} />
+      <section className="mx-auto max-w-6xl px-6 pt-6 pb-3">
+        <CitizenExplainerCard title="What is Budget Allocation?">
+          <p className="text-xs leading-6 text-slate-600 md:text-sm md:leading-6">
+            {vm.explainer.body}
+          </p>
+        </CitizenExplainerCard>
       </section>
       {isFiltersLoading ? (
         <section className="mx-auto max-w-6xl px-6 pb-12">

@@ -37,12 +37,12 @@ export default function HealthProjectsView({ projects }: HealthProjectsViewProps
       <CitizenPageHero
         title="Health Projects"
         subtitle="View projects focused on public health, including medical services, health facilities, and community wellness programs."
-        imageSrc="/citizen-dashboard/hero2.svg"
+        imageSrc="/citizen-dashboard/hero2.webp"
         eyebrow="OpenAIP"
       />
 
       <CitizenExplainerCard title="What are Health Projects?">
-        <p className="text-sm text-slate-600">
+        <p className="text-xs leading-6 text-slate-600 md:text-sm md:leading-6">
           Health projects are initiatives funded by local government to improve healthcare
           access, preventive programs, and public wellness services.
         </p>

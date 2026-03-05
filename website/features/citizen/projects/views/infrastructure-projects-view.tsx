@@ -39,12 +39,12 @@ export default function InfrastructureProjectsView({
       <CitizenPageHero
         title="Infrastructure Projects"
         subtitle="Explore infrastructure projects funded by AIPs, including roads, drainage, public facilities, and community upgrades."
-        imageSrc="/citizen-dashboard/hero2.svg"
+        imageSrc="/citizen-dashboard/hero2.webp"
         eyebrow="OpenAIP"
       />
 
       <CitizenExplainerCard title="What are Infrastructure Projects?">
-        <p className="text-sm text-slate-600">
+        <p className="text-xs leading-6 text-slate-600 md:text-sm md:leading-6">
           Infrastructure projects cover public works and facilities that improve safety, mobility,
           and access to essential services across communities.
         </p>

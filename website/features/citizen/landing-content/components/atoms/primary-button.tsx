@@ -17,12 +17,15 @@ export default function PrimaryButton({
   className,
   ariaLabel,
 }: PrimaryButtonProps) {
+  const baseClassName =
+    "h-12 rounded-full bg-[#CBECF4] px-8 text-base text-[#001925] hover:bg-[#CBECF4]/90 focus-visible:ring-2 focus-visible:ring-[#67E8F9]";
+
   if (href) {
     return (
       <Button
         asChild
         className={cn(
-          "rounded-full bg-[#CBECF4] px-6 text-[#001925] hover:bg-[#CBECF4]/90 focus-visible:ring-2 focus-visible:ring-[#67E8F9]",
+          baseClassName,
           className
         )}
       >
@@ -39,7 +42,7 @@ export default function PrimaryButton({
       aria-label={ariaLabel ?? label}
       data-action-key={actionKey}
       className={cn(
-        "rounded-full bg-[#CBECF4] px-6 text-[#001925] hover:bg-[#CBECF4]/90 focus-visible:ring-2 focus-visible:ring-[#67E8F9]",
+        baseClassName,
         className
       )}
     >

@@ -207,7 +207,7 @@ export default function CitizenAboutUsView({
           <CitizenPageHero
             title="ABOUT US"
             subtitle="Explore how your city or barangay plans to use public funds for programs, projects, and community development throughout the year."
-            imageSrc="/citizen-dashboard/hero2.svg"
+            imageSrc="/citizen-dashboard/hero2.webp"
           />
         </motion.div>
 
@@ -299,7 +299,7 @@ export default function CitizenAboutUsView({
                       </div>
 
                       <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-                        <CardContent className="space-y-4 p-5 sm:p-6">
+                        <CardContent className="space-y-4 px-5 py-3 sm:px-6 sm:py-4">
                           <h3 className="text-lg font-semibold text-[#022437]">{section.title}</h3>
                           {section.items ? (
                             <ul className="list-disc space-y-2 pl-4 text-xs leading-5 text-slate-600">
@@ -333,12 +333,12 @@ export default function CitizenAboutUsView({
 
             <motion.div variants={sectionReveal}>
               <Card className="h-fit rounded-2xl border border-slate-200 bg-white shadow-sm">
-                <CardContent className="space-y-4 p-5">
+                <CardContent className="space-y-4 px-5 py-3">
                   <Badge className="rounded-full bg-[#166534] text-[11px] text-white">Verified Sources</Badge>
                   <h3 className="text-base font-semibold text-[#022437]">Reference Documents</h3>
                   <motion.div className="space-y-3" variants={staggerContainer}>
                     {referenceDocs.map((doc) => (
-                      <motion.div key={doc.id} className="rounded-xl border border-slate-200 bg-white p-4" variants={cardReveal}>
+                      <motion.div key={doc.id} className="rounded-xl border border-slate-200 bg-white px-4 py-2.5" variants={cardReveal}>
                         <div className="flex items-start gap-3">
                           <div className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 bg-[#F8FAFC] text-[#1D4ED8]">
                             <FileText className="h-4 w-4" />
@@ -382,25 +382,20 @@ export default function CitizenAboutUsView({
 
           <motion.div className="grid grid-cols-1 gap-6 sm:grid-cols-2" variants={staggerContainer}>
             {citizenQuestions.map((question) => {
-              const Icon = question.icon;
               return (
                 <motion.div
                   key={question.title}
                   tabIndex={0}
                   variants={cardReveal}
-                  className="group relative aspect-[16/10] overflow-hidden rounded-2xl border border-slate-200/70 bg-slate-900 shadow-[0_10px_20px_-12px_rgba(0,0,0,0.25)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#05C7F2] focus-visible:ring-offset-2"
+                  className="group relative aspect-[16/10] overflow-hidden rounded-2xl bg-slate-900 shadow-[0_10px_20px_-12px_rgba(0,0,0,0.25)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#05C7F2] focus-visible:ring-offset-2"
                 >
                   <Image src={question.image} alt={question.title} fill className="object-cover object-center" />
 
                   <div className="absolute inset-0 bg-[#0B4EA5]/20 transition-colors duration-200 group-hover:bg-[#0B4EA5]/15" />
                   <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(11,78,165,0.14)_0%,rgba(11,78,165,0.28)_42%,rgba(2,36,55,0.82)_100%)]" />
 
-                  <div className="relative flex h-full flex-col items-center justify-end gap-3 px-6 pb-6 text-center sm:pb-7">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-full border border-white/25 bg-white/20 text-white backdrop-blur-sm">
-                      <Icon className="h-5 w-5" />
-                    </div>
-
-                    <p className="max-w-[90%] line-clamp-2 text-sm font-semibold leading-snug text-white sm:text-base">
+                  <div className="relative flex h-full flex-col items-center justify-center px-6 text-center">
+                    <p className="max-w-[92%] line-clamp-3 text-xl font-semibold leading-tight text-white sm:text-2xl">
                       {question.title}
                     </p>
                   </div>

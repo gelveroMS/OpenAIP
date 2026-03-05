@@ -185,7 +185,7 @@ export default function UpdatesTimelineView({
                   selectedUpdateId === u.id && "border-sky-300 ring-2 ring-sky-200"
                 )}
               >
-                <CardContent className="p-4 sm:p-5">
+                <CardContent className="px-4 py-3 sm:px-5 sm:py-4">
                   <div className="flex items-start gap-3">
                     <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#022437] text-sm font-semibold text-white">
                       {idx + 1}

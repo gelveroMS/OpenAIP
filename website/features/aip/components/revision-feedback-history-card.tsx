@@ -69,9 +69,9 @@ export function RevisionFeedbackHistoryCard({
 
   return (
     <Card className="border-slate-200">
-      <CardContent className="space-y-3 p-5">
+      <CardContent className="space-y-3 px-5">
         <div>
-          <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+          <h3 className="text-lg font-bold text-slate-900">{title}</h3>
           <p className="mt-1 text-xs text-slate-500">{description}</p>
         </div>
 

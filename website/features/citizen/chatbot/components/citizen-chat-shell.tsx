@@ -68,7 +68,7 @@ export default function CitizenChatShell({
   void activeContext;
 
   return (
-    <section className="grid min-h-0 h-full grid-cols-1 gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
+    <section className="grid min-h-0 h-full grid-cols-1 gap-6 overflow-hidden lg:h-[calc(100dvh-12rem)] lg:gap-8 lg:grid-cols-[340px_minmax(0,1fr)]">
       <CitizenChatSidebar
         canManageConversations={canManageConversations}
         query={query}

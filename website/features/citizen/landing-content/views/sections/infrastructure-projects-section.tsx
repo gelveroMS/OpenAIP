@@ -323,7 +323,11 @@ export default function InfrastructureProjectsSection({ vm }: InfrastructureProj
       className="relative"
     >
       <div
-        className="pointer-events-none absolute inset-0 bg-[url('/citizen-dashboard/infrastrucutre-bg.svg')] bg-cover bg-center opacity-10"
+        className="pointer-events-none absolute inset-0 bg-[url('/citizen-dashboard/infrastrucutre-bg.webp')] bg-cover bg-center opacity-50"
+        aria-hidden="true"
+      />
+      <div
+        className="pointer-events-none absolute inset-0 bg-[linear-gradient(270deg,rgba(219,234,254,0.95)_5%,rgba(219,234,254,0.85)_50%,rgba(219,234,254,0)_100%)]"
         aria-hidden="true"
       />
       <motion.div

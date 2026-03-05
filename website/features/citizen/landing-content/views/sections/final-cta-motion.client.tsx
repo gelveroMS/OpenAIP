@@ -88,7 +88,7 @@ export default function FinalCtaMotion({ vm }: FinalCtaMotionProps) {
             ) : null}
           </h2>
           <motion.p
-            className="mt-4 text-2xl text-[#F2ECE5]/85 md:text-4xl"
+            className="mt-4 text-xl text-[#F2ECE5]/85 md:text-2xl"
             initial={{ opacity: 0 }}
             animate={hasStarted ? { opacity: 1 } : { opacity: 0 }}
             transition={{

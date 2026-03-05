@@ -15,14 +15,10 @@ type VoiceMattersSectionProps = {
 };
 
 function FeedbackCategorySummaryCard({ vm }: { vm: FeedbackSnapshotVM }) {
-  const currentSeries = vm.series[vm.series.length - 1];
-  const footerLabel = currentSeries?.label ? `${currentSeries.label} Data` : undefined;
-
   return (
-    <div className="rounded-2xl border border-white/10 bg-[#0b2f3a] px-4 py-5 sm:px-5">
+    <div className="h-full rounded-2xl border border-white/10 bg-[#0b2f3a] px-4 py-5 sm:px-5">
       <FeedbackCategorySummaryChart
         items={vm.categorySummary}
-        footerLabel={footerLabel}
         tone="dark"
       />
     </div>
@@ -83,8 +79,8 @@ export default function VoiceMattersSection({ vm }: VoiceMattersSectionProps) {
         </header>
 
         <div className="grid grid-cols-12 items-stretch gap-8">
-          <div className="col-span-12 lg:col-span-7">
-            <MotionInView variant="scaleIn">
+          <div className="col-span-12 h-full lg:col-span-7">
+            <MotionInView className="h-full" variant="scaleIn">
               <FeedbackCategorySummaryCard vm={vm} />
             </MotionInView>
           </div>
