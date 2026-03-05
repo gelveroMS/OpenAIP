@@ -18,7 +18,7 @@ describe("withSecurityHeaders", () => {
     );
   });
 
-  it("requires a style nonce in production", () => {
+  it("allows inline styles in production while keeping script-src strict", () => {
     const response = new Response(null);
 
     withSecurityHeaders(response, {
@@ -28,8 +28,9 @@ describe("withSecurityHeaders", () => {
 
     const csp = response.headers.get("Content-Security-Policy");
 
-    expect(csp).toContain("style-src 'self' 'nonce-prod-nonce'");
-    expect(csp).not.toContain("style-src 'self' 'unsafe-inline'");
+    expect(csp).toContain("style-src 'self' 'nonce-prod-nonce' 'unsafe-inline'");
+    expect(csp).toContain("script-src 'self' 'nonce-prod-nonce' 'strict-dynamic'");
+    expect(csp).not.toMatch(/script-src[^;]*'unsafe-inline'/);
     expect(csp).toContain(
       "img-src 'self' data: blob: https://*.tile.openstreetmap.org https://unpkg.com/leaflet@1.9.4/dist/images/"
     );
