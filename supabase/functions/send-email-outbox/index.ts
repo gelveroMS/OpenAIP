@@ -313,6 +313,7 @@ export function buildOutboxFailureThresholdNotifications(args: {
   adminRecipients: AdminRecipient[];
   failedCountLastHour: number;
   threshold: number;
+  lastErrorSample?: string | null;
   now: Date;
 }): OutboxThresholdNotificationRow[] {
   if (args.failedCountLastHour <= args.threshold) return [];
@@ -329,9 +330,12 @@ export function buildOutboxFailureThresholdNotifications(args: {
     message: `${args.failedCountLastHour} outbox rows failed in the last hour (threshold: ${args.threshold}).`,
     action_url: "/admin/notifications",
     metadata: {
+      failed_count: args.failedCountLastHour,
       failed_count_last_hour: args.failedCountLastHour,
       threshold: args.threshold,
+      window: "Last 60 minutes",
       window_minutes: 60,
+      last_error_sample: args.lastErrorSample ?? null,
       bucket,
     },
     dedupe_key: dedupeKey,
@@ -391,6 +395,7 @@ async function maybeEmitOutboxFailureThresholdAlert(args: {
     adminRecipients,
     failedCountLastHour,
     threshold: args.threshold,
+    lastErrorSample,
     now: args.now,
   });
 

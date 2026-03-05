@@ -7,9 +7,17 @@ export type {
 } from "./events";
 export { NOTIFICATION_EVENT_TYPES } from "./events";
 export { buildNotificationDedupeKey, toHourBucket } from "./dedupe";
-export { buildNotificationTemplate, defaultActionUrl } from "./templates";
+export {
+  buildDisplay,
+  buildNotificationTemplate,
+  defaultActionUrl,
+  formatContextLine,
+  formatEntityLabel,
+  safeTruncate,
+} from "./templates";
 export { buildNotificationActionUrl } from "./action-url";
 export {
+  buildNotificationDestinationHref,
   buildTrackedNotificationOpenHref,
   isSafeInternalPath as isSafeNotificationInternalPath,
 } from "./open-link";

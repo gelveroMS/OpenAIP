@@ -7,6 +7,12 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 type NotificationRealtimePayload = {
   id: string;
   recipient_user_id: string;
+  recipient_role: string | null;
+  scope_type: string | null;
+  event_type: string | null;
+  action_url: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string | null;
   read_at: string | null;
   title: string;
   message: string;
@@ -32,6 +38,15 @@ function asNotificationPayload(value: unknown): NotificationRealtimePayload | nu
   return {
     id,
     recipient_user_id: recipientUserId,
+    recipient_role: typeof row.recipient_role === "string" ? row.recipient_role : null,
+    scope_type: typeof row.scope_type === "string" ? row.scope_type : null,
+    event_type: typeof row.event_type === "string" ? row.event_type : null,
+    action_url: typeof row.action_url === "string" ? row.action_url : null,
+    metadata:
+      row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+        ? (row.metadata as Record<string, unknown>)
+        : {},
+    created_at: typeof row.created_at === "string" ? row.created_at : null,
     read_at: typeof row.read_at === "string" ? row.read_at : null,
     title: typeof row.title === "string" ? row.title : "",
     message: typeof row.message === "string" ? row.message : "",

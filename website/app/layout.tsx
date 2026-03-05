@@ -5,6 +5,7 @@ import "leaflet/dist/leaflet.css";
 import SessionTimeoutGuard from "@/components/security/session-timeout-guard";
 import GlobalSystemBanner from "@/components/system/global-system-banner";
 import SmartLoadingProvider from "@/components/ui/SmartLoadingProvider";
+import NotificationReadTracker from "@/features/notifications/components/notification-read-tracker";
 
 const arimo = Arimo({
   variable: "--font-arimo",
@@ -52,6 +53,7 @@ export default function RootLayout({
       >
         <SmartLoadingProvider>
           <GlobalSystemBanner />
+          <NotificationReadTracker />
           <SessionTimeoutGuard />
           {children}
         </SmartLoadingProvider>

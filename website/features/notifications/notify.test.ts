@@ -15,6 +15,7 @@ const mockGetRecipientByUserId = vi.fn();
 const mockResolveFeedbackContext = vi.fn();
 const mockResolveAipTemplateContext = vi.fn();
 const mockResolveProjectTemplateContext = vi.fn();
+const mockResolveProjectUpdateTemplateContext = vi.fn();
 const mockResolveFeedbackTemplateContext = vi.fn();
 const mockResolveActorDisplayName = vi.fn();
 const mockGetUserById = vi.fn();
@@ -36,6 +37,8 @@ vi.mock("@/lib/notifications/recipients", () => ({
   resolveAipScope: vi.fn(async () => null),
   resolveAipTemplateContext: (...args: unknown[]) => mockResolveAipTemplateContext(...args),
   resolveProjectTemplateContext: (...args: unknown[]) => mockResolveProjectTemplateContext(...args),
+  resolveProjectUpdateTemplateContext: (...args: unknown[]) =>
+    mockResolveProjectUpdateTemplateContext(...args),
   resolveFeedbackContext: (...args: unknown[]) => mockResolveFeedbackContext(...args),
   resolveFeedbackTemplateContext: (...args: unknown[]) => mockResolveFeedbackTemplateContext(...args),
   resolveProjectScope: vi.fn(async () => null),
@@ -115,11 +118,18 @@ describe("notify()", () => {
     mockResolveProjectTemplateContext.mockResolvedValue({
       projectName: "Rural Health Program",
     });
+    mockResolveProjectUpdateTemplateContext.mockReset();
+    mockResolveProjectUpdateTemplateContext.mockResolvedValue({
+      updateTitle: null,
+      updateBody: null,
+      status: null,
+    });
     mockResolveFeedbackTemplateContext.mockReset();
     mockResolveFeedbackTemplateContext.mockResolvedValue({
       feedbackKind: "question",
       feedbackBody: "Can you share update details for this project?",
       entityLabel: "Rural Health Program",
+      targetLabel: "Rural Health Program",
       targetType: "project",
     });
     mockResolveActorDisplayName.mockReset();
@@ -341,6 +351,14 @@ describe("notify()", () => {
     expect(byUserId.get("citizen-root")?.action_url).toBe(
       "/projects/health/proj-1?tab=feedback&thread=fb-root&comment=fb-reply-1"
     );
+    expect(byUserId.get("bo-2")?.metadata).toMatchObject({
+      is_reply: true,
+      reply_context: {
+        root_feedback_id: "fb-root",
+        parent_feedback_id: "fb-root",
+        target_type: "project",
+      },
+    });
 
     expect(emailUpserts).toHaveLength(1);
     const emailRecipients = new Set(
@@ -457,6 +475,7 @@ describe("notify()", () => {
       feedbackKind: "concern",
       feedbackBody: "x".repeat(260),
       entityLabel: "Road Improvement Project",
+      targetLabel: "Road Improvement Project",
       targetType: "project",
     });
     mockResolveProjectTemplateContext.mockResolvedValueOnce({
@@ -482,7 +501,7 @@ describe("notify()", () => {
     expect(emailUpserts).toHaveLength(1);
     const payload = emailUpserts[0].rows[0].payload as Record<string, unknown>;
     const templateData = payload.template_data as Record<string, unknown>;
-    expect(templateData.entity_label).toBe("Road Improvement Project");
+    expect(templateData.entity_label).toBe("Feedback on Road Improvement Project");
     expect(templateData.feedback_kind).toBe("Concern");
     expect(String(templateData.feedback_excerpt)).toContain("...");
     expect(String(templateData.feedback_excerpt).length).toBeLessThanOrEqual(200);
