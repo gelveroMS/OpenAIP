@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AipFeedbackTab from "./aip-feedback-tab";
+import { invalidateCitizenProfileStatusCache } from "@/features/citizen/auth/utils/profile-status-client";
 
 const mockListAipFeedback = vi.fn();
 const mockCreateCitizenAipFeedback = vi.fn();
@@ -42,6 +43,7 @@ vi.mock("./aip-feedback.api", async () => {
 describe("AipFeedbackTab", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    invalidateCitizenProfileStatusCache();
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {
