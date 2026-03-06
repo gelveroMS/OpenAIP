@@ -27,6 +27,7 @@ import {
 
 import type {
   AipHeader,
+  AipProjectRow,
   AipProcessingRunView,
   PipelineStageUi,
   PipelineStatusUi,
@@ -86,6 +87,7 @@ const PIPELINE_STAGE_LABELS: Record<PipelineStageUi, string> = {
 const PIPELINE_STATUS: PipelineStatusUi[] = ["queued", "running", "succeeded", "failed"];
 const FINALIZE_REFRESH_MAX_ATTEMPTS = 5;
 const FINALIZE_REFRESH_INTERVAL_MS = 1500;
+const FLAGGED_PROJECTS_PAGE_SIZE = 5;
 const FINALIZE_PROGRESS_MESSAGE =
   "Saving processed data to the database. You will be redirected shortly.";
 const LIVE_STATUS_UNAVAILABLE_NOTICE =
@@ -323,6 +325,8 @@ export default function AipDetailView({
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState<string | null>(null);
   const [unresolvedAiCount, setUnresolvedAiCount] = useState(0);
+  const [aiFlaggedProjects, setAiFlaggedProjects] = useState<AipProjectRow[]>([]);
+  const [flaggedPage, setFlaggedPage] = useState(1);
   const [workflowPendingAction, setWorkflowPendingAction] = useState<
     | "delete_draft"
     | "cancel_submission"
@@ -750,6 +754,8 @@ export default function AipDetailView({
     setProjectsLoading(true);
     setProjectsError(null);
     setUnresolvedAiCount(0);
+    setAiFlaggedProjects([]);
+    setFlaggedPage(1);
   }, [aip.id]);
 
   useEffect(() => {
@@ -757,6 +763,14 @@ export default function AipDetailView({
       setRevisionReplyDraft("");
     }
   }, [aip.status]);
+
+  useEffect(() => {
+    const totalPages = Math.max(
+      1,
+      Math.ceil(aiFlaggedProjects.length / FLAGGED_PROJECTS_PAGE_SIZE)
+    );
+    setFlaggedPage((previous) => Math.min(previous, totalPages));
+  }, [aiFlaggedProjects.length]);
 
   const isWorkflowBusy = workflowPendingAction !== null;
   const canManageBarangayWorkflow =
@@ -797,9 +811,22 @@ export default function AipDetailView({
         : requiresRevisionReply && trimmedRevisionReply.length === 0
           ? "Reply to reviewer remarks is required before resubmission."
         : null;
+  const flaggedProjectsTotalPages = Math.max(
+    1,
+    Math.ceil(aiFlaggedProjects.length / FLAGGED_PROJECTS_PAGE_SIZE)
+  );
+  const currentFlaggedPage = Math.min(flaggedPage, flaggedProjectsTotalPages);
+  const flaggedProjectsPageStart = (currentFlaggedPage - 1) * FLAGGED_PROJECTS_PAGE_SIZE;
+  const visibleFlaggedProjects = aiFlaggedProjects.slice(
+    flaggedProjectsPageStart,
+    flaggedProjectsPageStart + FLAGGED_PROJECTS_PAGE_SIZE
+  );
+  const showFlaggedProjectsPagination =
+    aiFlaggedProjects.length > FLAGGED_PROJECTS_PAGE_SIZE;
 
   const handleProjectsStateChange = useCallback(
     (state: {
+      rows: AipProjectRow[];
       loading: boolean;
       error: string | null;
       unresolvedAiCount: number;
@@ -807,6 +834,9 @@ export default function AipDetailView({
       setProjectsLoading(state.loading);
       setProjectsError(state.error);
       setUnresolvedAiCount(state.unresolvedAiCount);
+      setAiFlaggedProjects(
+        state.rows.filter((project) => project.reviewStatus === "ai_flagged")
+      );
     },
     []
   );
@@ -1176,8 +1206,69 @@ export default function AipDetailView({
               (aip.status === "draft" || aip.status === "for_revision") &&
               submitBlockedReason ? (
                 <Alert className="border-amber-200 bg-amber-50">
-                  <AlertDescription className="text-amber-800">
-                    {submitBlockedReason}
+                  <AlertDescription className="space-y-3 text-amber-800">
+                    <p>{submitBlockedReason}</p>
+                    {unresolvedAiCount > 0 && aiFlaggedProjects.length > 0 ? (
+                      <div className="rounded border border-amber-300 bg-amber-100/50 px-3 py-2">
+                        <p className="text-xs font-semibold text-amber-900">
+                          Flagged projects:
+                        </p>
+                        <ul className="mt-2 space-y-1 text-xs">
+                          {visibleFlaggedProjects.map((project) => {
+                            const projectHref = `/${scope}/aips/${encodeURIComponent(
+                              aip.id
+                            )}/${encodeURIComponent(project.id)}`;
+                            return (
+                              <li key={project.id} className="leading-relaxed">
+                                <a
+                                  href={projectHref}
+                                  className="font-semibold text-amber-900 underline underline-offset-2 hover:text-amber-950"
+                                >
+                                  {project.projectRefCode}
+                                </a>
+                                <span className="text-amber-900">
+                                  {" "}
+                                  - {project.aipDescription}
+                                </span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                        {showFlaggedProjectsPagination ? (
+                          <div className="mt-3 flex items-center justify-between">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 border-amber-300 bg-amber-50 px-2 text-amber-900 hover:bg-amber-100"
+                              onClick={() =>
+                                setFlaggedPage((previous) => Math.max(1, previous - 1))
+                              }
+                              disabled={currentFlaggedPage <= 1}
+                            >
+                              Previous
+                            </Button>
+                            <span className="text-[11px] text-amber-900">
+                              Page {currentFlaggedPage} of {flaggedProjectsTotalPages}
+                            </span>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 border-amber-300 bg-amber-50 px-2 text-amber-900 hover:bg-amber-100"
+                              onClick={() =>
+                                setFlaggedPage((previous) =>
+                                  Math.min(flaggedProjectsTotalPages, previous + 1)
+                                )
+                              }
+                              disabled={currentFlaggedPage >= flaggedProjectsTotalPages}
+                            >
+                              Next
+                            </Button>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </AlertDescription>
                 </Alert>
               ) : null}

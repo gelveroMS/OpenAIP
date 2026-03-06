@@ -19,6 +19,12 @@ let lastDetailsTableProps: {
   enablePagination?: boolean;
 } | null = null;
 let mockProjectsState = {
+  rows: [] as Array<{
+    id: string;
+    projectRefCode: string;
+    aipDescription: string;
+    reviewStatus: "ai_flagged" | "reviewed" | "unreviewed";
+  }>,
   loading: false,
   error: null as string | null,
   unresolvedAiCount: 0,
@@ -78,7 +84,7 @@ vi.mock("./aip-details-table", () => ({
     lastDetailsTableProps = { scope, enablePagination };
     React.useEffect(() => {
       onProjectsStateChange?.({
-        rows: [],
+        rows: mockProjectsState.rows,
         loading: mockProjectsState.loading,
         error: mockProjectsState.error,
         unresolvedAiCount: mockProjectsState.unresolvedAiCount,
@@ -161,12 +167,31 @@ function createDeferred<T>() {
   return { promise, resolve, reject };
 }
 
+function flaggedProject(
+  id: string,
+  refCode: string,
+  description: string
+): {
+  id: string;
+  projectRefCode: string;
+  aipDescription: string;
+  reviewStatus: "ai_flagged";
+} {
+  return {
+    id,
+    projectRefCode: refCode,
+    aipDescription: description,
+    reviewStatus: "ai_flagged",
+  };
+}
+
 describe("AipDetailView sidebar behavior", () => {
   beforeEach(() => {
     lastDetailsTableProps = null;
     mockSearchParams = new URLSearchParams();
     latestRealtimeArgs = null;
     mockProjectsState = {
+      rows: [],
       loading: false,
       error: null,
       unresolvedAiCount: 0,
@@ -644,9 +669,17 @@ describe("AipDetailView sidebar behavior", () => {
 
   it("shows unresolved AI block message for city submit", async () => {
     mockProjectsState = {
+      rows: [
+        flaggedProject("project-001", "REF-001", "Flagged project 1"),
+        flaggedProject("project-002", "REF-002", "Flagged project 2"),
+        flaggedProject("project-003", "REF-003", "Flagged project 3"),
+        flaggedProject("project-004", "REF-004", "Flagged project 4"),
+        flaggedProject("project-005", "REF-005", "Flagged project 5"),
+        flaggedProject("project-006", "REF-006", "Flagged project 6"),
+      ],
       loading: false,
       error: null,
-      unresolvedAiCount: 2,
+      unresolvedAiCount: 6,
     };
 
     render(<AipDetailView aip={baseAip("draft", { scope: "city" })} scope="city" />);
@@ -657,10 +690,64 @@ describe("AipDetailView sidebar behavior", () => {
 
     expect(
       screen.getByText(
-        "2 AI-flagged project(s) still need an official response before submission."
+        "6 AI-flagged project(s) still need an official response before submission."
       )
     ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "REF-001" })).toHaveAttribute(
+      "href",
+      "/city/aips/aip-001/project-001"
+    );
+    expect(screen.getByRole("link", { name: "REF-005" })).toHaveAttribute(
+      "href",
+      "/city/aips/aip-001/project-005"
+    );
+    expect(screen.queryByRole("link", { name: "REF-006" })).not.toBeInTheDocument();
+    expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    expect(screen.getByText("Page 2 of 2")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "REF-006" })).toHaveAttribute(
+      "href",
+      "/city/aips/aip-001/project-006"
+    );
+    expect(screen.queryByRole("link", { name: "REF-001" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+
+    expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "REF-001" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Submit & Publish" })).toBeDisabled();
+  });
+
+  it("does not show flagged-project pagination controls when unresolved list is 5 or fewer", async () => {
+    mockProjectsState = {
+      rows: [
+        flaggedProject("project-001", "REF-001", "Flagged project 1"),
+        flaggedProject("project-002", "REF-002", "Flagged project 2"),
+        flaggedProject("project-003", "REF-003", "Flagged project 3"),
+      ],
+      loading: false,
+      error: null,
+      unresolvedAiCount: 3,
+    };
+
+    render(<AipDetailView aip={baseAip("draft", { scope: "city" })} scope="city" />);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Checking extraction status...")).not.toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByText(
+        "3 AI-flagged project(s) still need an official response before submission."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "REF-001" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "REF-003" })).toBeInTheDocument();
+    expect(screen.queryByText(/Page \d+ of \d+/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Next" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Previous" })).not.toBeInTheDocument();
   });
 
   it("shows failed-run notice from active lookup and hides city detail UI", async () => {
