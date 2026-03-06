@@ -75,7 +75,7 @@ NOTE (Barangay-specific):
 ERROR STRINGS
 
 - Each error string must start with the rule ID, e.g.:
-  "R006 total mismatch: expected 12345.00 but got 12000.00"
+  "R005 total mismatch: expected 12345.00 but got 12000.00"
 
 Suggested error messages:
 

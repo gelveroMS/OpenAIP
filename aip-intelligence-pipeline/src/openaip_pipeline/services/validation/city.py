@@ -151,7 +151,7 @@ def _validate_total_city(project: dict[str, Any]) -> list[str]:
     expected = float(ps or 0) + float(mooe or 0) + float(co or 0)
     if abs(float(total) - expected) <= 1.0:
         return []
-    return [f"R004 total mismatch: expected {expected:.2f} but got {float(total):.2f}"]
+    return [f"R005 total mismatch: expected {expected:.2f} but got {float(total):.2f}"]
 
 
 def _build_chunk_payload(
