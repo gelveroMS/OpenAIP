@@ -37,24 +37,6 @@ function parseTopLimit(normalized: string): number {
   return Math.max(1, Math.min(parsed, 50));
 }
 
-function hasFundSourceExistListCue(normalized: string): boolean {
-  const hasFundTopic =
-    normalized.includes("fund source") ||
-    normalized.includes("fund sources") ||
-    normalized.includes("funding source") ||
-    normalized.includes("source of funds") ||
-    normalized.includes("sources of funds");
-  if (!hasFundTopic) return false;
-
-  return (
-    normalized.includes("exist") ||
-    normalized.includes("available") ||
-    normalized.includes("list") ||
-    normalized.includes("show") ||
-    normalized.includes("what are")
-  );
-}
-
 export function detectAggregationIntent(message: string): AggregationIntentResult {
   const normalized = normalizeAggregationText(message);
   if (!normalized) return { intent: "none" };
@@ -83,17 +65,11 @@ export function detectAggregationIntent(message: string): AggregationIntentResul
     normalized.includes("per sector") ||
     normalized.includes("sector totals") ||
     normalized.includes("total by sector") ||
-    normalized.includes("what are the sectors") ||
-    normalized.includes("what is the sectors") ||
-    normalized.includes("sectors in the projects") ||
-    normalized.includes("list sectors") ||
-    normalized.includes("sector list");
+    normalized.includes("sector breakdown") ||
+    normalized.includes("breakdown by sector") ||
+    normalized.includes("sector distribution");
   if (hasSectorCue) {
     return { intent: "totals_by_sector" };
-  }
-
-  if (hasFundSourceExistListCue(normalized)) {
-    return { intent: "totals_by_fund_source" };
   }
 
   const hasFundTopic =
@@ -126,6 +102,8 @@ export function detectAggregationIntent(message: string): AggregationIntentResul
     normalized.includes("compare") ||
     normalized.includes("comparison") ||
     normalized.includes("difference") ||
+    normalized.includes("fund source breakdown") ||
+    normalized.includes("fund source distribution") ||
     /how much is funded by .* (vs|versus) .*/.test(normalized) ||
     /(loan|loans)\s+(vs|versus)\s+general fund/.test(normalized) ||
     /general fund\s+(vs|versus)\s+(loan|loans|external source)/.test(normalized);

@@ -83,5 +83,11 @@ export type PipelineChatAnswer = {
     verifier_passed?: boolean;
     scope_mode?: string;
     scope_targets_count?: number;
+    verifier_mode?: "structured" | "retrieval" | "mixed";
+    verifier_policy_passed?: boolean;
+    retrieved_count?: number;
+    strong_count?: number;
+    selected_count?: number;
+    diversity_selection_enabled?: boolean;
   };
 };

@@ -161,6 +161,8 @@ export type ChatRetrievalMeta = {
     aggregationSource: string;
   };
   intentClassification?: PipelineIntentClassification;
+  verifierMode?: "structured" | "retrieval" | "mixed";
+  verifierPolicyPassed?: boolean;
 };
 
 export const ChatRepoErrors = {

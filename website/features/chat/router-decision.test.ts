@@ -30,6 +30,15 @@ describe("router decision", () => {
     expect(decision.kind).toBe("ROW_LOOKUP");
   });
 
+  it("selects SQL metadata for strict metadata enumeration asks", () => {
+    const decision = decideRoute({
+      text: "What sectors exist in the AIP?",
+      intentClassification: null,
+    });
+
+    expect(decision.kind).toBe("SQL_METADATA");
+  });
+
   it("selects conversational shortcut when conversational intent has no domain cues", () => {
     const decision = decideRoute({
       text: "hello there",

@@ -40,6 +40,7 @@ describe("query planner", () => {
         slots: {
           fiscalYear: 2026,
           aggregationIntent: "none",
+          metadataIntent: "none",
           lineItemFact: false,
           lineItemSpecific: false,
           hasDomainCues: true,
@@ -54,6 +55,7 @@ describe("query planner", () => {
         slots: {
           fiscalYear: 2026,
           aggregationIntent: "none",
+          metadataIntent: "none",
           lineItemFact: true,
           lineItemSpecific: true,
           hasDomainCues: true,

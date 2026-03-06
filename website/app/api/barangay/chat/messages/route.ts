@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { formatTotalsEvidence } from "@/lib/chat/evidence";
 import { getLguChatAuthFailure } from "@/lib/chat/lgu-route-auth";
+import { detectMetadataIntent } from "@/lib/chat/metadata-intent";
+import { resolveMetadataSqlPayload } from "@/lib/chat/metadata-sql-routing";
 import { buildRefusalMessage } from "@/lib/chat/refusal";
 import {
   detectAggregationIntent,
@@ -16,6 +18,10 @@ import {
   type CityScopeResult,
 } from "@/lib/chat/city-scope";
 import { detectIntent, extractFiscalYear } from "@/lib/chat/intent";
+import {
+  evaluateVerifierPolicy,
+  type VerifierMode,
+} from "@/lib/chat/verifier-policy";
 import {
   buildClarificationOptions,
   buildLineItemAnswer,
@@ -237,11 +243,12 @@ type NonTotalsRoutingLogPayload = {
     | "unanswerable_field"
     | "clarification_needed"
     | "pipeline_fallback"
+    | "metadata_lookup"
     | "aggregate_top_projects"
     | "aggregate_totals_by_sector"
     | "aggregate_totals_by_fund_source"
     | "aggregate_compare_years";
-  route: "row_sql" | "pipeline_fallback" | "aggregate_sql";
+  route: "row_sql" | "pipeline_fallback" | "aggregate_sql" | "metadata_sql";
   fiscal_year_parsed: number | null;
   scope_reason: RouteScopeReason;
   barangay_id_used: string | null;
@@ -1790,6 +1797,14 @@ function isChatMixedIntentEnabled(): boolean {
   return process.env.CHAT_MIXED_INTENT_ENABLED === "true";
 }
 
+function isChatMetadataSqlRouteEnabled(): boolean {
+  return process.env.CHAT_METADATA_SQL_ROUTE_ENABLED !== "false";
+}
+
+function isChatSplitVerifierPolicyEnabled(): boolean {
+  return process.env.CHAT_SPLIT_VERIFIER_POLICY_ENABLED !== "false";
+}
+
 function logRouteDecision(input: {
   requestId: string;
   text: string;
@@ -1928,14 +1943,42 @@ async function appendAssistantMessage(params: {
   content: string;
   citations: ChatCitation[];
   retrievalMeta: ChatRetrievalMeta;
+  verifierInput?: {
+    mode?: VerifierMode;
+    structuredExpected?: unknown;
+    structuredActual?: unknown;
+  };
 }): Promise<ChatMessage> {
   const normalizedMeta = normalizeRetrievalMetaStatus(params.retrievalMeta);
+  const verifierMode: VerifierMode =
+    params.verifierInput?.mode ??
+    normalizedMeta.verifierMode ??
+    "structured";
+
+  const verifierResult = isChatSplitVerifierPolicyEnabled()
+    ? evaluateVerifierPolicy({
+        mode: verifierMode,
+        citations: params.citations,
+        retrievalMeta: normalizedMeta,
+        structuredExpected: params.verifierInput?.structuredExpected,
+        structuredActual: params.verifierInput?.structuredActual,
+      })
+    : {
+        mode: verifierMode,
+        passed: true,
+      };
+
+  const verifiedMeta: ChatRetrievalMeta = {
+    ...normalizedMeta,
+    verifierMode: verifierResult.mode,
+    verifierPolicyPassed: verifierResult.passed,
+  };
   const inserted = await insertAssistantChatMessage({
     actor: params.actor ?? null,
     sessionId: params.sessionId,
     content: params.content,
     citations: params.citations as unknown as Json,
-    retrievalMeta: normalizedMeta as unknown as Json,
+    retrievalMeta: verifiedMeta as unknown as Json,
   });
 
   return toChatMessage(inserted as ChatMessageRow);
@@ -3539,6 +3582,7 @@ export async function POST(request: Request) {
     }
 
     const parsedLineItemQuestion = parseLineItemQuestion(content);
+    const metadataIntentDetected = detectMetadataIntent(content);
     const aggregationIntent = inferAggregationIntentFromPipelineClassification({
       message: content,
       detected: detectAggregationIntent(content),
@@ -5694,7 +5738,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (parsedLineItemQuestion.isFactQuestion) {
+    if (parsedLineItemQuestion.isFactQuestion && metadataIntentDetected.intent === "none") {
       let vectorRpcCalled = false;
       try {
         const barangayFilterId = lineItemScope.barangayIdUsed;
@@ -6352,6 +6396,55 @@ export async function POST(request: Request) {
       }
     }
 
+    if (isChatMetadataSqlRouteEnabled() && metadataIntentDetected.intent !== "none") {
+      const metadataPayload = await resolveMetadataSqlPayload({
+        message: content,
+        scopeResolution,
+      });
+
+      if (metadataPayload) {
+        const assistantMessage = await appendAssistantMessage({
+          actor: privilegedActor,
+          sessionId: session.id,
+          content: metadataPayload.content,
+          citations: metadataPayload.citations,
+          retrievalMeta: {
+            ...metadataPayload.retrievalMeta,
+            latencyMs: Date.now() - startedAt,
+            scopeResolution,
+            verifierMode: "structured",
+          },
+          verifierInput: {
+            mode: "structured",
+            structuredExpected: metadataPayload.structuredValues,
+            structuredActual: metadataPayload.structuredValues,
+          },
+        });
+        logNonTotalsRouting({
+          request_id: requestId,
+          intent: "metadata_lookup",
+          route: "metadata_sql",
+          fiscal_year_parsed: requestedFiscalYear,
+          scope_reason: lineItemScope.scopeReason,
+          barangay_id_used: lineItemScope.barangayIdUsed,
+          match_count_used: null,
+          top_candidate_ids: [],
+          top_candidate_distances: [],
+          answered: true,
+          vector_called: false,
+        });
+
+        return NextResponse.json(
+          chatResponsePayload({
+            sessionId: session.id,
+            userMessage,
+            assistantMessage,
+          }),
+          { status: 200 }
+        );
+      }
+    }
+
     if (isUnsupportedRequestQuery(content)) {
       const refusal = buildRefusalMessage({
         intent: "pipeline_fallback",
@@ -6408,6 +6501,7 @@ export async function POST(request: Request) {
       refused: true,
       reason: "unknown",
       scopeResolution,
+      verifierMode: "retrieval",
     };
 
     try {
@@ -6427,6 +6521,8 @@ export async function POST(request: Request) {
         minSimilarity: pipeline.retrieval_meta?.min_similarity,
         contextCount: pipeline.retrieval_meta?.context_count,
         verifierPassed: pipeline.retrieval_meta?.verifier_passed,
+        verifierMode: pipeline.retrieval_meta?.verifier_mode ?? "retrieval",
+        verifierPolicyPassed: pipeline.retrieval_meta?.verifier_policy_passed,
         latencyMs: Date.now() - startedAt,
         scopeResolution,
         intentClassification: frontendIntentClassification ?? undefined,
@@ -6442,6 +6538,7 @@ export async function POST(request: Request) {
         scopeResolution,
         latencyMs: Date.now() - startedAt,
         intentClassification: frontendIntentClassification ?? undefined,
+        verifierMode: "retrieval",
       };
     }
 
@@ -6455,6 +6552,7 @@ export async function POST(request: Request) {
         ...assistantMeta,
         refused: true,
         reason: assistantMeta.reason === "ok" ? "validation_failed" : assistantMeta.reason,
+        verifierMode: "retrieval",
       };
     }
 
@@ -6464,6 +6562,9 @@ export async function POST(request: Request) {
       content: assistantContent,
       citations: assistantCitations,
       retrievalMeta: assistantMeta,
+      verifierInput: {
+        mode: "retrieval",
+      },
     });
     logNonTotalsRouting({
       request_id: requestId,

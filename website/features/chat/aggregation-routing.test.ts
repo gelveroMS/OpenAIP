@@ -397,6 +397,47 @@ function createAdminClient() {
         };
       }
 
+      if (table === "aip_line_items") {
+        return {
+          select: () => {
+            let inFilter: { field: string; values: string[] } | null = null;
+            const applyFilters = () =>
+              Object.values(lineItemsById).filter((row) => {
+                if (!inFilter) return true;
+                const candidate = String((row as Record<string, unknown>)[inFilter.field] ?? "");
+                return inFilter.values.includes(candidate);
+              });
+
+            const builder = {
+              in: (field: string, values: string[]) => {
+                inFilter = { field, values };
+                return builder;
+              },
+              then: (
+                resolve: (
+                  value: {
+                    data: Array<Record<string, unknown>>;
+                    error: null;
+                  }
+                ) => void,
+                reject?: (reason?: unknown) => void
+              ) =>
+                Promise.resolve({
+                  data: applyFilters().map((row) => ({
+                    aip_id: row.aip_id,
+                    fund_source: row.fund_source,
+                    sector_code: (row as Record<string, unknown>).sector_code ?? null,
+                    sector_name: (row as Record<string, unknown>).sector_name ?? null,
+                    implementing_agency: row.implementing_agency,
+                  })),
+                  error: null as null,
+                }).then(resolve, reject),
+            };
+            return builder;
+          },
+        };
+      }
+
       if (table === "aip_totals") {
         return {
           select: () => {
@@ -1149,22 +1190,26 @@ describe("aggregation routing", () => {
     ).toBe(true);
   });
 
-  it("routes fund-source existence query to aggregation list mode", async () => {
+  it("routes fund-source existence query to metadata SQL mode", async () => {
     const { payload } = await callMessagesRoute({
       sessionId: session.id,
       content: "What fund sources exist in FY 2026?",
     });
 
     expect(payload.status).toBe("answer");
-    const assistant = payload.assistantMessage as { content: string };
-    expect(assistant.content).toContain("Fund sources (");
-    expect(assistant.content).not.toContain("Budget totals by fund source");
+    const assistant = payload.assistantMessage as {
+      content: string;
+      retrievalMeta?: { verifierMode?: string };
+    };
+    expect(assistant.content).toContain("Fund sources");
+    expect(assistant.retrievalMeta?.verifierMode).toBe("structured");
 
     expect(
       mockServerRpc.mock.calls.some(([fn]) => fn === "get_totals_by_fund_source")
-    ).toBe(true);
+    ).toBe(false);
     expect(
       mockServerRpc.mock.calls.some(([fn]) => fn === "match_aip_line_items")
     ).toBe(false);
+    expect(mockRequestPipelineChatAnswer).not.toHaveBeenCalled();
   });
 });

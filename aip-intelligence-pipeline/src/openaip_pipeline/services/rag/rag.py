@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import hashlib
 from typing import Any
 
 from openaip_pipeline.core.resources import read_text
@@ -59,6 +60,129 @@ def _safe_float(value: Any) -> float | None:
     if isinstance(value, (int, float)):
         return float(value)
     return None
+
+
+def _diversity_selection_enabled() -> bool:
+    value = os.getenv("RAG_DIVERSITY_SELECTION_ENABLED", "true").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+def _normalize_content(text: str) -> str:
+    return " ".join((text or "").lower().split())
+
+
+def _content_hash(text: str) -> str:
+    return hashlib.sha256(_normalize_content(text).encode("utf-8")).hexdigest()
+
+
+def _doc_similarity_score(doc: Any) -> float:
+    metadata = getattr(doc, "metadata", {}) or {}
+    return _safe_float(metadata.get("similarity")) or 0.0
+
+
+def _doc_section_key(doc: Any) -> str:
+    metadata = getattr(doc, "metadata", {}) or {}
+    nested = metadata.get("metadata")
+    nested_metadata = nested if isinstance(nested, dict) else {}
+    section = str(nested_metadata.get("section") or nested_metadata.get("section_name") or "").strip().lower()
+    page_no = str(nested_metadata.get("page_no") or metadata.get("page_no") or "").strip()
+    scope_key = f"{metadata.get('scope_type')}:{metadata.get('scope_id')}"
+    if section:
+        return f"{scope_key}:section:{section}"
+    if page_no:
+        return f"{scope_key}:page:{page_no}"
+    return f"{scope_key}:chunk:{metadata.get('chunk_id')}"
+
+
+def _token_set(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]{2,}", (text or "").lower()))
+
+
+def _text_overlap(a: str, b: str) -> float:
+    tokens_a = _token_set(a)
+    tokens_b = _token_set(b)
+    if not tokens_a or not tokens_b:
+        return 0.0
+    union = tokens_a | tokens_b
+    if not union:
+        return 0.0
+    return len(tokens_a & tokens_b) / len(union)
+
+
+def _dedupe_exact_docs(docs: list[Any]) -> list[Any]:
+    seen_keys: set[str] = set()
+    selected: list[Any] = []
+    ranked = sorted(docs, key=_doc_similarity_score, reverse=True)
+    for doc in ranked:
+        metadata = getattr(doc, "metadata", {}) or {}
+        chunk_id = str(metadata.get("chunk_id") or "").strip()
+        key = f"chunk:{chunk_id}" if chunk_id else f"text:{_content_hash(str(getattr(doc, 'page_content', '') or ''))}"
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        selected.append(doc)
+    return selected
+
+
+def _suppress_near_duplicates(docs: list[Any], *, max_overlap: float = 0.92) -> list[Any]:
+    selected: list[Any] = []
+    ranked = sorted(docs, key=_doc_similarity_score, reverse=True)
+    for doc in ranked:
+        content = str(getattr(doc, "page_content", "") or "")
+        if any(_text_overlap(content, str(getattr(existing, "page_content", "") or "")) >= max_overlap for existing in selected):
+            continue
+        selected.append(doc)
+    return selected
+
+
+def _select_diverse_docs(
+    docs: list[Any],
+    *,
+    max_docs: int = 6,
+    min_docs: int = 4,
+) -> list[Any]:
+    if not docs:
+        return []
+
+    candidate_docs = _suppress_near_duplicates(_dedupe_exact_docs(docs))
+    if len(candidate_docs) <= max_docs:
+        return candidate_docs
+
+    ranked = sorted(candidate_docs, key=_doc_similarity_score, reverse=True)
+    selected: list[Any] = [ranked[0]]
+    remaining = ranked[1:]
+    target_count = min(max_docs, len(ranked))
+
+    while remaining and len(selected) < target_count:
+        best_index = 0
+        best_score = float("-inf")
+        for index, candidate in enumerate(remaining):
+            relevance = _doc_similarity_score(candidate)
+            max_content_overlap = max(
+                (
+                    _text_overlap(
+                        str(getattr(candidate, "page_content", "") or ""),
+                        str(getattr(existing, "page_content", "") or ""),
+                    )
+                    for existing in selected
+                ),
+                default=0.0,
+            )
+            section_penalty = 0.0
+            candidate_section = _doc_section_key(candidate)
+            if any(_doc_section_key(existing) == candidate_section for existing in selected):
+                section_penalty = 0.15
+
+            mmr_score = relevance - (0.35 * max_content_overlap) - section_penalty
+            if mmr_score > best_score:
+                best_score = mmr_score
+                best_index = index
+
+        selected.append(remaining.pop(best_index))
+        if len(selected) >= min_docs and len(selected) >= max_docs:
+            break
+
+    return selected[:max_docs]
 
 
 def _build_citation(index: int, doc: Any, *, insufficient: bool = False) -> dict[str, Any]:
@@ -231,6 +355,28 @@ def _build_partial_evidence(
     }
 
 
+def _attach_selection_meta(
+    result: dict[str, Any],
+    *,
+    retrieved_count: int,
+    strong_count: int,
+    selected_count: int,
+    diversity_selection_enabled: bool,
+) -> dict[str, Any]:
+    metadata = dict(result.get("retrieval_meta") or {})
+    metadata.update(
+        {
+            "retrieved_count": retrieved_count,
+            "strong_count": strong_count,
+            "selected_count": selected_count,
+            "diversity_selection_enabled": diversity_selection_enabled,
+        }
+    )
+    result["retrieval_meta"] = metadata
+    result["context_count"] = selected_count
+    return result
+
+
 def answer_with_rag(
     *,
     supabase_url: str,
@@ -264,25 +410,44 @@ def answer_with_rag(
         for doc in docs
         if (_safe_float((getattr(doc, "metadata", {}) or {}).get("similarity")) or 0.0) >= min_similarity
     ]
+    diversity_enabled = _diversity_selection_enabled()
     if not strong_docs:
         if docs and _partial_mode_enabled():
-            return _build_partial_evidence(
+            return _attach_selection_meta(
+                _build_partial_evidence(
+                    question=question,
+                    reason="partial_evidence",
+                    docs=docs,
+                    top_k=top_k,
+                    min_similarity=min_similarity,
+                    retrieval_scope=resolved_scope,
+                ),
+                retrieved_count=len(docs),
+                strong_count=0,
+                selected_count=min(3, len(docs)),
+                diversity_selection_enabled=diversity_enabled,
+            )
+        return _attach_selection_meta(
+            _build_refusal(
                 question=question,
-                reason="partial_evidence",
+                reason="insufficient_evidence",
                 docs=docs,
                 top_k=top_k,
                 min_similarity=min_similarity,
                 retrieval_scope=resolved_scope,
-            )
-        return _build_refusal(
-            question=question,
-            reason="insufficient_evidence",
-            docs=docs,
-            top_k=top_k,
-            min_similarity=min_similarity,
-            retrieval_scope=resolved_scope,
-            verifier_passed=False,
+                verifier_passed=False,
+            ),
+            retrieved_count=len(docs),
+            strong_count=0,
+            selected_count=min(3, len(docs)),
+            diversity_selection_enabled=diversity_enabled,
         )
+
+    selected_docs = (
+        _select_diverse_docs(strong_docs, max_docs=6, min_docs=4)
+        if diversity_enabled
+        else strong_docs[: min(6, len(strong_docs))]
+    )
 
     llm = ChatOpenAI(model=chat_model, temperature=0, api_key=openai_api_key)
     system_prompt = read_text("prompts/rag/system.txt").strip()
@@ -296,8 +461,8 @@ def answer_with_rag(
     )
     generation_user_prompt = (
         f"Question:\n{question}\n\n"
-        f"Allowed Sources:\n{_format_source_list(strong_docs)}\n\n"
-        f"Context:\n{_format_context(strong_docs)}\n\n"
+        f"Allowed Sources:\n{_format_source_list(selected_docs)}\n\n"
+        f"Context:\n{_format_context(selected_docs)}\n\n"
         f"{generation_instruction}"
     )
     generation_response = llm.invoke(
@@ -308,29 +473,41 @@ def answer_with_rag(
     )
     parsed_generation = _extract_json(str(getattr(generation_response, "content", "")) or "")
     if not parsed_generation:
-        return _build_refusal(
-            question=question,
-            reason="validation_failed",
-            docs=strong_docs,
-            top_k=top_k,
-            min_similarity=min_similarity,
-            retrieval_scope=resolved_scope,
-            verifier_passed=False,
+        return _attach_selection_meta(
+            _build_refusal(
+                question=question,
+                reason="validation_failed",
+                docs=selected_docs,
+                top_k=top_k,
+                min_similarity=min_similarity,
+                retrieval_scope=resolved_scope,
+                verifier_passed=False,
+            ),
+            retrieved_count=len(docs),
+            strong_count=len(strong_docs),
+            selected_count=len(selected_docs),
+            diversity_selection_enabled=diversity_enabled,
         )
 
     answer_text = str(parsed_generation.get("answer") or "").strip()
     if not answer_text:
-        return _build_refusal(
-            question=question,
-            reason="validation_failed",
-            docs=strong_docs,
-            top_k=top_k,
-            min_similarity=min_similarity,
-            retrieval_scope=resolved_scope,
-            verifier_passed=False,
+        return _attach_selection_meta(
+            _build_refusal(
+                question=question,
+                reason="validation_failed",
+                docs=selected_docs,
+                top_k=top_k,
+                min_similarity=min_similarity,
+                retrieval_scope=resolved_scope,
+                verifier_passed=False,
+            ),
+            retrieved_count=len(docs),
+            strong_count=len(strong_docs),
+            selected_count=len(selected_docs),
+            diversity_selection_enabled=diversity_enabled,
         )
 
-    source_map = _build_source_map(strong_docs)
+    source_map = _build_source_map(selected_docs)
     used_source_ids: list[str] = []
     raw_used = parsed_generation.get("used_source_ids")
     if isinstance(raw_used, list):
@@ -343,25 +520,37 @@ def answer_with_rag(
         used_source_ids = _extract_source_ids(answer_text)
 
     if not used_source_ids:
-        return _build_refusal(
-            question=question,
-            reason="validation_failed",
-            docs=strong_docs,
-            top_k=top_k,
-            min_similarity=min_similarity,
-            retrieval_scope=resolved_scope,
-            verifier_passed=False,
+        return _attach_selection_meta(
+            _build_refusal(
+                question=question,
+                reason="validation_failed",
+                docs=selected_docs,
+                top_k=top_k,
+                min_similarity=min_similarity,
+                retrieval_scope=resolved_scope,
+                verifier_passed=False,
+            ),
+            retrieved_count=len(docs),
+            strong_count=len(strong_docs),
+            selected_count=len(selected_docs),
+            diversity_selection_enabled=diversity_enabled,
         )
 
     if any(source_id not in source_map for source_id in used_source_ids):
-        return _build_refusal(
-            question=question,
-            reason="verifier_failed",
-            docs=strong_docs,
-            top_k=top_k,
-            min_similarity=min_similarity,
-            retrieval_scope=resolved_scope,
-            verifier_passed=False,
+        return _attach_selection_meta(
+            _build_refusal(
+                question=question,
+                reason="verifier_failed",
+                docs=selected_docs,
+                top_k=top_k,
+                min_similarity=min_similarity,
+                retrieval_scope=resolved_scope,
+                verifier_passed=False,
+            ),
+            retrieved_count=len(docs),
+            strong_count=len(strong_docs),
+            selected_count=len(selected_docs),
+            diversity_selection_enabled=diversity_enabled,
         )
 
     verifier_prompt = (
@@ -373,8 +562,8 @@ def answer_with_rag(
         f"Question:\n{question}\n\n"
         f"Answer:\n{answer_text}\n\n"
         f"Cited Source IDs:\n{', '.join(used_source_ids)}\n\n"
-        f"Allowed Sources:\n{_format_source_list(strong_docs)}\n\n"
-        f"Context:\n{_format_context(strong_docs)}"
+        f"Allowed Sources:\n{_format_source_list(selected_docs)}\n\n"
+        f"Context:\n{_format_context(selected_docs)}"
     )
     verifier_response = llm.invoke(
         [
@@ -386,22 +575,34 @@ def answer_with_rag(
     verifier_passed = bool(parsed_verifier and parsed_verifier.get("supported") is True)
     if not verifier_passed:
         if _partial_mode_enabled():
-            return _build_partial_evidence(
+            return _attach_selection_meta(
+                _build_partial_evidence(
+                    question=question,
+                    reason="partial_evidence",
+                    docs=selected_docs,
+                    top_k=top_k,
+                    min_similarity=min_similarity,
+                    retrieval_scope=resolved_scope,
+                ),
+                retrieved_count=len(docs),
+                strong_count=len(strong_docs),
+                selected_count=len(selected_docs),
+                diversity_selection_enabled=diversity_enabled,
+            )
+        return _attach_selection_meta(
+            _build_refusal(
                 question=question,
-                reason="partial_evidence",
-                docs=strong_docs,
+                reason="verifier_failed",
+                docs=selected_docs,
                 top_k=top_k,
                 min_similarity=min_similarity,
                 retrieval_scope=resolved_scope,
-            )
-        return _build_refusal(
-            question=question,
-            reason="verifier_failed",
-            docs=strong_docs,
-            top_k=top_k,
-            min_similarity=min_similarity,
-            retrieval_scope=resolved_scope,
-            verifier_passed=False,
+                verifier_passed=False,
+            ),
+            retrieved_count=len(docs),
+            strong_count=len(strong_docs),
+            selected_count=len(selected_docs),
+            diversity_selection_enabled=diversity_enabled,
         )
 
     citations: list[dict[str, Any]] = []
@@ -410,31 +611,43 @@ def answer_with_rag(
         citations.append(_build_citation(index, doc, insufficient=False))
 
     if not citations:
-        return _build_refusal(
-            question=question,
-            reason="validation_failed",
-            docs=strong_docs,
-            top_k=top_k,
-            min_similarity=min_similarity,
-            retrieval_scope=resolved_scope,
-            verifier_passed=False,
+        return _attach_selection_meta(
+            _build_refusal(
+                question=question,
+                reason="validation_failed",
+                docs=selected_docs,
+                top_k=top_k,
+                min_similarity=min_similarity,
+                retrieval_scope=resolved_scope,
+                verifier_passed=False,
+            ),
+            retrieved_count=len(docs),
+            strong_count=len(strong_docs),
+            selected_count=len(selected_docs),
+            diversity_selection_enabled=diversity_enabled,
         )
 
-    return {
-        "question": question,
-        "answer": answer_text,
-        "refused": False,
-        "citations": citations,
-        "sources": [citation.get("metadata", {}) for citation in citations],
-        "context_count": len(strong_docs),
-        "retrieval_meta": {
-            "reason": "ok",
-            "top_k": top_k,
-            "min_similarity": min_similarity,
-            "context_count": len(strong_docs),
-            "verifier_passed": True,
-            "scope_mode": resolved_scope.get("mode", "global"),
-            "scope_targets_count": len(resolved_scope.get("targets") or []),
+    return _attach_selection_meta(
+        {
+            "question": question,
+            "answer": answer_text,
+            "refused": False,
+            "citations": citations,
+            "sources": [citation.get("metadata", {}) for citation in citations],
+            "context_count": len(selected_docs),
+            "retrieval_meta": {
+                "reason": "ok",
+                "top_k": top_k,
+                "min_similarity": min_similarity,
+                "context_count": len(selected_docs),
+                "verifier_passed": True,
+                "scope_mode": resolved_scope.get("mode", "global"),
+                "scope_targets_count": len(resolved_scope.get("targets") or []),
+            },
+            "legacy_metadata_filter": metadata_filter or {},
         },
-        "legacy_metadata_filter": metadata_filter or {},
-    }
+        retrieved_count=len(docs),
+        strong_count=len(strong_docs),
+        selected_count=len(selected_docs),
+        diversity_selection_enabled=diversity_enabled,
+    )

@@ -5,6 +5,7 @@ import {
   isLineItemSpecificQuery,
   parseLineItemQuestion,
 } from "@/lib/chat/line-item-routing";
+import { detectMetadataIntent } from "@/lib/chat/metadata-intent";
 import type { PipelineIntentClassification } from "@/lib/chat/types";
 
 export type RouteKind =
@@ -12,6 +13,7 @@ export type RouteKind =
   | "SQL_TOTAL"
   | "SQL_AGG"
   | "ROW_LOOKUP"
+  | "SQL_METADATA"
   | "PIPELINE_FALLBACK"
   | "CLARIFY";
 
@@ -22,6 +24,7 @@ export type RouteDecision = {
   slots: {
     fiscalYear: number | null;
     aggregationIntent: ReturnType<typeof detectAggregationIntent>["intent"];
+    metadataIntent: ReturnType<typeof detectMetadataIntent>["intent"];
     lineItemFact: boolean;
     lineItemSpecific: boolean;
     hasDomainCues: boolean;
@@ -86,6 +89,7 @@ export function decideRoute(input: {
   const fiscalYear = extractFiscalYear(text);
   const totalsIntent = detectIntent(text).intent;
   const aggregationIntent = detectAggregationIntent(text);
+  const metadataIntent = detectMetadataIntent(text);
   const parsedLineItem = parseLineItemQuestion(text);
   const strictRefCode = extractAipRefCode(text);
   const lineItemSpecific = isLineItemSpecificQuery(text);
@@ -103,6 +107,7 @@ export function decideRoute(input: {
       slots: {
         fiscalYear,
         aggregationIntent: aggregationIntent.intent,
+        metadataIntent: metadataIntent.intent,
         lineItemFact: parsedLineItem.isFactQuestion,
         lineItemSpecific,
         hasDomainCues,
@@ -123,6 +128,7 @@ export function decideRoute(input: {
         slots: {
           fiscalYear,
           aggregationIntent: aggregationIntent.intent,
+          metadataIntent: metadataIntent.intent,
           lineItemFact: parsedLineItem.isFactQuestion,
           lineItemSpecific,
           hasDomainCues,
@@ -161,6 +167,14 @@ export function decideRoute(input: {
       kind: "ROW_LOOKUP",
       score: strictRefCode ? 0.97 : lineItemSpecific ? 0.9 : 0.75,
       reason: strictRefCode ? "detected_ref_code_lookup" : "detected_line_item_fact_query",
+    });
+  }
+
+  if (metadataIntent.intent !== "none") {
+    candidates.push({
+      kind: "SQL_METADATA",
+      score: 0.72,
+      reason: `detected_metadata_intent_${metadataIntent.intent}`,
     });
   }
 
@@ -216,12 +230,13 @@ export function decideRoute(input: {
     kind: winner.kind,
     confidence: winner.score,
     reasons,
-    slots: {
-      fiscalYear,
-      aggregationIntent: aggregationIntent.intent,
-      lineItemFact: parsedLineItem.isFactQuestion,
-      lineItemSpecific,
-      hasDomainCues,
+      slots: {
+        fiscalYear,
+        aggregationIntent: aggregationIntent.intent,
+        metadataIntent: metadataIntent.intent,
+        lineItemFact: parsedLineItem.isFactQuestion,
+        lineItemSpecific,
+        hasDomainCues,
     },
     missingSlots,
     candidates: sorted,
