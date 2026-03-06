@@ -36,6 +36,18 @@ describe("query plan builder", () => {
     expect(plan.semanticTasks.length).toBeGreaterThan(0);
   });
 
+  it("classifies this-year vs last-year compare plus explain as mixed", () => {
+    const plan = buildQueryPlan({
+      text: "Compare infrastructure spending this year and last year, then explain what projects drove the change with citations.",
+      intentClassification: null,
+    });
+
+    expect(plan.mode).toBe("mixed");
+    expect(plan.structuredTasks.some((task) => task.routeKind === "SQL_AGG")).toBe(true);
+    expect(plan.semanticTasks.length).toBeGreaterThan(0);
+    expect(plan.clarificationRequired).toBe(false);
+  });
+
   it("classifies top plus summarize as mixed", () => {
     const plan = buildQueryPlan({
       text: "Show the top 5 projects in 2025 and summarize what the AIP says about each.",

@@ -12,6 +12,7 @@ const mockRouteSqlFirstTotals = vi.fn();
 const mockGetSession = vi.fn();
 const mockCreateSession = vi.fn();
 const mockAppendUserMessage = vi.fn();
+const mockListMessages = vi.fn();
 const mockConsumeQuotaRpc = vi.fn();
 const mockMatchLineItemsRpc = vi.fn();
 const mockConsoleInfo = vi.spyOn(console, "info").mockImplementation(() => {});
@@ -206,6 +207,7 @@ vi.mock("@/lib/repos/chat/repo.server", () => ({
     getSession: (...args: unknown[]) => mockGetSession(...args),
     createSession: (...args: unknown[]) => mockCreateSession(...args),
     appendUserMessage: (...args: unknown[]) => mockAppendUserMessage(...args),
+    listMessages: (...args: unknown[]) => mockListMessages(...args),
   }),
 }));
 
@@ -295,6 +297,7 @@ describe("chat messages clarification state machine", () => {
     mockGetSession.mockReset();
     mockCreateSession.mockReset();
     mockAppendUserMessage.mockReset();
+    mockListMessages.mockReset();
     mockResolveRetrievalScope.mockReset();
     mockGetActorContext.mockReset();
     mockSupabaseServer.mockReset();
@@ -405,6 +408,7 @@ describe("chat messages clarification state machine", () => {
       };
       return message;
     });
+    mockListMessages.mockResolvedValue([]);
 
     mockResolveRetrievalScope.mockResolvedValue({
       mode: "global",
@@ -627,6 +631,35 @@ describe("chat messages clarification state machine", () => {
     } finally {
       process.env.CHAT_ROUTER_V2_ENABLED = prevRouterV2;
       process.env.CHAT_MIXED_INTENT_ENABLED = prevMixed;
+    }
+  });
+
+  it("clarifies mixed query when planner is enabled but mixed execution is disabled", async () => {
+    const prevPlanner = process.env.CHAT_MIXED_QUERY_PLANNER_ENABLED;
+    const prevExecution = process.env.CHAT_MIXED_QUERY_EXECUTION_ENABLED;
+    process.env.CHAT_MIXED_QUERY_PLANNER_ENABLED = "true";
+    process.env.CHAT_MIXED_QUERY_EXECUTION_ENABLED = "false";
+
+    try {
+      const { payload, response } = await callMessagesRoute({
+        sessionId: "session-1",
+        content:
+          "Compare infrastructure spending in 2026 vs 2025, then explain what projects drove the change with citations.",
+      });
+
+      expect(response.status).toBe(200);
+      expect(payload.status).toBe("clarification");
+      const assistant = payload.assistantMessage as {
+        content: string;
+        retrievalMeta?: { queryPlanMode?: string; mixedResponseMode?: string };
+      };
+      expect(assistant.content).toContain("combines computed comparison and narrative explanation");
+      expect(assistant.retrievalMeta?.queryPlanMode).toBe("mixed");
+      expect(assistant.retrievalMeta?.mixedResponseMode).toBe("clarify");
+      expect(mockRequestPipelineChatAnswer).not.toHaveBeenCalled();
+    } finally {
+      process.env.CHAT_MIXED_QUERY_PLANNER_ENABLED = prevPlanner;
+      process.env.CHAT_MIXED_QUERY_EXECUTION_ENABLED = prevExecution;
     }
   });
 });

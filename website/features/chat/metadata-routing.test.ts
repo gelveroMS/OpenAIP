@@ -762,6 +762,27 @@ describe("metadata routing", () => {
     expect(mockServerRpc.mock.calls.some(([fn]) => fn === "get_totals_by_sector")).toBe(false);
   });
 
+  it("does not let semantic intent tie-break steal metadata sector enumeration", async () => {
+    mockRequestPipelineIntentClassify.mockResolvedValueOnce({
+      intent: "CATEGORY_AGGREGATION",
+      confidence: 0.99,
+      top2_intent: "UNKNOWN",
+      top2_confidence: 0,
+      margin: 0.99,
+      method: "rule",
+    });
+
+    const { payload } = await callMessagesRoute({
+      sessionId: session.id,
+      content: "What sectors exist in the AIP?",
+    });
+
+    const assistant = payload.assistantMessage as { content: string };
+    expect(assistant.content).toContain("Sectors");
+    expect(mockServerRpc.mock.calls.some(([fn]) => fn === "get_totals_by_sector")).toBe(false);
+    expect(mockRequestPipelineChatAnswer).not.toHaveBeenCalled();
+  });
+
   it("routes scoped fund source list to metadata SQL route", async () => {
     mockResolveRetrievalScope.mockResolvedValueOnce({
       mode: "named_scopes",

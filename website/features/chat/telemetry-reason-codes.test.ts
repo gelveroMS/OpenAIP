@@ -79,6 +79,10 @@ describe("telemetry reason codes", () => {
       inferRouteFamily(baseMeta({ denseCandidateCount: 12, evidenceGateDecision: "allow" }), [])
     ).toBe("pipeline_fallback");
 
+    expect(
+      inferRouteFamily(baseMeta({ verifierMode: "retrieval" }), [])
+    ).toBe("pipeline_fallback");
+
     expect(inferRouteFamily(baseMeta(), [])).toBe("unknown");
   });
 

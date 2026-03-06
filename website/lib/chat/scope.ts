@@ -12,7 +12,7 @@ export type BarangayRef = {
 const EXPLICIT_BARANGAY_PATTERN =
   /\b(?:barangay|brgy\.?)\s+([a-z0-9][a-z0-9 .,'-]{0,80}?)(?=\s+(?:for|fy|fiscal|year|total|investment|program|grand)\b|[.,;:!?)]|$)/gi;
 const BARE_SCOPE_PATTERN =
-  /\b(?:of|for|in)\s+([a-z][a-z\s-]{1,40}?)(?=\s+(?:for|fy|fiscal|year|total|investment|program|grand)\b|$)/gi;
+  /\b(?:of|for|in)\s+([a-z][a-z\s-]{1,40}?)(?=\s+(?:for|fy|fiscal|year|total|investment|program|grand|budget|spending|allocation|and)\b|$)/gi;
 
 const OWN_BARANGAY_PATTERNS: RegExp[] = [
   /\bin\s+our\s+barangay\b/i,
@@ -34,6 +34,7 @@ function normalizeMessageForDetection(message: string): string {
 function normalizeMessageForBareScopeDetection(message: string): string {
   return message
     .toLowerCase()
+    .replace(/([a-z0-9])'s\b/g, "$1")
     .replace(/[()]/g, " ")
     .replace(/[.,;:!?'"`]/g, " ")
     .replace(/\s+/g, " ")
@@ -59,6 +60,7 @@ function cleanupDetectedBarangayName(raw: string): string | null {
 export function normalizeBarangayNameForMatch(name: string): string {
   return name
     .toLowerCase()
+    .replace(/([a-z0-9])'s\b/g, "$1")
     .replace(/[()]/g, " ")
     .replace(/[.,;:!?'"`]/g, " ")
     .replace(/\s+/g, " ")
@@ -97,6 +99,18 @@ export function detectBareBarangayScopeMention(
       return candidate;
     }
     match = BARE_SCOPE_PATTERN.exec(normalizedMessage);
+  }
+
+  const matchedKnownBarangays = Array.from(knownBarangayNamesNormalized).filter((name) =>
+    new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(normalizedMessage)
+  );
+  const hasBudgetCue =
+    normalizedMessage.includes("budget") ||
+    normalizedMessage.includes("spending") ||
+    normalizedMessage.includes("allocation") ||
+    normalizedMessage.includes("total");
+  if (hasBudgetCue && matchedKnownBarangays.length === 1) {
+    return matchedKnownBarangays[0] ?? null;
   }
 
   const standaloneCandidate = normalizeBarangayNameForMatch(normalizedMessage);

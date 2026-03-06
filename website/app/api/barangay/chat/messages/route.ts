@@ -430,6 +430,23 @@ function inferAggregationIntentFromPipelineClassification(input: {
   }
 
   const normalized = input.message.toLowerCase();
+  const metadataIntent = detectMetadataIntent(input.message).intent;
+  const hasAggregationCue =
+    normalized.includes("top") ||
+    normalized.includes("totals") ||
+    normalized.includes("total by") ||
+    normalized.includes("breakdown") ||
+    normalized.includes("distribution") ||
+    normalized.includes("compare") ||
+    normalized.includes("comparison") ||
+    normalized.includes("difference") ||
+    normalized.includes("vs") ||
+    normalized.includes("versus");
+
+  if (metadataIntent !== "none" && !hasAggregationCue) {
+    return input.detected;
+  }
+
   const hasSectorCue = normalized.includes("sector");
   const hasFundCue =
     normalized.includes("fund source") ||
@@ -439,11 +456,11 @@ function inferAggregationIntentFromPipelineClassification(input: {
     normalized.includes("source of funds") ||
     normalized.includes("sources of funds");
 
-  if (hasSectorCue) {
+  if (hasSectorCue && hasAggregationCue) {
     return { intent: "totals_by_sector" };
   }
 
-  if (hasFundCue) {
+  if (hasFundCue && hasAggregationCue) {
     return { intent: "totals_by_fund_source" };
   }
 
@@ -1589,40 +1606,36 @@ async function resolveAggregationScopeDecision(input: {
     }
   }
 
-  const shouldCheckBareMention =
-    /\b(?:barangay|brgy\.?)\b/i.test(input.message) || /\b(?:of|for|in)\s+[a-z]/i.test(input.message);
-  if (shouldCheckBareMention) {
-    const barangays = await getActiveBarangays();
-    const knownBarangayNamesNormalized = new Set(
-      barangays
-        .map((barangay) => normalizeBarangayNameForMatch(barangay.name))
-        .filter((normalizedName) => Boolean(normalizedName))
-    );
-    const bareMentionCandidate = detectBareBarangayScopeMention(
-      input.message,
-      knownBarangayNamesNormalized
-    );
-    if (bareMentionCandidate) {
-      const match = resolveExplicitBarangayByCandidate(bareMentionCandidate, barangays);
-      if (match.status === "single" && match.barangay) {
-        return {
-          scopeReason: "explicit_barangay",
-          barangayIdUsed: match.barangay.id,
-          barangayName: match.barangay.name,
-          unsupportedScopeType: null,
-        };
-      }
+  const barangays = await getActiveBarangays();
+  const knownBarangayNamesNormalized = new Set(
+    barangays
+      .map((barangay) => normalizeBarangayNameForMatch(barangay.name))
+      .filter((normalizedName) => Boolean(normalizedName))
+  );
+  const bareMentionCandidate = detectBareBarangayScopeMention(
+    input.message,
+    knownBarangayNamesNormalized
+  );
+  if (bareMentionCandidate) {
+    const match = resolveExplicitBarangayByCandidate(bareMentionCandidate, barangays);
+    if (match.status === "single" && match.barangay) {
+      return {
+        scopeReason: "explicit_barangay",
+        barangayIdUsed: match.barangay.id,
+        barangayName: match.barangay.name,
+        unsupportedScopeType: null,
+      };
+    }
 
-      if (match.status === "ambiguous") {
-        return {
-          scopeReason: "unknown",
-          barangayIdUsed: null,
-          barangayName: null,
-          unsupportedScopeType: null,
-          clarificationMessage:
-            "I found multiple barangays with that name. Please specify the exact barangay name.",
-        };
-      }
+    if (match.status === "ambiguous") {
+      return {
+        scopeReason: "unknown",
+        barangayIdUsed: null,
+        barangayName: null,
+        unsupportedScopeType: null,
+        clarificationMessage:
+          "I found multiple barangays with that name. Please specify the exact barangay name.",
+      };
     }
   }
 
@@ -4155,10 +4168,7 @@ export async function POST(request: Request) {
       });
     }
 
-    const plannerEnabled =
-      isChatRouterV2Enabled() &&
-      isChatMixedQueryPlannerEnabled() &&
-      !pendingClarification;
+    const plannerEnabled = isChatMixedQueryPlannerEnabled() && !pendingClarification;
     if (plannerEnabled) {
       const plannerMessages = await getSessionMessages();
       const recentDomainContext = buildRecentDomainContext({
@@ -4238,6 +4248,51 @@ export async function POST(request: Request) {
             answered: false,
             vector_called: false,
             status: "clarification",
+          });
+
+          return NextResponse.json(
+            chatResponsePayload({
+              sessionId: session.id,
+              userMessage,
+              assistantMessage,
+            }),
+            { status: 200 }
+          );
+        }
+
+        if (!isChatMixedQueryExecutionEnabled()) {
+          const assistantMessage = await appendAssistantMessage({
+            actor: privilegedActor,
+            sessionId: session.id,
+            content:
+              "This request combines computed comparison and narrative explanation. Please ask one part first, or enable mixed execution to answer both together.",
+            citations: [
+              makeSystemCitation("Mixed query detected but mixed execution is disabled.", {
+                query_plan_mode: queryPlan.mode,
+                reason: "mixed_execution_disabled",
+              }),
+            ],
+            retrievalMeta: {
+              refused: false,
+              reason: "clarification_needed",
+              status: "clarification",
+              scopeResolution,
+              latencyMs: Date.now() - startedAt,
+              intentClassification: frontendIntentClassification ?? undefined,
+              queryRewriteApplied,
+              queryRewriteReason: queryRewriteReason ?? undefined,
+              queryPlanMode: queryPlan.mode,
+              queryPlanStructuredTaskCount: queryPlan.structuredTasks.length,
+              queryPlanSemanticTaskCount: queryPlan.semanticTasks.length,
+              queryPlanClarificationRequired: true,
+              queryPlanDiagnostics: [...queryPlan.diagnostics, "mixed_execution_disabled"],
+              mixedResponseMode: "clarify",
+              mixedNarrativeIncluded: false,
+              verifierMode: "structured",
+            },
+            verifierInput: {
+              mode: "structured",
+            },
           });
 
           return NextResponse.json(
@@ -6704,6 +6759,7 @@ export async function POST(request: Request) {
           refused: refusal.status === "refusal",
           reason: mapRefusalReasonToMetaReason(refusal.status, refusal.reason),
           status: refusal.status,
+          routeFamily: "pipeline_fallback",
           refusalReason: refusal.reason,
           suggestions: refusal.suggestions,
           scopeResolution,
@@ -7500,6 +7556,7 @@ export async function POST(request: Request) {
       reason: "unknown",
       scopeResolution,
       verifierMode: "retrieval",
+      routeFamily: "pipeline_fallback",
     };
 
     try {
@@ -7545,6 +7602,7 @@ export async function POST(request: Request) {
         intentClassification: frontendIntentClassification ?? undefined,
         queryRewriteApplied,
         queryRewriteReason: queryRewriteReason ?? undefined,
+        routeFamily: "pipeline_fallback",
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Pipeline chat request failed.";
@@ -7560,6 +7618,7 @@ export async function POST(request: Request) {
         verifierMode: "retrieval",
         queryRewriteApplied,
         queryRewriteReason: queryRewriteReason ?? undefined,
+        routeFamily: "pipeline_fallback",
       };
     }
 

@@ -6,6 +6,8 @@ export type AggregationIntentResult = {
 };
 
 const YEAR_PATTERN = /\b(20\d{2})\b/g;
+const THIS_YEAR_PATTERN = /\bthis\s+year\b/i;
+const LAST_YEAR_PATTERN = /\blast\s+year\b/i;
 
 function normalizeAggregationText(message: string): string {
   return message
@@ -37,22 +39,85 @@ function parseTopLimit(normalized: string): number {
   return Math.max(1, Math.min(parsed, 50));
 }
 
+function hasEnumerationCue(normalized: string): boolean {
+  return (
+    normalized.includes("list") ||
+    normalized.includes("show") ||
+    normalized.includes("available") ||
+    normalized.includes("exist") ||
+    normalized.includes("exists") ||
+    normalized.includes("what are") ||
+    normalized.includes("which are")
+  );
+}
+
 export function detectAggregationIntent(message: string): AggregationIntentResult {
   const normalized = normalizeAggregationText(message);
   if (!normalized) return { intent: "none" };
 
+  const hasAggregationCue =
+    normalized.includes("totals") ||
+    normalized.includes("total by") ||
+    normalized.includes("breakdown") ||
+    normalized.includes("distribution") ||
+    normalized.includes("compare") ||
+    normalized.includes("comparison") ||
+    normalized.includes("difference") ||
+    normalized.includes("vs") ||
+    normalized.includes("versus");
+
+  const asksSectorEnumeration =
+    (normalized.includes("sector") || normalized.includes("sectors")) &&
+    hasEnumerationCue(normalized) &&
+    !hasAggregationCue;
+  if (asksSectorEnumeration) {
+    return { intent: "none" };
+  }
+
+  const asksFundSourceEnumeration =
+    (normalized.includes("fund source") ||
+      normalized.includes("fund sources") ||
+      normalized.includes("funding source") ||
+      normalized.includes("funding sources") ||
+      normalized.includes("source of funds") ||
+      normalized.includes("sources of funds")) &&
+    hasEnumerationCue(normalized) &&
+    !hasAggregationCue;
+  if (asksFundSourceEnumeration) {
+    return { intent: "none" };
+  }
+
   const years = extractDistinctYears(normalized);
   const hasCompareCue = /\b(compare|difference|vs|versus)\b/.test(normalized);
-  if (hasCompareCue && years.length >= 2) {
-    return {
-      intent: "compare_years",
-      yearA: years[0],
-      yearB: years[1],
-    };
+  if (hasCompareCue) {
+    if (years.length >= 2) {
+      return {
+        intent: "compare_years",
+        yearA: years[0],
+        yearB: years[1],
+      };
+    }
+
+    if (years.length === 1 && LAST_YEAR_PATTERN.test(normalized)) {
+      return {
+        intent: "compare_years",
+        yearA: years[0],
+        yearB: years[0]! - 1,
+      };
+    }
+
+    if (THIS_YEAR_PATTERN.test(normalized) && LAST_YEAR_PATTERN.test(normalized)) {
+      const currentYear = new Date().getUTCFullYear();
+      return {
+        intent: "compare_years",
+        yearA: currentYear,
+        yearB: currentYear - 1,
+      };
+    }
   }
 
   const hasTopCue = /\b(top|largest|highest|most funded)\b/.test(normalized);
-  const hasProjectsCue = /\b(projects|programs)\b/.test(normalized);
+  const hasProjectsCue = /\b(projects?|programs?)\b/.test(normalized);
   if (hasTopCue && hasProjectsCue) {
     return {
       intent: "top_projects",

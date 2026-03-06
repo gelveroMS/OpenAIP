@@ -47,6 +47,22 @@ describe("detectBareBarangayScopeMention", () => {
     expect(detected).toBe("pulo");
   });
 
+  it("detects possessive bare scope mention", () => {
+    const detected = detectBareBarangayScopeMention(
+      "Compare pulo's budget from 2025 to 2026",
+      knownBarangays
+    );
+    expect(detected).toBe("pulo");
+  });
+
+  it("detects bare scope mention before conjunction", () => {
+    const detected = detectBareBarangayScopeMention(
+      "What is the total budget of mamatid and how much it increases from last year?",
+      knownBarangays
+    );
+    expect(detected).toBe("mamatid");
+  });
+
   it("rejects non-exact and partial matches", () => {
     const detected = detectBareBarangayScopeMention(
       "What is the Total Investment Program for pul?",

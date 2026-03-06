@@ -112,6 +112,7 @@ function hasRowMarker(citations: ChatCitation[]): boolean {
 export function inferRouteFamily(meta: ChatRetrievalMeta, citations: ChatCitation[]): RouteFamily {
   if (meta.queryPlanMode === "mixed") return "mixed_plan";
   if (meta.reason === "conversational_shortcut") return "conversational";
+  if (meta.verifierMode === "retrieval") return "pipeline_fallback";
 
   if (
     meta.denseCandidateCount !== undefined ||

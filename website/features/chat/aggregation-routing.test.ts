@@ -820,6 +820,22 @@ describe("aggregation routing", () => {
     expect(mockRequestPipelineQueryEmbedding).not.toHaveBeenCalled();
   });
 
+  it("routes singular top project phrasing to get_top_projects with limit 10", async () => {
+    await callMessagesRoute({
+      sessionId: session.id,
+      content: "top project of pulo",
+    });
+
+    expect(
+      mockServerRpc.mock.calls.some(
+        ([fn, args]) =>
+          fn === "get_top_projects" &&
+          (args as Record<string, unknown>).p_limit === 10
+      )
+    ).toBe(true);
+    expect(mockRequestPipelineChatAnswer).not.toHaveBeenCalled();
+  });
+
   it("routes totals by sector query to get_totals_by_sector", async () => {
     await callMessagesRoute({
       sessionId: session.id,
@@ -1211,5 +1227,158 @@ describe("aggregation routing", () => {
       mockServerRpc.mock.calls.some(([fn]) => fn === "match_aip_line_items")
     ).toBe(false);
     expect(mockRequestPipelineChatAnswer).not.toHaveBeenCalled();
+  });
+
+  it("applies explicit barangay scope for possessive compare query", async () => {
+    const { payload } = await callMessagesRoute({
+      sessionId: session.id,
+      content: "Compare pulo's budget from 2025 to 2026",
+    });
+
+    expect(payload.status).toBe("answer");
+    const assistant = payload.assistantMessage as { content: string };
+    expect(assistant.content).toContain("Fiscal year comparison (Barangay Pulo)");
+    expect(assistant.content).not.toContain("Fiscal year comparison (All barangays)");
+  });
+
+  it("stamps pipeline fallback route family when retrieval telemetry is sparse", async () => {
+    const { payload } = await callMessagesRoute({
+      sessionId: session.id,
+      content: "What does the AIP say about flood control?",
+    });
+
+    const assistant = payload.assistantMessage as {
+      retrievalMeta?: { routeFamily?: string; verifierMode?: string };
+    };
+    expect(assistant.retrievalMeta?.routeFamily).toBe("pipeline_fallback");
+    expect(assistant.retrievalMeta?.verifierMode).toBe("retrieval");
+  });
+
+  it("runs 10-question end-to-end smoke report with expected vs observed outputs", async () => {
+    type SmokeCase = {
+      id: string;
+      question: string;
+      expectedRouteFamily:
+        | "sql_totals"
+        | "aggregate_sql"
+        | "row_sql"
+        | "metadata_sql"
+        | "pipeline_fallback"
+        | "mixed_plan";
+      expectedStatus: "answer" | "clarification" | "refusal";
+      expectedContains: string;
+    };
+
+    const cases: SmokeCase[] = [
+      {
+        id: "q1",
+        question: "What is the Total Investment Program for FY 2026 of pulo?",
+        expectedRouteFamily: "sql_totals",
+        expectedStatus: "answer",
+        expectedContains: "Total Investment Program",
+      },
+      {
+        id: "q2",
+        question: "Show top 5 projects this year.",
+        expectedRouteFamily: "aggregate_sql",
+        expectedStatus: "answer",
+        expectedContains: "Top 5 projects",
+      },
+      {
+        id: "q3",
+        question: "Totals by sector for 2025.",
+        expectedRouteFamily: "aggregate_sql",
+        expectedStatus: "answer",
+        expectedContains: "Budget totals by sector",
+      },
+      {
+        id: "q4",
+        question: "Compare 2025 vs 2026 spending.",
+        expectedRouteFamily: "aggregate_sql",
+        expectedStatus: "answer",
+        expectedContains: "Fiscal year comparison",
+      },
+      {
+        id: "q5",
+        question: "What is the fund source for Ref 8000-003-002-006?",
+        expectedRouteFamily: "row_sql",
+        expectedStatus: "answer",
+        expectedContains: "fund source",
+      },
+      {
+        id: "q6",
+        question: "What fund sources exist in FY 2026?",
+        expectedRouteFamily: "metadata_sql",
+        expectedStatus: "answer",
+        expectedContains: "Fund sources",
+      },
+      {
+        id: "q7",
+        question: "What barangays are available in the dataset?",
+        expectedRouteFamily: "metadata_sql",
+        expectedStatus: "answer",
+        expectedContains: "Available scopes",
+      },
+      {
+        id: "q8",
+        question: "What does the AIP say about flood control?",
+        expectedRouteFamily: "pipeline_fallback",
+        expectedStatus: "answer",
+        expectedContains: "Pipeline fallback answer",
+      },
+      {
+        id: "q9",
+        question: "What did you eat?",
+        expectedRouteFamily: "pipeline_fallback",
+        expectedStatus: "answer",
+        expectedContains: "Pipeline fallback answer",
+      },
+      {
+        id: "q10",
+        question:
+          "Compare infrastructure spending this year and last year, then explain what projects drove the change with citations.",
+        expectedRouteFamily: "mixed_plan",
+        expectedStatus: "answer",
+        expectedContains: "[S",
+      },
+    ];
+
+    const results: Array<Record<string, unknown>> = [];
+    for (const testCase of cases) {
+      const { payload } = await callMessagesRoute({
+        sessionId: session.id,
+        content: testCase.question,
+      });
+      const assistant = (payload.assistantMessage ?? {}) as {
+        content?: string;
+        retrievalMeta?: { routeFamily?: string };
+      };
+      const content = String(assistant.content ?? "");
+      const actualRouteFamily = String(assistant.retrievalMeta?.routeFamily ?? "unknown");
+      const actualStatus = String(payload.status ?? "unknown");
+      const containsExpected = content.includes(testCase.expectedContains);
+      const routeMatch = actualRouteFamily === testCase.expectedRouteFamily;
+      const statusMatch = actualStatus === testCase.expectedStatus;
+
+      results.push({
+        id: testCase.id,
+        question: testCase.question,
+        expected_route: testCase.expectedRouteFamily,
+        actual_route: actualRouteFamily,
+        expected_status: testCase.expectedStatus,
+        actual_status: actualStatus,
+        expected_contains: testCase.expectedContains,
+        contains_expected: containsExpected,
+        pass: routeMatch && statusMatch && containsExpected,
+        answer_preview: content.slice(0, 120),
+      });
+    }
+
+    console.log(`\n[chat-smoke-10q] expected-vs-actual report\n${JSON.stringify(results, null, 2)}\n`);
+
+    expect(results).toHaveLength(10);
+    expect(
+      results.every((row) => typeof row.actual_route === "string" && typeof row.actual_status === "string")
+    ).toBe(true);
   });
 });

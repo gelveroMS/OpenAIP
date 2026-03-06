@@ -12,7 +12,7 @@ import type {
 } from "@/lib/chat/query-plan-types";
 
 const COMPOUND_SPLIT_PATTERN = /\b(?:and then|then|and also|and|plus|, then)\b/i;
-const PART_SPLIT_PATTERN = /\b(?:and then|then|and also|plus|and)\b/i;
+const PART_SPLIT_PATTERN = /\b(?:and then|then|and also|plus)\b/i;
 const YEAR_PATTERN = /\b(20\d{2})\b/g;
 
 const SEMANTIC_CUE_PATTERNS: RegExp[] = [
@@ -151,6 +151,14 @@ function recoverYearPair(input: {
     return {
       yearA: partYears[0]!,
       yearB: partYears[0]! - 1,
+      source: "none",
+    };
+  }
+  if (/\bthis year\b/i.test(input.part) && /\blast year\b/i.test(input.part)) {
+    const currentYear = new Date().getUTCFullYear();
+    return {
+      yearA: currentYear,
+      yearB: currentYear - 1,
       source: "none",
     };
   }
