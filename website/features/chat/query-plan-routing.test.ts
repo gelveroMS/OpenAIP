@@ -22,6 +22,8 @@ const basePlan: QueryPlan = {
       kind: "narrative",
       subquery: "Explain what the AIP says about those projects with citations.",
       requiresCitations: true,
+      dependsOnStructuredTaskIds: ["structured_1"],
+      independentIfStructuredUnsupported: false,
     },
   ],
   clarificationRequired: false,
@@ -44,6 +46,7 @@ describe("query plan executor", () => {
         },
       ],
       structuredSnapshot: [{ project: "Drainage Rehab", total: 1000 }],
+      renderedStructuredSnapshot: [{ project: "Drainage Rehab", total: 1000 }],
       conditioningHints: ["Drainage Rehab", "Daycare Upgrade"],
     }));
 
@@ -79,6 +82,8 @@ describe("query plan executor", () => {
     expect(result.semanticConditioningApplied).toBe(true);
     expect(result.selectiveMultiQueryTriggered).toBe(true);
     expect(result.selectiveMultiQueryVariantCount).toBe(2);
+    expect(Array.isArray(result.structuredExpectedSnapshot)).toBe(true);
+    expect(Array.isArray(result.structuredRenderedSnapshot)).toBe(true);
   });
 
   it("returns structured verifier mode when narrative is unavailable", async () => {
@@ -90,8 +95,9 @@ describe("query plan executor", () => {
         status: "ok",
         summary: "Top projects computed successfully.",
         citations: [],
-        structuredSnapshot: [{ project: "Drainage Rehab", total: 1000 }],
-        conditioningHints: ["Drainage Rehab"],
+      structuredSnapshot: [{ project: "Drainage Rehab", total: 1000 }],
+      renderedStructuredSnapshot: [{ project: "Drainage Rehab", total: 1000 }],
+      conditioningHints: ["Drainage Rehab"],
       }),
       executeSemanticTask: async () => ({
         taskId: "semantic_1",
@@ -107,5 +113,71 @@ describe("query plan executor", () => {
     expect(result.responseMode).toBe("partial");
     expect(result.verifierMode).toBe("structured");
     expect(result.narrativeIncluded).toBe(false);
+  });
+
+  it("clarifies when semantic task depends on unsupported structured output", async () => {
+    const result = await executeMixedPlan({
+      plan: basePlan,
+      executeStructuredTask: async () => ({
+        taskId: "structured_1",
+        kind: "aggregation",
+        status: "unsupported",
+        summary: "Unsupported delta task.",
+        citations: [],
+        structuredSnapshot: [],
+        renderedStructuredSnapshot: [],
+        conditioningHints: [],
+        clarificationPrompt:
+          "Please provide a supported comparison frame before asking about cut projects.",
+      }),
+      executeSemanticTask: async () => ({
+        taskId: "semantic_1",
+        status: "ok",
+        answer: "Narrative",
+        citations: [],
+      }),
+    });
+
+    expect(result.responseMode).toBe("clarify");
+    expect(result.content).toContain("supported comparison frame");
+  });
+
+  it("allows partial semantic answer when structured unsupported but semantic is independent", async () => {
+    const independentPlan: QueryPlan = {
+      ...basePlan,
+      semanticTasks: [
+        {
+          id: "semantic_1",
+          kind: "narrative",
+          subquery: "Explain drainage policy with citations.",
+          requiresCitations: true,
+          dependsOnStructuredTaskIds: [],
+          independentIfStructuredUnsupported: true,
+        },
+      ],
+    };
+
+    const result = await executeMixedPlan({
+      plan: independentPlan,
+      executeStructuredTask: async () => ({
+        taskId: "structured_1",
+        kind: "aggregation",
+        status: "unsupported",
+        summary: "Unsupported delta task.",
+        citations: [],
+        structuredSnapshot: [],
+        renderedStructuredSnapshot: [],
+        conditioningHints: [],
+      }),
+      executeSemanticTask: async () => ({
+        taskId: "semantic_1",
+        status: "ok",
+        answer: "Drainage policy narrative [S1].",
+        citations: [{ sourceId: "S1", snippet: "Drainage source." }],
+      }),
+    });
+
+    expect(result.responseMode).toBe("partial");
+    expect(result.narrativeIncluded).toBe(true);
   });
 });

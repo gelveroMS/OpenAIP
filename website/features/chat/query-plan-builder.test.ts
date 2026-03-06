@@ -55,4 +55,72 @@ describe("query plan builder", () => {
     expect(plan.structuredTasks).toHaveLength(0);
     expect(plan.semanticTasks).toHaveLength(1);
   });
+
+  it("recovers comparison frame from immediate recent domain context only", () => {
+    const plan = buildQueryPlan({
+      text: "What sectors increased and why?",
+      intentClassification: null,
+      recentDomainContext: {
+        lastDomainUserQuery: "Compare sector totals in FY 2024 vs FY 2025.",
+        lastDomainAssistantAnswer: "Compared sector totals for FY 2024 vs FY 2025.",
+        source: "last_domain_turn",
+      },
+    });
+
+    expect(plan.mode).toBe("mixed");
+    expect(plan.clarificationRequired).toBe(false);
+    expect(plan.diagnostics.some((entry) => entry.startsWith("comparison_frame_recovered:"))).toBe(
+      true
+    );
+  });
+
+  it("clarifies when comparison frame is missing and not recoverable", () => {
+    const plan = buildQueryPlan({
+      text: "What sectors increased and why?",
+      intentClassification: null,
+      recentDomainContext: {
+        lastDomainUserQuery: null,
+        lastDomainAssistantAnswer: null,
+        source: "none",
+      },
+    });
+
+    expect(plan.mode).toBe("mixed");
+    expect(plan.clarificationRequired).toBe(true);
+    expect(plan.structuredTasks[0]?.missingSlots).toContain("fiscal_year_pair");
+  });
+
+  it("marks unsupported projects-cut structured task and semantic dependency", () => {
+    const plan = buildQueryPlan({
+      text: "Which projects were cut, and what does the AIP say about them?",
+      intentClassification: null,
+      recentDomainContext: {
+        lastDomainUserQuery: "Compare totals in FY 2024 vs FY 2025.",
+        lastDomainAssistantAnswer: "Compared FY 2024 vs FY 2025.",
+        source: "last_domain_turn",
+      },
+    });
+
+    expect(plan.mode).toBe("mixed");
+    expect(plan.structuredTasks[0]?.capabilityHint).toBe("delta_cut_unsupported");
+    expect(plan.semanticTasks[0]?.dependsOnStructuredTaskIds?.length).toBeGreaterThan(0);
+    expect(plan.semanticTasks[0]?.independentIfStructuredUnsupported).toBe(false);
+  });
+
+  it("keeps semantic independent when explicitly separate from unsupported structured ask", () => {
+    const plan = buildQueryPlan({
+      text: "Which projects were cut, and separately explain drainage policy with citations.",
+      intentClassification: null,
+      recentDomainContext: {
+        lastDomainUserQuery: "Compare totals in FY 2024 vs FY 2025.",
+        lastDomainAssistantAnswer: "Compared FY 2024 vs FY 2025.",
+        source: "last_domain_turn",
+      },
+    });
+
+    expect(plan.mode).toBe("mixed");
+    expect(plan.structuredTasks[0]?.capabilityHint).toBe("delta_cut_unsupported");
+    expect(plan.semanticTasks[0]?.dependsOnStructuredTaskIds).toEqual([]);
+    expect(plan.semanticTasks[0]?.independentIfStructuredUnsupported).toBe(true);
+  });
 });

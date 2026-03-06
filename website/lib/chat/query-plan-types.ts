@@ -21,6 +21,7 @@ export type QueryPlanStructuredTask = {
   subquery: string;
   fiscalYear: number | null;
   missingSlots: QueryPlanMissingSlot[];
+  capabilityHint?: "standard" | "delta_cut_unsupported" | "delta_increase_unsupported";
 };
 
 export type QueryPlanSemanticTask = {
@@ -28,6 +29,14 @@ export type QueryPlanSemanticTask = {
   kind: QueryPlanSemanticTaskKind;
   subquery: string;
   requiresCitations: boolean;
+  dependsOnStructuredTaskIds?: string[];
+  independentIfStructuredUnsupported?: boolean;
+};
+
+export type QueryPlanRecentDomainContext = {
+  lastDomainUserQuery: string | null;
+  lastDomainAssistantAnswer: string | null;
+  source: "last_domain_turn" | "rewrite_context" | "none";
 };
 
 export type QueryPlan = {
@@ -43,7 +52,7 @@ export type QueryPlan = {
 export type StructuredTaskExecutionResult = {
   taskId: string;
   kind: QueryPlanStructuredTaskKind;
-  status: "ok" | "empty" | "clarify" | "error";
+  status: "ok" | "empty" | "clarify" | "unsupported" | "error";
   summary: string;
   citations: Array<{
     sourceId: string;
@@ -51,6 +60,7 @@ export type StructuredTaskExecutionResult = {
     metadata?: unknown;
   }>;
   structuredSnapshot: unknown;
+  renderedStructuredSnapshot?: unknown;
   conditioningHints: string[];
   clarificationPrompt?: string;
 };

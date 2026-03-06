@@ -20,19 +20,44 @@ function dedupeCitations(citations: ChatCitation[]): ChatCitation[] {
 }
 
 function hintsFromStructured(results: StructuredTaskExecutionResult[]): string[] {
-  const hints: string[] = [];
+  const years: string[] = [];
+  const refs: string[] = [];
+  const sectors: string[] = [];
+  const projects: string[] = [];
+
+  const seen = new Set<string>();
   for (const result of results) {
     if (result.status !== "ok") continue;
     for (const hint of result.conditioningHints) {
       const normalized = hint.trim();
       if (!normalized) continue;
-      if (!hints.includes(normalized)) {
-        hints.push(normalized);
+      const key = normalized.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      if (/\b(?:fy\s*)?20\d{2}\b/i.test(normalized)) {
+        if (years.length < 2) years.push(normalized);
+        continue;
       }
-      if (hints.length >= 8) return hints;
+      if (/\bref\s+[a-z0-9-]+\b/i.test(normalized)) {
+        if (refs.length < 2) refs.push(normalized);
+        continue;
+      }
+      if (/\bsector\b/i.test(normalized)) {
+        if (sectors.length < 2) sectors.push(normalized);
+        continue;
+      }
+      if (projects.length < 3) {
+        projects.push(normalized);
+      }
     }
   }
-  return hints;
+
+  return [...years, ...projects, ...sectors, ...refs].slice(0, 9);
+}
+
+function isStructuredLimitedStatus(status: StructuredTaskExecutionResult["status"]): boolean {
+  return status === "clarify" || status === "unsupported" || status === "error";
 }
 
 export type ExecuteMixedPlanResult = {
@@ -40,7 +65,8 @@ export type ExecuteMixedPlanResult = {
   content: string;
   citations: ChatCitation[];
   verifierMode: "structured" | "retrieval" | "mixed";
-  structuredSnapshot: unknown;
+  structuredExpectedSnapshot: unknown;
+  structuredRenderedSnapshot: unknown;
   narrativeIncluded: boolean;
   semanticConditioningApplied: boolean;
   semanticConditioningHintCount: number;
@@ -61,21 +87,38 @@ export async function executeMixedPlan(input: {
     const result = await input.executeStructuredTask(task);
     structuredResults.push(result);
     diagnostics.push(`structured:${task.kind}:${result.status}`);
-    if (result.status === "clarify") {
-      return {
-        responseMode: "clarify",
-        content: result.clarificationPrompt ?? "Please clarify the mixed request before I continue.",
-        citations: [],
-        verifierMode: "structured",
-        structuredSnapshot: structuredResults.map((entry) => entry.structuredSnapshot),
-        narrativeIncluded: false,
-        semanticConditioningApplied: false,
-        semanticConditioningHintCount: 0,
-        selectiveMultiQueryTriggered: false,
-        selectiveMultiQueryVariantCount: 0,
-        diagnostics,
-      };
-    }
+  }
+
+  const structuredLimitTaskIds = new Set(
+    structuredResults
+      .filter((result) => isStructuredLimitedStatus(result.status))
+      .map((result) => result.taskId)
+  );
+  const requiredStructuredBlockers = input.plan.semanticTasks.filter((task) =>
+    (task.dependsOnStructuredTaskIds ?? []).some((taskId) => structuredLimitTaskIds.has(taskId))
+  );
+
+  if (requiredStructuredBlockers.length > 0) {
+    const blockerResult = structuredResults.find((result) => structuredLimitTaskIds.has(result.taskId));
+    const prompt =
+      blockerResult?.clarificationPrompt ??
+      "Please clarify the missing comparison frame before I answer the explanation part.";
+    return {
+      responseMode: "clarify",
+      content: prompt,
+      citations: [],
+      verifierMode: "structured",
+      structuredExpectedSnapshot: structuredResults.map((entry) => entry.structuredSnapshot),
+      structuredRenderedSnapshot: structuredResults.map(
+        (entry) => entry.renderedStructuredSnapshot ?? entry.structuredSnapshot
+      ),
+      narrativeIncluded: false,
+      semanticConditioningApplied: false,
+      semanticConditioningHintCount: 0,
+      selectiveMultiQueryTriggered: false,
+      selectiveMultiQueryVariantCount: 0,
+      diagnostics: [...diagnostics, "semantic_blocked_by_structured_dependency"],
+    };
   }
 
   const conditioningHints = hintsFromStructured(structuredResults);
@@ -91,6 +134,12 @@ export async function executeMixedPlan(input: {
     structuredResults,
     semanticResults,
   });
+  const structuredLimitationsPresent = structuredResults.some((result) =>
+    isStructuredLimitedStatus(result.status)
+  );
+  const semanticProduced = semanticResults.some(
+    (result) => result.status === "ok" || result.status === "partial"
+  );
 
   const structuredCitations: ChatCitation[] = structuredResults.flatMap((result) =>
     result.citations.map((citation) => ({
@@ -129,12 +178,24 @@ export async function executeMixedPlan(input: {
     0
   );
 
+  const adjustedResponseMode: QueryPlanResponseMode =
+    structuredLimitationsPresent && semanticProduced && mixedAnswer.responseMode === "full"
+      ? "partial"
+      : mixedAnswer.responseMode;
+  const adjustedContent =
+    adjustedResponseMode === "partial" && semanticProduced && structuredLimitationsPresent
+      ? `${mixedAnswer.content}\n\nI could not fully compute one structured subtask, so this is a partial mixed response.`
+      : mixedAnswer.content;
+
   return {
-    responseMode: mixedAnswer.responseMode,
-    content: mixedAnswer.content,
+    responseMode: adjustedResponseMode,
+    content: adjustedContent,
     citations,
     verifierMode,
-    structuredSnapshot: structuredResults.map((entry) => entry.structuredSnapshot),
+    structuredExpectedSnapshot: structuredResults.map((entry) => entry.structuredSnapshot),
+    structuredRenderedSnapshot: structuredResults.map(
+      (entry) => entry.renderedStructuredSnapshot ?? entry.structuredSnapshot
+    ),
     narrativeIncluded,
     semanticConditioningApplied: conditioningHints.length > 0,
     semanticConditioningHintCount: conditioningHints.length,

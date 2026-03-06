@@ -61,6 +61,7 @@ import { detectCompoundAsk, splitIntoSubAsks, shouldClarifyBeforeExecution } fro
 import { buildQueryPlan } from "@/lib/chat/query-plan-builder";
 import { executeMixedPlan } from "@/lib/chat/query-plan-executor";
 import type {
+  QueryPlanRecentDomainContext,
   QueryPlanSemanticTask,
   QueryPlanStructuredTask,
   SemanticTaskExecutionResult,
@@ -1987,6 +1988,43 @@ function chatResponsePayload(input: {
   };
 }
 
+function buildRecentDomainContext(input: {
+  messages: ChatMessage[];
+  currentMessageId: string;
+}): QueryPlanRecentDomainContext {
+  const eligible = input.messages.filter((message) => message.id !== input.currentMessageId);
+  for (let index = eligible.length - 1; index >= 0; index -= 1) {
+    const candidate = eligible[index];
+    if (candidate.role !== "assistant") continue;
+    const meta = candidate.retrievalMeta ?? null;
+    if (!meta || meta.status === "clarification" || meta.kind === "clarification") continue;
+    if (meta.reason === "conversational_shortcut") continue;
+
+    let userQuery: string | null = null;
+    for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+      const userTurn = eligible[cursor];
+      if (userTurn.role === "user") {
+        userQuery = userTurn.content;
+        break;
+      }
+    }
+
+    if (userQuery) {
+      return {
+        lastDomainUserQuery: userQuery,
+        lastDomainAssistantAnswer: candidate.content,
+        source: "last_domain_turn",
+      };
+    }
+  }
+
+  return {
+    lastDomainUserQuery: null,
+    lastDomainAssistantAnswer: null,
+    source: "none",
+  };
+}
+
 function isExplicitScopeDetected(scopeReason: RouteScopeReason): boolean {
   return (
     scopeReason === "explicit_barangay" ||
@@ -3253,6 +3291,34 @@ async function executeStructuredTaskForMixed(input: {
   userBarangay: BarangayRef | null;
   requestId: string;
 }): Promise<StructuredTaskExecutionResult> {
+  if (input.task.capabilityHint === "delta_cut_unsupported") {
+    return {
+      taskId: input.task.id,
+      kind: input.task.kind,
+      status: "unsupported",
+      summary: "The current structured routes do not yet support deterministic project-cut delta computation.",
+      citations: [],
+      structuredSnapshot: [],
+      conditioningHints: [],
+      clarificationPrompt:
+        "Please provide an explicit supported comparison query (for example, compare totals between FY 2024 and FY 2025) before asking about projects that were cut.",
+    };
+  }
+
+  if (input.task.capabilityHint === "delta_increase_unsupported") {
+    return {
+      taskId: input.task.id,
+      kind: input.task.kind,
+      status: "unsupported",
+      summary: "The current structured routes do not yet support deterministic sector increase delta computation.",
+      citations: [],
+      structuredSnapshot: [],
+      conditioningHints: [],
+      clarificationPrompt:
+        "Please specify a supported structured comparison frame first (for example, totals by sector for two specific fiscal years).",
+    };
+  }
+
   if (input.task.routeKind === "SQL_TOTAL") {
     const totals = await resolveTotalsAssistantPayload({
       actor: input.actor,
@@ -3811,10 +3877,16 @@ export async function POST(request: Request) {
     const userMessage = await repo.appendUserMessage(session.id, originalContent);
     const pendingClarification = await getLatestPendingClarification(session.id);
     const startedAt = Date.now();
+    let sessionMessagesCache: ChatMessage[] | null = null;
+    const getSessionMessages = async (): Promise<ChatMessage[]> => {
+      if (sessionMessagesCache) return sessionMessagesCache;
+      sessionMessagesCache = await repo.listMessages(session.id);
+      return sessionMessagesCache;
+    };
     let queryRewriteApplied = false;
     let queryRewriteReason: string | null = null;
     if (!pendingClarification && isChatContextualRewriteEnabled()) {
-      const messages = await repo.listMessages(session.id);
+      const messages = await getSessionMessages();
       const rewrite = maybeRewriteFollowUpQuery({
         message: originalContent,
         messages,
@@ -4036,9 +4108,20 @@ export async function POST(request: Request) {
       isChatMixedQueryPlannerEnabled() &&
       !pendingClarification;
     if (plannerEnabled) {
+      const plannerMessages = await getSessionMessages();
+      const recentDomainContext = buildRecentDomainContext({
+        messages: plannerMessages,
+        currentMessageId: userMessage.id,
+      });
       const queryPlan = buildQueryPlan({
         text: content,
         intentClassification: frontendIntentClassification,
+        recentDomainContext,
+        rewriteContext: {
+          applied: queryRewriteApplied,
+          originalQuery: queryRewriteApplied ? originalContent : null,
+          reason: queryRewriteReason,
+        },
       });
       logQueryPlanDecision({
         requestId,
@@ -4183,11 +4266,11 @@ export async function POST(request: Request) {
                 structuredExpected:
                   mixedResult.verifierMode === "retrieval"
                     ? undefined
-                    : mixedResult.structuredSnapshot,
+                    : mixedResult.structuredExpectedSnapshot,
                 structuredActual:
                   mixedResult.verifierMode === "retrieval"
                     ? undefined
-                    : mixedResult.structuredSnapshot,
+                    : mixedResult.structuredRenderedSnapshot,
               },
             });
 
