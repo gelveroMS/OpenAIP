@@ -83,3 +83,28 @@ not sure,UNKNOWN
 random thought here,UNKNOWN
 budget-ish maybe thing,UNKNOWN
 ???,UNKNOWN
+good afternoon,GREETING
+hi po openaip,GREETING
+thank you so much,THANKS
+salamat po,THANKS
+you answered the wrong barangay,COMPLAINT
+hindi tugma yung sagot sa scope,COMPLAINT
+can you clarify the scope,CLARIFY
+alin yung tinutukoy mong year,CLARIFY
+what is the total investment program for pulo fy 2026,TOTAL_AGGREGATION
+show overall aip total for mamatid,TOTAL_AGGREGATION
+which sector has the lowest allocated budget,CATEGORY_AGGREGATION
+budget totals by fund source for fy 2026,CATEGORY_AGGREGATION
+totals by sector in pulo,CATEGORY_AGGREGATION
+what is the fund source for ref 8000-003-002-006,LINE_ITEM_LOOKUP
+show me ref 1000-001-000-001 details,LINE_ITEM_LOOKUP
+explain the road concreting project in mamatid,PROJECT_DETAIL
+implementing agency of rehabilitation of barangay health clinic,PROJECT_DETAIL
+what does the aip say about womens welfare projects,DOCUMENT_EXPLANATION
+summarize this aip section with citations,DOCUMENT_EXPLANATION
+who are you,OUT_OF_SCOPE
+what is eggs,OUT_OF_SCOPE
+for that barangay show the total budget,SCOPE_NEEDS_CLARIFICATION
+what scope should i use for this question,SCOPE_NEEDS_CLARIFICATION
+hmm maybe like that,UNKNOWN
+idk maybe budget maybe not,UNKNOWN

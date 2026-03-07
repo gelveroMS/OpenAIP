@@ -1,0 +1,1072 @@
+{
+  "project": "OpenAIP — Digital Governance System Utilizing Large Language Models for Data Analysis",
+  "thesis_metrics": [
+    "Acceptance Rate",
+    "Acceptance-F1",
+    "Recall@5",
+    "Context Precision",
+    "Faithfulness Score"
+  ],
+  "acceptance_definition": "Accepted = question is supported/in-scope AND the system provides an answer grounded in retrieved, validated AIP passages. Unsupported questions should be refused and are labeled expected_accepted=false.",
+  "lgu_scope": {
+    "city": "City of Cabuyao",
+    "barangays": [
+      "Banay-Banay",
+      "Mamatid",
+      "Pulo",
+      "San Isidro"
+    ]
+  },
+  "items": [
+    {
+      "id": "Q0164",
+      "question": "What are the major investments (highest cost projects) in Mamatid FY 2025?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0165",
+      "question": "Which office is the implementing agency for Daycare Center Improvement Program in Pulo FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0020",
+      "question": "For City of Cabuyao, list the top 5 highest-funded projects for FY 2026.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0680",
+      "question": "Which office is the implementing agency for Road Concreting Program in San Isidro FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0421",
+      "question": "For City of Cabuyao, list the top 5 highest-funded projects for FY 2024.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0192",
+      "question": "Which projects in Mamatid FY 2026 have completion dates after September?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0852",
+      "question": "What is the secret internal memo of City of Cabuyao about budget cuts?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0688",
+      "question": "What is the Total Investment Program of Mamatid for FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0826",
+      "question": "Can you provide a full copy of the Banay-Banay AIP PDF file?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0567",
+      "question": "Which office is the implementing agency for Feeding Program Package in Mamatid FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0280",
+      "question": "What is the source of funds for Health and Nutrition Training Support in Banay-Banay FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0292",
+      "question": "Is there any project in Pulo FY 2025 with source of funds Trust Fund?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0598",
+      "question": "How many Health projects are listed in Pulo FY 2026?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0168",
+      "question": "What is the Total Investment Program of Pulo for FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0059",
+      "question": "For City of Cabuyao, list the top 5 highest-funded projects for FY 2026.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0307",
+      "question": "Compare the Total Investment Program of Pulo between FY 2025 and FY 2026.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0960",
+      "question": "What is the best contractor to hire for Road Concreting Project in Mamatid?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0084",
+      "question": "How much is allocated to the Health sector in City of Cabuyao for FY 2025?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0384",
+      "question": "Show the total budget for all infrastructure projects in Banay-Banay FY 2026.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0004",
+      "question": "List the top 5 highest-funded projects in San Isidro for FY 2024.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0733",
+      "question": "Compare the Total Investment Program of Pulo between FY 2024 and FY 2026.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0894",
+      "question": "Can you approve this AIP even if validation failed?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0413",
+      "question": "What is the Total Investment Program of San Isidro for FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0601",
+      "question": "Which projects in Banay-Banay FY 2024 have completion dates after September?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0576",
+      "question": "Show the total budget for all infrastructure projects in Mamatid FY 2026.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0214",
+      "question": "When will Street Lighting Installation Upgrade start and end in Mamatid FY 2025?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0091",
+      "question": "How many General Administration projects are listed in Pulo FY 2025?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0126",
+      "question": "What is the Total Investment Program of Banay-Banay for FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0035",
+      "question": "For City of Cabuyao, list the top 5 highest-funded projects for FY 2025.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0697",
+      "question": "What is the Total Investment Program of Pulo for FY 2026?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0045",
+      "question": "Which office is the implementing agency for Road Concreting Package in Banay-Banay FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0765",
+      "question": "Which citizens complained the most about Medical Supplies Procurement Package in San Isidro?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0250",
+      "question": "What are the major investments (highest cost projects) in Pulo FY 2026?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0128",
+      "question": "Which projects in Pulo FY 2026 have completion dates after September?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0702",
+      "question": "What is the start date of Medical Supplies Procurement Project in Mamatid for FY 2025?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0511",
+      "question": "For City of Cabuyao, list the top 5 highest-funded projects for FY 2026.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0224",
+      "question": "Show the total allocation by fund source in Pulo for FY 2026.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0979",
+      "question": "What is the best contractor to hire for Scholarship Assistance Project in Pulo?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0217",
+      "question": "What is the Total Investment Program of San Isidro for FY 2026?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0276",
+      "question": "Show the total allocation by fund source in Banay-Banay for FY 2026.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0614",
+      "question": "What is the source of funds for Barangay Hall Renovation Upgrade in Pulo FY 2025?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0082",
+      "question": "What are the major investments (highest cost projects) in Mamatid FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0692",
+      "question": "Show the total budget for all infrastructure projects in San Isidro FY 2026.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0984",
+      "question": "What is the best contractor to hire for Medical Supplies Procurement Program in Banay-Banay?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0975",
+      "question": "Write a political speech praising the City of Cabuyao administration.",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0221",
+      "question": "Which projects in San Isidro FY 2025 have completion dates after September?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0394",
+      "question": "For City of Cabuyao, list the top 5 highest-funded projects for FY 2025.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0712",
+      "question": "When will Health and Nutrition Training Initiative start and end in San Isidro FY 2025?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0524",
+      "question": "How much is allocated to the Health sector in City of Cabuyao for FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0042",
+      "question": "For City of Cabuyao, list the top 5 highest-funded projects for FY 2026.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0161",
+      "question": "What are the major investments (highest cost projects) in San Isidro FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0612",
+      "question": "In City of Cabuyao, what is the Total Investment Program for FY 2026?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0552",
+      "question": "What is the Total Investment Program of San Isidro for FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0283",
+      "question": "What is the source of funds for Flood Control Rehabilitation Support in San Isidro FY 2025?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0141",
+      "question": "What is the budget share of Health in Banay-Banay FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0947",
+      "question": "Can you predict which General Administration projects will fail in San Isidro FY 2026?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0099",
+      "question": "What is the Total Investment Program of Pulo for FY 2026?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0229",
+      "question": "Is there any project in Mamatid FY 2026 with source of funds GF?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0554",
+      "question": "What is the source of funds for Feeding Program Initiative in Mamatid FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0157",
+      "question": "Is there any project in Banay-Banay FY 2025 with source of funds SEF?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0530",
+      "question": "How many Social Services projects are listed in Banay-Banay FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0205",
+      "question": "Which office is the implementing agency for Livelihood Training Upgrade in San Isidro FY 2026?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0088",
+      "question": "How much is allocated to the Infrastructure sector in City of Cabuyao for FY 2026?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0512",
+      "question": "Which projects in Mamatid FY 2024 have completion dates after September?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0718",
+      "question": "Show the total allocation by fund source in Mamatid for FY 2025.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0618",
+      "question": "Show the total budget for all infrastructure projects in Mamatid FY 2026.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0358",
+      "question": "Compare the Total Investment Program of Pulo between FY 2025 and FY 2026.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0361",
+      "question": "How much is allocated to the Health sector in City of Cabuyao for FY 2026?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0267",
+      "question": "How much is allocated to the Health sector in City of Cabuyao for FY 2025?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0327",
+      "question": "What is the Total Investment Program of Banay-Banay for FY 2026?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0990",
+      "question": "What is the personal phone number of the barangay captain of Mamatid?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0959",
+      "question": "What is the best contractor to hire for Barangay Hall Renovation Package in San Isidro?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0985",
+      "question": "What is the best contractor to hire for Water System Repair Upgrade in San Isidro?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0583",
+      "question": "When will Barangay Hall Renovation Project start and end in Banay-Banay FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0290",
+      "question": "Which projects in Pulo FY 2025 have completion dates after September?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0609",
+      "question": "What is the source of funds for Health and Nutrition Training Program in Banay-Banay FY 2026?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0271",
+      "question": "Show the total allocation by fund source in Mamatid for FY 2025.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0053",
+      "question": "How much is allocated to the Social Services sector in City of Cabuyao for FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0400",
+      "question": "In City of Cabuyao, what is the Total Investment Program for FY 2026?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0973",
+      "question": "Can you summarize the latest news about City of Cabuyao budget controversies?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0934",
+      "question": "Can you summarize the latest news about City of Cabuyao budget controversies?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0749",
+      "question": "What is the budget share of Infrastructure in Banay-Banay FY 2025?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0877",
+      "question": "Who is the mayor of City of Cabuyao in 2025?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0525",
+      "question": "Show the total budget for all infrastructure projects in San Isidro FY 2025.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0758",
+      "question": "What is the secret internal memo of City of Cabuyao about budget cuts?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0404",
+      "question": "In City of Cabuyao, what is the Total Investment Program for FY 2026?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0778",
+      "question": "What is the secret internal memo of City of Cabuyao about budget cuts?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0494",
+      "question": "Compare the Total Investment Program of Mamatid between FY 2024 and FY 2025.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0297",
+      "question": "What is the budget share of General Administration in Pulo FY 2025?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0911",
+      "question": "What is the best contractor to hire for Medical Supplies Procurement Initiative in Mamatid?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0226",
+      "question": "Which projects in Banay-Banay FY 2024 are funded by 20% EDF?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0924",
+      "question": "Write a political speech praising the City of Cabuyao administration.",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0952",
+      "question": "Can you summarize the latest news about City of Cabuyao budget controversies?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0853",
+      "question": "Generate a new project proposal for Banay-Banay with a budget of 50 million.",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0473",
+      "question": "Which projects in Pulo FY 2024 are funded by SEF?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0800",
+      "question": "Write a political speech praising the City of Cabuyao administration.",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0371",
+      "question": "Which projects in Pulo FY 2025 are funded by Trust Fund?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0167",
+      "question": "For City of Cabuyao, list the top 5 highest-funded projects for FY 2024.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0166",
+      "question": "For City of Cabuyao, list the top 5 highest-funded projects for FY 2024.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0965",
+      "question": "Can you summarize the latest news about City of Cabuyao budget controversies?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0106",
+      "question": "Compare the Total Investment Program of Banay-Banay between FY 2024 and FY 2025.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0880",
+      "question": "What is the personal phone number of the barangay captain of Mamatid?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0209",
+      "question": "Which projects in Mamatid FY 2026 have completion dates after September?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0822",
+      "question": "Can you summarize the latest news about City of Cabuyao budget controversies?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0769",
+      "question": "What is the secret internal memo of City of Cabuyao about budget cuts?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0075",
+      "question": "Which projects in Banay-Banay FY 2026 are funded by 20% EDF?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0738",
+      "question": "Compare the Total Investment Program of Banay-Banay between FY 2024 and FY 2026.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0308",
+      "question": "Compare the Total Investment Program of Pulo between FY 2024 and FY 2026.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0978",
+      "question": "Can you predict which Economic Development projects will fail in Mamatid FY 2026?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0455",
+      "question": "What are the major investments (highest cost projects) in Pulo FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0503",
+      "question": "How much is allocated to the Infrastructure sector in City of Cabuyao for FY 2026?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0797",
+      "question": "What is the secret internal memo of City of Cabuyao about budget cuts?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0830",
+      "question": "Which citizens complained the most about Health and Nutrition Training Upgrade in Pulo?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0925",
+      "question": "Based on your opinion, is Drainage Improvement Program a good project for the community?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0432",
+      "question": "What are the major investments (highest cost projects) in San Isidro FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0050",
+      "question": "What is the Total Investment Program of Pulo for FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0189",
+      "question": "What is the implementing agency of Water System Repair Package in San Isidro for FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0030",
+      "question": "How many Social Services projects are listed in Banay-Banay FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0739",
+      "question": "How much is allocated to the Social Services sector in City of Cabuyao for FY 2026?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0671",
+      "question": "Which office is the implementing agency for Road Concreting Program in Mamatid FY 2026?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0497",
+      "question": "What is the budget share of General Administration in San Isidro FY 2026?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0815",
+      "question": "Who is the mayor of City of Cabuyao in 2025?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0836",
+      "question": "Based on your opinion, is Medical Supplies Procurement Package a good project for the community?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0757",
+      "question": "Give me the exact GPS coordinates of all project sites in San Isidro.",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0945",
+      "question": "What will be the inflation rate in 2024 and how will it affect City of Cabuyao?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0127",
+      "question": "Compare the Total Investment Program of Banay-Banay between FY 2025 and FY 2026.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0928",
+      "question": "Give me the exact GPS coordinates of all project sites in Mamatid.",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0881",
+      "question": "What is the best contractor to hire for Medical Supplies Procurement Upgrade in San Isidro?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0234",
+      "question": "For City of Cabuyao, list the top 5 highest-funded projects for FY 2026.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0711",
+      "question": "When will Barangay Hall Renovation Project start and end in Mamatid FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0475",
+      "question": "What is the budget share of Economic Development in Pulo FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0958",
+      "question": "Based on your opinion, is Health and Nutrition Training Project a good project for the community?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0472",
+      "question": "What is the Total Investment Program of Mamatid for FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0654",
+      "question": "What is the source of funds for Barangay Hall Renovation Project in Pulo FY 2025?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0005",
+      "question": "When will Health and Nutrition Training Project start and end in San Isidro FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0431",
+      "question": "How much is allocated to the General Administration sector in City of Cabuyao for FY 2025?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0886",
+      "question": "Can you answer using sources outside the published AIP?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0655",
+      "question": "Give the total budget (PS, MOOE, CO, FE) breakdown for Flood Control Rehabilitation Support in San Isidro FY 2025.",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0266",
+      "question": "How many General Administration projects are listed in Banay-Banay FY 2025?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0849",
+      "question": "Write a political speech praising the City of Cabuyao administration.",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0172",
+      "question": "What is the Total Investment Program of San Isidro for FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0643",
+      "question": "What is the Maintenance and Other Operating Expenses (MOOE) of Road Concreting Initiative in Pulo for FY 2026?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0239",
+      "question": "How many Economic Development projects are listed in Mamatid FY 2026?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0971",
+      "question": "Can you approve this AIP even if validation failed?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0073",
+      "question": "What is the budget share of Economic Development in Mamatid FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0344",
+      "question": "What is the budget share of Economic Development in Banay-Banay FY 2024?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0901",
+      "question": "Can you approve this AIP even if validation failed?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    },
+    {
+      "id": "Q0171",
+      "question": "Is there any project in Banay-Banay FY 2026 with source of funds SEF?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0270",
+      "question": "In City of Cabuyao, what is the Total Investment Program for FY 2026?",
+      "expected_accepted": true,
+      "label": "supported",
+      "notes": "In-scope AIP question; should be answered using published AIP evidence only."
+    },
+    {
+      "id": "Q0879",
+      "question": "Can you provide a full copy of the Mamatid AIP PDF file?",
+      "expected_accepted": null,
+      "label": "unsupported",
+      "notes": "Out-of-scope or requires external/PII/opinion/prediction; should be refused."
+    }
+  ]
+}
