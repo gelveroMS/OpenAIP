@@ -1,6 +1,6 @@
 import { detectAggregationIntent } from "@/lib/chat/aggregation-intent";
 import { extractFiscalYear } from "@/lib/chat/intent";
-import { decideRoute } from "@/lib/chat/router-decision";
+import { decideRoute, type RouteKind } from "@/lib/chat/router-decision";
 import type { PipelineIntentClassification } from "@/lib/chat/types";
 import type {
   QueryPlan,
@@ -200,6 +200,10 @@ function mapRouteKindToStructuredTaskKind(routeKind: QueryPlanStructuredTask["ro
   return "metadata";
 }
 
+function isStructuredRouteKind(kind: RouteKind): kind is QueryPlanStructuredTask["routeKind"] {
+  return kind === "SQL_TOTAL" || kind === "SQL_AGG" || kind === "ROW_LOOKUP" || kind === "SQL_METADATA";
+}
+
 function toMissingSlots(routeMissing: string[]): QueryPlanMissingSlot[] {
   const slots: QueryPlanMissingSlot[] = [];
   if (routeMissing.includes("fiscal_year_pair")) {
@@ -262,13 +266,7 @@ export function buildQueryPlan(input: BuildQueryPlanInput): QueryPlan {
       intentClassification: input.intentClassification,
     });
 
-    const isStructuredRoute =
-      decision.kind === "SQL_TOTAL" ||
-      decision.kind === "SQL_AGG" ||
-      decision.kind === "ROW_LOOKUP" ||
-      decision.kind === "SQL_METADATA";
-
-    if (isStructuredRoute && structuredTasks.length < maxStructuredTasks()) {
+    if (isStructuredRouteKind(decision.kind) && structuredTasks.length < maxStructuredTasks()) {
       structuredTasks.push({
         id: `structured_${structuredTasks.length + 1}`,
         kind: mapRouteKindToStructuredTaskKind(decision.kind),

@@ -99,11 +99,10 @@ function createServerClient() {
             const applyFilters = () => {
               let rows = [...lineItems];
               if (ilikeFilter) {
+                const filter = ilikeFilter;
                 rows = rows.filter((row) => {
-                  const candidate = String(
-                    (row as Record<string, unknown>)[ilikeFilter.field] ?? ""
-                  );
-                  return candidate.toLowerCase() === ilikeFilter.value.toLowerCase();
+                  const candidate = String((row as Record<string, unknown>)[filter.field] ?? "");
+                  return candidate.toLowerCase() === filter.value.toLowerCase();
                 });
               }
               for (const filter of eqFilters) {

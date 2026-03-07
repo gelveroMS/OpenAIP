@@ -47,6 +47,18 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Cookie header (fallback env OPENAIP_EVAL_COOKIE_HEADER).",
     )
+    parser.add_argument(
+        "--origin",
+        type=str,
+        default=None,
+        help="Origin header (fallback env OPENAIP_EVAL_ORIGIN, then base URL).",
+    )
+    parser.add_argument(
+        "--referer",
+        type=str,
+        default=None,
+        help="Referer header (fallback env OPENAIP_EVAL_REFERER, then <base-url>/barangay/chatbot).",
+    )
     parser.add_argument("--max", type=int, default=None, help="Max number of rows to run.")
     parser.add_argument(
         "--out-root",
@@ -172,9 +184,15 @@ def main() -> int:
     base_url = args.base_url or os.getenv("OPENAIP_WEBSITE_BASE_URL")
     token = args.token or os.getenv("OPENAIP_EVAL_BEARER_TOKEN")
     cookie_header = args.cookie_header or os.getenv("OPENAIP_EVAL_COOKIE_HEADER")
+    origin_header = args.origin or os.getenv("OPENAIP_EVAL_ORIGIN")
+    referer_header = args.referer or os.getenv("OPENAIP_EVAL_REFERER")
     if not base_url:
         print("Configuration error: --base-url or OPENAIP_WEBSITE_BASE_URL is required.")
         return 1
+    if origin_header is None:
+        origin_header = base_url.rstrip("/")
+    if referer_header is None:
+        referer_header = f"{base_url.rstrip('/')}/barangay/chatbot"
 
     run_id = _build_run_id()
     run_dir = out_root / run_id
@@ -186,6 +204,8 @@ def main() -> int:
         base_url=base_url,
         bearer_token=token,
         cookie_header=cookie_header,
+        origin_header=origin_header,
+        referer_header=referer_header,
     ) as client:
         for case in cases:
             result = client.post_message(content=case.question, session_id=session_id if args.stateful else None)

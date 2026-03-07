@@ -30,6 +30,8 @@ class WebsiteChatClient:
         base_url: str,
         bearer_token: str | None = None,
         cookie_header: str | None = None,
+        origin_header: str | None = None,
+        referer_header: str | None = None,
         timeout_s: float = 30.0,
         max_retries: int = 6,
         backoff_base_s: float = 0.5,
@@ -46,6 +48,10 @@ class WebsiteChatClient:
             headers["Authorization"] = f"Bearer {bearer_token}"
         if cookie_header:
             headers["Cookie"] = cookie_header
+        if origin_header:
+            headers["Origin"] = origin_header
+        if referer_header:
+            headers["Referer"] = referer_header
 
         self._headers = headers
         if httpx is not None:

@@ -1764,11 +1764,13 @@ function detectMentionedBarangayTargetsFromKnownNames(
   message: string,
   barangays: BarangayRef[]
 ): TotalsScopeTarget[] {
+  type MentionedBarangayMatch = { target: TotalsScopeTarget; position: number };
+
   const normalizedMessage = normalizeBarangayNameForMatch(message);
   if (!normalizedMessage) return [];
 
-  const matches = barangays
-    .map((barangay) => {
+  const matches: MentionedBarangayMatch[] = barangays
+    .map((barangay): MentionedBarangayMatch | null => {
       const normalizedName = normalizeBarangayNameForMatch(barangay.name);
       if (!normalizedName) return null;
       const escapedName = normalizedName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -1783,7 +1785,7 @@ function detectMentionedBarangayTargetsFromKnownNames(
         position: normalizedMessage.indexOf(normalizedName),
       };
     })
-    .filter((match): match is { target: TotalsScopeTarget; position: number } => Boolean(match))
+    .filter((match): match is MentionedBarangayMatch => match !== null)
     .sort((a, b) => a.position - b.position);
 
   const unique: TotalsScopeTarget[] = [];
@@ -1925,8 +1927,8 @@ function formatScopeLabel(target: TotalsScopeTarget): string {
   return /\bmunicipality\b/i.test(scopedName) ? scopedName : `Municipality ${scopedName}`;
 }
 
-function normalizeBarangayLabel(name: string): string {
-  const trimmed = name.trim();
+function normalizeBarangayLabel(name: string | null | undefined): string {
+  const trimmed = typeof name === "string" ? name.trim() : "";
   if (!trimmed) return "your barangay";
   return /^barangay\s+/i.test(trimmed) ? trimmed : `Barangay ${trimmed}`;
 }
@@ -4011,8 +4013,8 @@ async function executeStructuredTaskForMixed(input: {
       },
     ],
     structuredSnapshot: {
-      year_a: yearAResult.total,
-      year_b: yearBResult.total,
+      year_a: compareVerbose.overallYearATotal,
+      year_b: compareVerbose.overallYearBTotal,
       covered_count_year_a: yearAResult.coveredCount,
       covered_count_year_b: yearBResult.coveredCount,
     },
