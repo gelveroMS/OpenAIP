@@ -245,6 +245,30 @@ describe("auth hardening routes", () => {
     expect(mockApplySessionPolicyCookies).toHaveBeenCalledTimes(1);
   });
 
+  it("GET /auth/password-policy returns the active password policy", async () => {
+    const { GET } = await import("@/app/auth/password-policy/route");
+    const response = await GET();
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(body.ok).toBe(true);
+    expect(body.passwordPolicy).toEqual(defaultSecuritySettings.passwordPolicy);
+  });
+
+  it("GET /auth/password-policy returns 500 when settings cannot be loaded", async () => {
+    mockGetSecuritySettings.mockRejectedValueOnce(new Error("settings unavailable"));
+
+    const { GET } = await import("@/app/auth/password-policy/route");
+    const response = await GET();
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(body.ok).toBe(false);
+    expect(body.error?.message).toBe("settings unavailable");
+  });
+
   it("POST /auth/session/activity returns 401 without active session", async () => {
     const client = {
       auth: {

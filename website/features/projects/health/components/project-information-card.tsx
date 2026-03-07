@@ -23,6 +23,7 @@ import {
   resolveProjectImageSource,
 } from "@/features/projects/shared/project-image";
 import { toDateRangeLabel } from "@/features/projects/shared/project-date";
+import { isProjectMediaProxyUrl } from "@/lib/projects/media";
 
 /**
  * ProjectInformationCard Component (Health)
@@ -94,6 +95,7 @@ export default function ProjectInformationCard({
                 alt={project.title}
                 fill
                 className="object-cover"
+                unoptimized={isProjectMediaProxyUrl(imageSrc) ? true : undefined}
                 onError={() => {
                   if (!useLogoFallback) return;
                   setImageSrc((current) =>

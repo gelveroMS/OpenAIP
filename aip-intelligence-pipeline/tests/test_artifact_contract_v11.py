@@ -90,7 +90,7 @@ def test_validate_mutates_errors_only() -> None:
     result = validate_projects_json_str(
         json.dumps(extract_payload),
         model="gpt-5.2",
-        num_batches=1,
+        batch_size=1,
         client=_ValidationClient(),
     )
     after = result.validated_obj["projects"][0]

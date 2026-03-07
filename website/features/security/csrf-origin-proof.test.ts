@@ -29,6 +29,7 @@ function createSupabaseClient() {
               id: "run-old",
               aip_id: "aip-001",
               uploaded_file_id: "file-001",
+              stage: "validate",
               status: "failed",
             },
             error: null,
@@ -98,6 +99,64 @@ describe("CSRF origin proof for POST /api/barangay/aips/runs/[runId]/retry", () 
     );
 
     expect(response.status).toBe(200);
+    expect(mockInsertExtractionRun).toHaveBeenCalledTimes(1);
+    expect(mockInsertExtractionRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        aipId: "aip-001",
+        uploadedFileId: "file-001",
+        retryOfRunId: "run-old",
+        resumeFromStage: "validate",
+      })
+    );
+  });
+
+  it("supports scratch retry mode and forces resumeFromStage extract", async () => {
+    const { POST } = await import("@/app/api/barangay/aips/runs/[runId]/retry/route");
+    const response = await POST(
+      new Request("http://localhost/api/barangay/aips/runs/run-old/retry", {
+        method: "POST",
+        headers: {
+          origin: "http://localhost",
+          cookie: "csrf_token=test-token",
+          "x-csrf-token": "test-token",
+        },
+        body: JSON.stringify({ retryMode: "scratch" }),
+      }),
+      { params: Promise.resolve({ runId: "run-old" }) }
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockInsertExtractionRun).toHaveBeenCalledTimes(1);
+    expect(mockInsertExtractionRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        aipId: "aip-001",
+        uploadedFileId: "file-001",
+        retryOfRunId: "run-old",
+        resumeFromStage: "extract",
+      })
+    );
+  });
+
+  it("returns 400 for invalid retry mode", async () => {
+    const { POST } = await import("@/app/api/barangay/aips/runs/[runId]/retry/route");
+    const response = await POST(
+      new Request("http://localhost/api/barangay/aips/runs/run-old/retry", {
+        method: "POST",
+        headers: {
+          origin: "http://localhost",
+          cookie: "csrf_token=test-token",
+          "x-csrf-token": "test-token",
+        },
+        body: JSON.stringify({ retryMode: "bogus" }),
+      }),
+      { params: Promise.resolve({ runId: "run-old" }) }
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      message: "Invalid retry mode. Use 'scratch' or 'failed_stage'.",
+    });
+    expect(mockInsertExtractionRun).not.toHaveBeenCalled();
   });
 });
 

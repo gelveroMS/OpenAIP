@@ -14,6 +14,7 @@ type BuildNotificationActionUrlInput = {
   actionUrlOverride?: string | null;
   transition?: string | null;
   aipId?: string | null;
+  runId?: string | null;
   projectId?: string | null;
   feedbackId?: string | null;
   rootFeedbackId?: string | null;
@@ -194,6 +195,24 @@ export function buildNotificationActionUrl(input: BuildNotificationActionUrlInpu
     case "AIP_SUBMITTED":
     case "AIP_RESUBMITTED":
       return input.aipId ? `/city/submissions/aip/${input.aipId}` : "/city/submissions";
+    case "AIP_EXTRACTION_SUCCEEDED":
+    case "AIP_EXTRACTION_FAILED":
+      if (input.recipientScopeType === "barangay") {
+        if (input.aipId) {
+          return withQuery(`/barangay/aips/${input.aipId}`, { run: input.runId });
+        }
+        return "/barangay/aips";
+      }
+      if (input.recipientScopeType === "city") {
+        if (input.aipId) {
+          return withQuery(`/city/aips/${input.aipId}`, { run: input.runId });
+        }
+        return "/city/aips";
+      }
+      if (input.recipientScopeType === "admin") {
+        return withQuery("/admin/aip-monitoring", { run: input.runId });
+      }
+      return "/notifications";
     case "AIP_PUBLISHED":
       if (input.recipientScopeType === "city") {
         return input.aipId ? `/city/aips/${input.aipId}` : "/city/aips";

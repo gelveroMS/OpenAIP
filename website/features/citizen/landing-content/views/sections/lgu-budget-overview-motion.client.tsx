@@ -182,8 +182,8 @@ export default function LguBudgetOverviewMotion({
               <Card className="rounded-2xl border-slate-200 bg-white py-0">
                 <CardContent className="p-4">
                   <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">OpenAIP Users</p>
-                    <p className="mt-5 text-4xl font-semibold leading-none text-[#0C2C3A]">{formatNumber(vm.activeUsers)}</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">OpenAIP Citizens</p>
+                    <p className="mt-5 text-4xl font-semibold leading-none text-[#0C2C3A]">{formatNumber(vm.citizenCount)}</p>
                   </div>
                 </CardContent>
               </Card>

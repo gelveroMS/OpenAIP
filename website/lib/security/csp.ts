@@ -82,10 +82,9 @@ function buildContentSecurityPolicy(input: CspOptions): string {
     scriptSrc.push("'unsafe-eval'");
   }
 
-  const styleSrc = ["'self'", `'nonce-${input.nonce}'`];
-  if (!input.isProduction) {
-    styleSrc.push("'unsafe-inline'");
-  }
+  // Keep style nonce for nonce-capable style tags, but allow inline styles
+  // for runtime style attributes used by React/UI libraries in production.
+  const styleSrc = ["'self'", `'nonce-${input.nonce}'`, "'unsafe-inline'"];
 
   const directives: Array<[string, string[]]> = [
     ["default-src", ["'self'"]],

@@ -49,7 +49,7 @@ export type LguOverviewVM = {
   projectCount: number;
   projectDeltaLabel?: string;
   aipStatus: string;
-  activeUsers: number;
+  citizenCount: number;
   map: LguOverviewMapVM;
 };
 

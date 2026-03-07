@@ -55,4 +55,21 @@ describe("CitizenAipRepo mock adapter", () => {
     expect(projectDetail).not.toBeNull();
     expect(Array.isArray(projectDetail?.aiIssues)).toBe(true);
   });
+
+  it("includes city/barangay scope metadata for filter hierarchy", async () => {
+    const repo = createMockCitizenAipRepo();
+    const rows = await repo.listPublishedAips();
+
+    const cityRow = rows.find((row) => row.scopeType === "city");
+    const barangayRow = rows.find((row) => row.scopeType === "barangay");
+
+    expect(cityRow?.cityScopeId).toBeTruthy();
+    expect(cityRow?.cityScopeLabel).toBeTruthy();
+    expect(cityRow?.barangayScopeId ?? null).toBeNull();
+
+    expect(barangayRow?.cityScopeId).toBeTruthy();
+    expect(barangayRow?.cityScopeLabel).toBeTruthy();
+    expect(barangayRow?.barangayScopeId).toBeTruthy();
+    expect(barangayRow?.barangayScopeLabel).toBeTruthy();
+  });
 });

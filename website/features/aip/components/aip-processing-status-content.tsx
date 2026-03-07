@@ -2,8 +2,10 @@
 
 import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { cn } from "@/lib/ui/utils";
+import {
+  AipProcessingStepper,
+  type ProcessingStep,
+} from "./aip-processing-stepper";
 import type {
   AipProcessingRunView,
   PipelineStageUi,
@@ -57,6 +59,21 @@ export function AipProcessingStatusContent({
   errorHint,
 }: Props) {
   const activeIndex = getActiveStageIndex(run?.stage ?? "extract");
+  const stepperSteps: ProcessingStep[] = STAGES.map((stage, index) => {
+    const completed = isStageComplete(
+      stage.key,
+      run?.progressByStage ?? null,
+      run?.status ?? null
+    );
+    const active = activeIndex === index;
+
+    return {
+      key: stage.key,
+      label: stage.label,
+      status: completed && !active ? "completed" : active ? "active" : "upcoming",
+      progressPct: clampProgress(run?.progressByStage?.[stage.key] ?? 0),
+    };
+  });
   const shouldShowSyncingMessage =
     state === "processing" &&
     (run?.status === "queued" || run?.status === "running") &&
@@ -116,46 +133,7 @@ export function AipProcessingStatusContent({
       ) : (
         <>
           <div className="bg-gradient-to-b from-[#F1FAFF] to-white px-10 pb-10">
-            <div className="grid w-full grid-cols-4 items-start justify-items-center">
-              {STAGES.map((stage, index) => {
-                const completed = isStageComplete(stage.key, run?.progressByStage ?? null, run?.status ?? null);
-                const active = activeIndex === index;
-                const connectorActive = completed || index < activeIndex;
-                return (
-                  <div key={stage.key} className="flex min-w-0 flex-col items-center gap-3">
-                    <div className="relative w-full">
-                      <div
-                        className={cn(
-                          "relative z-10 mx-auto flex h-12 w-12 items-center justify-center rounded-full border-2 text-sm font-semibold",
-                          completed || active
-                            ? "border-[#0E5D6F] bg-[#0E5D6F] text-white shadow"
-                            : "border-slate-200 bg-white text-slate-400"
-                        )}
-                      >
-                        {completed && !active ? <Check className="h-5 w-5" /> : index + 1}
-                      </div>
-                      {index < STAGES.length - 1 ? (
-                        <div
-                          className={cn(
-                            "absolute left-1/2 right-[-50%] top-1/2 z-0 h-1 -translate-y-1/2 rounded-full",
-                            connectorActive ? "bg-[#0E5D6F]" : "bg-slate-200"
-                          )}
-                        />
-                      ) : null}
-                    </div>
-                    <div className={cn("w-full text-center text-xs font-semibold", active ? "text-[#0E5D6F]" : "text-slate-500")}>
-                      {stage.label}
-                    </div>
-                    <div className="w-full space-y-2">
-                      <Progress value={clampProgress(run?.progressByStage?.[stage.key] ?? 0)} className="h-2" />
-                      <div className="text-center text-[11px] text-slate-500">
-                        {clampProgress(run?.progressByStage?.[stage.key] ?? 0)}%
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            <AipProcessingStepper steps={stepperSteps} />
             <div className="mt-8 text-center text-sm text-slate-600" aria-live="polite">
               {statusMessage}
             </div>

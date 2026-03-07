@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
@@ -42,6 +43,49 @@ def _read_positive_int_env(name: str, default: int) -> int:
     except (TypeError, ValueError):
         return default
     return parsed if parsed > 0 else default
+
+
+def _extract_http_error_payload(error: urllib.error.HTTPError) -> tuple[dict[str, Any] | None, str | None]:
+    body_bytes: bytes | None = None
+    if getattr(error, "fp", None) is not None:
+        try:
+            body_bytes = error.read()
+        except Exception:
+            body_bytes = None
+    if not body_bytes:
+        return None, None
+    raw_body = body_bytes.decode("utf-8", errors="replace")
+    try:
+        parsed = json.loads(raw_body)
+    except json.JSONDecodeError:
+        parsed = None
+    if isinstance(parsed, dict):
+        return parsed, raw_body
+    return None, raw_body
+
+
+def _format_http_error_message(
+    *,
+    base_message: str,
+    payload: dict[str, Any] | None,
+    raw_body: str | None,
+) -> str:
+    details: list[str] = []
+    if isinstance(payload, dict):
+        for key in ("code", "message", "details", "hint"):
+            value = payload.get(key)
+            if value is None:
+                continue
+            text = str(value).strip()
+            if text:
+                details.append(f"{key}={text}")
+    elif raw_body:
+        snippet = raw_body.strip().replace("\n", " ")
+        if snippet:
+            details.append(f"body={snippet[:600]}")
+    if not details:
+        return base_message
+    return f"{base_message} | " + " | ".join(details)
 
 
 class SupabaseRestClient:
@@ -92,13 +136,26 @@ class SupabaseRestClient:
         if payload is not None:
             body = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(url=url, data=body, headers=self._headers(headers), method=method)
-        with urllib.request.urlopen(req, timeout=self.http_timeout_seconds) as response:
-            data = response.read()
-            if not data:
-                return None
-            if (response.headers.get("Content-Type") or "").startswith("application/json"):
-                return json.loads(data.decode("utf-8"))
-            return data
+        try:
+            with urllib.request.urlopen(req, timeout=self.http_timeout_seconds) as response:
+                data = response.read()
+                if not data:
+                    return None
+                if (response.headers.get("Content-Type") or "").startswith("application/json"):
+                    return json.loads(data.decode("utf-8"))
+                return data
+        except urllib.error.HTTPError as error:
+            parsed_payload, raw_body = _extract_http_error_payload(error)
+            if parsed_payload is not None:
+                setattr(error, "supabase_error_payload", parsed_payload)
+            if raw_body is not None:
+                setattr(error, "supabase_error_raw", raw_body)
+            error.msg = _format_http_error_message(
+                base_message=str(error.msg),
+                payload=parsed_payload,
+                raw_body=raw_body,
+            )
+            raise
 
     def select(
         self,

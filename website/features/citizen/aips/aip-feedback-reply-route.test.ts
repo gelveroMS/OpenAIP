@@ -10,6 +10,7 @@ const mockSanitizeBody = vi.fn();
 const mockHydrateAipFeedbackItems = vi.fn();
 const mockToErrorResponse = vi.fn();
 const mockAssertFeedbackUsageAllowed = vi.fn();
+const mockNotifySafely = vi.fn();
 
 vi.mock("@/lib/supabase/server", () => ({
   supabaseServer: () => mockSupabaseServer(),
@@ -27,6 +28,10 @@ class MockFeedbackUsageError extends Error {
 vi.mock("@/lib/feedback/usage-guards", () => ({
   assertFeedbackUsageAllowed: (...args: unknown[]) => mockAssertFeedbackUsageAllowed(...args),
   isFeedbackUsageError: (error: unknown) => error instanceof MockFeedbackUsageError,
+}));
+
+vi.mock("@/lib/notifications", () => ({
+  notifySafely: (...args: unknown[]) => mockNotifySafely(...args),
 }));
 
 class MockCitizenAipFeedbackApiError extends Error {
@@ -158,6 +163,18 @@ describe("POST /api/citizen/aips/[aipId]/feedback/reply", () => {
     expect(mockLoadAipFeedbackRowById).toHaveBeenCalledWith(expect.anything(), "fb-parent");
     expect(mockLoadAipFeedbackRowById).toHaveBeenCalledWith(expect.anything(), "fb-root");
     expect(body.item.parentFeedbackId).toBe("fb-root");
+    expect(mockNotifySafely).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: "FEEDBACK_CREATED",
+        scopeType: "citizen",
+        entityType: "feedback",
+        entityId: "fb-r1",
+        feedbackId: "fb-r1",
+        aipId: "aip-1",
+        actorUserId: "citizen-1",
+        actorRole: "citizen",
+      })
+    );
   });
 
   it("rejects replies to workflow-rooted feedback threads", async () => {

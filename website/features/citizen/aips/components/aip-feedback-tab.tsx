@@ -8,6 +8,10 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { addCitizenAuthChangedListener } from "@/features/citizen/auth/utils/auth-sync";
+import {
+  getCitizenProfileStatus,
+  invalidateCitizenProfileStatusCache,
+} from "@/features/citizen/auth/utils/profile-status-client";
 import { FeedbackComposer } from "@/features/projects/shared/feedback";
 import type { CitizenProjectFeedbackKind } from "@/features/projects/shared/feedback";
 import {
@@ -34,15 +38,6 @@ type ReplyComposerState = {
 type Props = {
   aipId: string;
   feedbackCount: number;
-};
-
-type ProfileStatusPayload = {
-  ok?: boolean;
-  isComplete?: boolean;
-  userId?: string;
-  isBlocked?: boolean;
-  blockedUntil?: string | null;
-  blockedReason?: string | null;
 };
 
 function readSearchParam(
@@ -407,20 +402,11 @@ export default function AipFeedbackTab({ aipId, feedbackCount }: Props) {
     let active = true;
     const supabase = supabaseBrowser();
 
-    async function refreshAuthState() {
-      const response = await fetch("/profile/status", {
-        method: "GET",
-        cache: "no-store",
-      });
-      const payload = (await response.json().catch(() => null)) as ProfileStatusPayload | null;
+    async function refreshAuthState(force = false) {
+      const statusResult = await getCitizenProfileStatus({ force });
       if (!active) return;
 
-      if (
-        !response.ok ||
-        !payload?.ok ||
-        typeof payload.userId !== "string" ||
-        !payload.userId.trim().length
-      ) {
+      if (statusResult.kind === "anonymous" || statusResult.kind === "error") {
         setIsAuthenticated(false);
         setIsBlocked(false);
         setBlockedUntil(null);
@@ -430,34 +416,27 @@ export default function AipFeedbackTab({ aipId, feedbackCount }: Props) {
       }
 
       setIsAuthenticated(true);
-      setIsBlocked(payload.isBlocked === true);
-      setBlockedUntil(typeof payload.blockedUntil === "string" ? payload.blockedUntil : null);
+      setIsBlocked(statusResult.isBlocked);
+      setBlockedUntil(statusResult.blockedUntil);
       setBlockedReason(
-        typeof payload.blockedReason === "string" && payload.blockedReason.trim().length > 0
-          ? payload.blockedReason.trim()
+        typeof statusResult.blockedReason === "string" && statusResult.blockedReason.trim().length > 0
+          ? statusResult.blockedReason.trim()
           : null
       );
       setIsAuthLoading(false);
     }
 
-    void refreshAuthState();
+    void refreshAuthState(false);
 
     const cleanupAuthChanged = addCitizenAuthChangedListener(() => {
-      void refreshAuthState();
+      invalidateCitizenProfileStatusCache();
+      void refreshAuthState(true);
     });
-    const handleFocus = () => {
-      void refreshAuthState();
-    };
-    const handleVisibilityChange = () => {
-      if (typeof document === "undefined") return;
-      if (document.visibilityState !== "visible") return;
-      void refreshAuthState();
-    };
-    window.addEventListener("focus", handleFocus);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       if (!active) return;
+      if (event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") return;
+      invalidateCitizenProfileStatusCache();
       if (!session?.user?.id) {
         setIsAuthenticated(false);
         setIsBlocked(false);
@@ -466,14 +445,12 @@ export default function AipFeedbackTab({ aipId, feedbackCount }: Props) {
         setIsAuthLoading(false);
         return;
       }
-      void refreshAuthState();
+      void refreshAuthState(true);
     });
 
     return () => {
       active = false;
       cleanupAuthChanged();
-      window.removeEventListener("focus", handleFocus);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
       listener.subscription.unsubscribe();
     };
   }, []);

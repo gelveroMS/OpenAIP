@@ -28,7 +28,8 @@ export async function runLandingContentViewSmokeTests() {
   assert(html.length > 0, "Expected rendered HTML output");
 
   assertAppearsInOrder(html, [
-    "Know Where Every Peso Goes.",
+    "Know Where",
+    "Every Peso Goes.",
     "Every allocation.",
     "LGU Budget Overview",
     "How Funds Are Distributed",

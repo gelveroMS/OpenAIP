@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useCitizenChatbot } from "./hooks/use-citizen-chatbot";
+import { invalidateCitizenProfileStatusCache } from "@/features/citizen/auth/utils/profile-status-client";
 
 const mockReplace = vi.fn();
 const mockOnAuthStateChange = vi.fn();
@@ -38,6 +39,7 @@ vi.mock("@/lib/repos/citizen-chat/repo", () => ({
 describe("useCitizenChatbot", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    invalidateCitizenProfileStatusCache();
     mockOnAuthStateChange.mockReturnValue({
       data: {
         subscription: {

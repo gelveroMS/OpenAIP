@@ -74,18 +74,11 @@ export function useAdminDashboardData(initial?: AdminDashboardInitialData) {
   const [reactiveLoading, setReactiveLoading] = useState(() => !hasInitialSnapshotRef.current);
   const [error, setError] = useState<string | null>(null);
   const requestIdRef = useRef(0);
-  const isMountedRef = useRef(true);
 
   const setFiltersWithInteraction = (next: AdminDashboardFilters) => {
     hasUserInteractedRef.current = true;
     setFilters(next);
   };
-
-  useEffect(() => {
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
 
   useEffect(() => {
     let isActive = true;
@@ -99,13 +92,13 @@ export function useAdminDashboardData(initial?: AdminDashboardInitialData) {
       setStaticLoading(true);
       try {
         const lguList = await repo.listLguOptions();
-        if (!isActive || !isMountedRef.current) return;
+        if (!isActive) return;
         setLguOptions(lguList);
       } catch (err) {
-        if (!isActive || !isMountedRef.current) return;
+        if (!isActive) return;
         setError(err instanceof Error ? err.message : "Failed to load dashboard data.");
       } finally {
-        if (isActive && isMountedRef.current) {
+        if (isActive) {
           setStaticLoading(false);
         }
       }
@@ -149,7 +142,7 @@ export function useAdminDashboardData(initial?: AdminDashboardInitialData) {
           repo.getUsageMetrics(filters),
         ]);
 
-        if (!isActive || !isMountedRef.current || requestIdRef.current !== currentRequestId) return;
+        if (!isActive || requestIdRef.current !== currentRequestId) return;
 
         setSummary(summaryData);
         setDistribution(statusDistribution);
@@ -157,10 +150,10 @@ export function useAdminDashboardData(initial?: AdminDashboardInitialData) {
         setUsageMetrics(metricsData);
         setRecentActivity([]);
       } catch (err) {
-        if (!isActive || !isMountedRef.current || requestIdRef.current !== currentRequestId) return;
+        if (!isActive || requestIdRef.current !== currentRequestId) return;
         setError(err instanceof Error ? err.message : "Failed to load dashboard data.");
       } finally {
-        if (isActive && isMountedRef.current && requestIdRef.current === currentRequestId) {
+        if (isActive && requestIdRef.current === currentRequestId) {
           setReactiveLoading(false);
         }
       }

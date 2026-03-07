@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import json
 import os
 import tempfile
 import time
@@ -173,11 +174,68 @@ def _embed_line_items(*, settings: Settings, line_items: list[dict[str, Any]]) -
     return embedded
 
 
+def _normalize_resume_start_stage(value: Any) -> str:
+    stage = _normalize_optional_text(value)
+    if not stage:
+        return "extract"
+    lowered = stage.lower()
+    if lowered == "embed":
+        return "categorize"
+    if lowered in {"extract", "validate", "summarize", "categorize"}:
+        return lowered
+    return "extract"
+
+
+def _required_input_artifact_type(start_stage: str) -> str | None:
+    if start_stage == "validate":
+        return "extract"
+    if start_stage == "summarize":
+        return "validate"
+    if start_stage == "categorize":
+        return "summarize"
+    return None
+
+
+def _is_resumable_stage_payload(payload: Any) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    projects = payload.get("projects")
+    return isinstance(projects, list)
+
+
+def _extract_summary_text(payload: dict[str, Any]) -> str | None:
+    summary = payload.get("summary")
+    if not isinstance(summary, dict):
+        return None
+    text = summary.get("text")
+    if not isinstance(text, str):
+        return None
+    cleaned = text.strip()
+    return cleaned or None
+
+
+def _find_artifact_in_run_lineage(
+    *,
+    repo: PipelineRepository,
+    start_run_id: str,
+    artifact_type: str,
+) -> tuple[dict[str, Any] | None, str | None]:
+    visited: set[str] = set()
+    cursor: str | None = start_run_id
+    while cursor and cursor not in visited:
+        visited.add(cursor)
+        artifact = repo.get_stage_artifact(run_id=cursor, artifact_type=artifact_type)
+        if artifact is not None:
+            return artifact, cursor
+        cursor = repo.get_parent_run_id(run_id=cursor)
+    return None, None
+
+
 def process_run(*, repo: PipelineRepository, settings: Settings, run: dict[str, Any]) -> None:
     run_id = str(run["id"])
     aip_id = str(run["aip_id"])
     model_name = str(run.get("model_name") or settings.pipeline_model)
-    current_stage = "extract"
+    current_stage = _normalize_resume_start_stage(run.get("resume_from_stage"))
     tmp_pdf_path: str | None = None
     try:
         _enforce_retry_guardrail(
@@ -187,98 +245,179 @@ def process_run(*, repo: PipelineRepository, settings: Settings, run: dict[str, 
             fallback_uploaded_file_id=_normalize_optional_text(run.get("uploaded_file_id")),
         )
 
+        start_stage = _normalize_resume_start_stage(run.get("resume_from_stage"))
+        extraction_payload: dict[str, Any] | None = None
+        validation_payload: dict[str, Any] | None = None
+        summary_payload: dict[str, Any] | None = None
+        summary_text: str | None = None
+
+        required_artifact_type = _required_input_artifact_type(start_stage)
+        if required_artifact_type:
+            prerequisite_payload, source_run_id = _find_artifact_in_run_lineage(
+                repo=repo,
+                start_run_id=run_id,
+                artifact_type=required_artifact_type,
+            )
+            if not _is_resumable_stage_payload(prerequisite_payload):
+                print(
+                    (
+                        f"[WORKER][RESUME] run={run_id} stage={start_stage} missing/corrupt "
+                        f"{required_artifact_type} artifact in retry lineage; falling back to extract"
+                    ),
+                    flush=True,
+                )
+                start_stage = "extract"
+            else:
+                print(
+                    (
+                        f"[WORKER][RESUME] run={run_id} stage={start_stage} "
+                        f"reusing {required_artifact_type} artifact from run={source_run_id}"
+                    ),
+                    flush=True,
+                )
+                if required_artifact_type == "extract":
+                    extraction_payload = prerequisite_payload
+                    repo.upsert_aip_totals(
+                        aip_id=aip_id,
+                        totals=extraction_payload.get("totals")
+                        if isinstance(extraction_payload, dict)
+                        else [],
+                    )
+                elif required_artifact_type == "validate":
+                    validation_payload = prerequisite_payload
+                elif required_artifact_type == "summarize":
+                    summary_payload = prerequisite_payload
+                    summary_text = _extract_summary_text(summary_payload)
+
+        current_stage = start_stage
         aip_scope = repo.get_aip_scope(aip_id)
         extraction_fn = run_city_extraction if aip_scope == "city" else run_barangay_extraction
         validation_fn = validate_city if aip_scope == "city" else validate_barangay
-        uploaded = repo.get_uploaded_file(run)
-        signed_url = repo.client.create_signed_url(uploaded.bucket_id, uploaded.object_name, expires_in=600)
-        pdf_bytes = repo.client.download_bytes(signed_url)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-            tmp.write(pdf_bytes)
-            tmp_pdf_path = tmp.name
+        if start_stage == "extract":
+            current_stage = "extract"
+            repo.set_run_stage(run_id=run_id, stage=current_stage)
+            uploaded = repo.get_uploaded_file(run)
+            signed_url = repo.client.create_signed_url(uploaded.bucket_id, uploaded.object_name, expires_in=600)
+            pdf_bytes = repo.client.download_bytes(signed_url)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                tmp.write(pdf_bytes)
+                tmp_pdf_path = tmp.name
 
-        repo.set_run_stage(run_id=run_id, stage="extract")
+            def extraction_progress(done_pages: int, total_pages: int) -> None:
+                if total_pages <= 0:
+                    return
+                pct = clamp_pct((done_pages * 100) / total_pages)
+                repo.set_run_progress(
+                    run_id=run_id,
+                    stage=current_stage,
+                    stage_progress_pct=pct,
+                    progress_message=f"Extracting page {done_pages}/{total_pages}...",
+                )
 
-        def extraction_progress(done_pages: int, total_pages: int) -> None:
-            if total_pages <= 0:
-                return
-            pct = clamp_pct((done_pages * 100) / total_pages)
+            extraction_res = extraction_fn(
+                tmp_pdf_path,
+                model=model_name,
+                job_id=run_id,
+                aip_id=aip_id,
+                uploaded_file_id=uploaded.id,
+                on_progress=extraction_progress,
+            )
+            extraction_payload = extraction_res.payload
             repo.set_run_progress(
                 run_id=run_id,
+                stage=current_stage,
+                stage_progress_pct=100,
+                progress_message="Extraction complete.",
+            )
+            _persist_stage_artifact(
+                repo=repo,
+                run_id=run_id,
+                aip_id=aip_id,
                 stage="extract",
-                stage_progress_pct=pct,
-                progress_message=f"Extracting page {done_pages}/{total_pages}...",
+                payload=extraction_payload,
+                text=None,
+            )
+            repo.upsert_aip_totals(
+                aip_id=aip_id,
+                totals=extraction_payload.get("totals")
+                if isinstance(extraction_payload, dict)
+                else [],
             )
 
-        extraction_res = extraction_fn(
-            tmp_pdf_path,
-            model=model_name,
-            job_id=run_id,
-            aip_id=aip_id,
-            uploaded_file_id=uploaded.id,
-            on_progress=extraction_progress,
-        )
-        repo.set_run_progress(run_id=run_id, stage="extract", stage_progress_pct=100, progress_message="Extraction complete.")
-        _persist_stage_artifact(
-            repo=repo,
-            run_id=run_id,
-            aip_id=aip_id,
-            stage="extract",
-            payload=extraction_res.payload,
-            text=None,
-        )
-        repo.upsert_aip_totals(
-            aip_id=aip_id,
-            totals=extraction_res.payload.get("totals") if isinstance(extraction_res.payload, dict) else [],
-        )
+        if start_stage in {"extract", "validate"}:
+            if not _is_resumable_stage_payload(extraction_payload):
+                raise RuntimeError("Validation cannot start because extraction payload is unavailable.")
 
-        current_stage = "validate"
-        repo.set_run_stage(run_id=run_id, stage=current_stage)
+            current_stage = "validate"
+            repo.set_run_stage(run_id=run_id, stage=current_stage)
 
-        def validation_progress(
-            done_projects: int,
-            total_projects: int,
-            batch_no: int,
-            total_batches: int,
-            message: str,
-        ) -> None:
-            pct = 100 if total_projects <= 0 else clamp_pct((done_projects * 100) / total_projects)
-            repo.set_run_progress(run_id=run_id, stage=current_stage, stage_progress_pct=pct, progress_message=message)
+            def validation_progress(
+                done_projects: int,
+                total_projects: int,
+                batch_no: int,
+                total_batches: int,
+                message: str,
+            ) -> None:
+                pct = 100 if total_projects <= 0 else clamp_pct((done_projects * 100) / total_projects)
+                repo.set_run_progress(
+                    run_id=run_id,
+                    stage=current_stage,
+                    stage_progress_pct=pct,
+                    progress_message=message,
+                )
 
-        validation_res = validation_fn(
-            extraction_res.json_str,
-            model=model_name,
-            num_batches=4,
-            on_progress=validation_progress,
-        )
-        repo.set_run_progress(run_id=run_id, stage=current_stage, stage_progress_pct=100, progress_message="Validation complete.")
-        _persist_stage_artifact(
-            repo=repo,
-            run_id=run_id,
-            aip_id=aip_id,
-            stage="validate",
-            payload=validation_res.validated_obj,
-            text=None,
-        )
+            validation_res = validation_fn(
+                json.dumps(extraction_payload, ensure_ascii=False),
+                model=model_name,
+                batch_size=None,
+                on_progress=validation_progress,
+            )
+            validation_payload = validation_res.validated_obj
+            repo.set_run_progress(
+                run_id=run_id,
+                stage=current_stage,
+                stage_progress_pct=100,
+                progress_message="Validation complete.",
+            )
+            _persist_stage_artifact(
+                repo=repo,
+                run_id=run_id,
+                aip_id=aip_id,
+                stage="validate",
+                payload=validation_payload,
+                text=None,
+            )
 
-        current_stage = "summarize"
-        repo.set_run_stage(run_id=run_id, stage=current_stage)
-        summary_res = run_with_heartbeat(
-            repo=repo,
-            run_id=run_id,
-            stage=current_stage,
-            expected_seconds=read_positive_float_env("PIPELINE_SUMMARIZE_EXPECTED_SECONDS", 60.0),
-            message_prefix="Generating summary",
-            fn=lambda: summarize_aip_overall_json_str(validation_res.validated_json_str, model=model_name),
-        )
-        _persist_stage_artifact(
-            repo=repo,
-            run_id=run_id,
-            aip_id=aip_id,
-            stage="summarize",
-            payload=summary_res.summary_obj,
-            text=summary_res.summary_text,
-        )
+        if start_stage in {"extract", "validate", "summarize"}:
+            if not _is_resumable_stage_payload(validation_payload):
+                raise RuntimeError("Summarization cannot start because validation payload is unavailable.")
+
+            current_stage = "summarize"
+            repo.set_run_stage(run_id=run_id, stage=current_stage)
+            summary_res = run_with_heartbeat(
+                repo=repo,
+                run_id=run_id,
+                stage=current_stage,
+                expected_seconds=read_positive_float_env("PIPELINE_SUMMARIZE_EXPECTED_SECONDS", 60.0),
+                message_prefix="Generating summary",
+                fn=lambda: summarize_aip_overall_json_str(
+                    json.dumps(validation_payload, ensure_ascii=False),
+                    model=model_name,
+                ),
+            )
+            summary_payload = summary_res.summary_obj
+            summary_text = summary_res.summary_text
+            _persist_stage_artifact(
+                repo=repo,
+                run_id=run_id,
+                aip_id=aip_id,
+                stage="summarize",
+                payload=summary_payload,
+                text=summary_text,
+            )
+
+        if not _is_resumable_stage_payload(summary_payload):
+            raise RuntimeError("Categorization cannot start because summarize payload is unavailable.")
 
         current_stage = "categorize"
         repo.set_run_stage(run_id=run_id, stage=current_stage)
@@ -296,12 +435,12 @@ def process_run(*, repo: PipelineRepository, settings: Settings, run: dict[str, 
                 stage_progress_pct=pct,
                 progress_message=(
                     f"Categorizing projects {categorized_count}/{total_count} "
-                    f"(batch {batch_no}/{total_batches})..."
+                    f"(chunk {batch_no}/{total_batches})..."
                 ),
             )
 
         categorized_res = categorize_from_summarized_json_str(
-            summary_res.summary_json_str,
+            json.dumps(summary_payload, ensure_ascii=False),
             model=model_name,
             batch_size=settings.batch_size,
             on_progress=categorize_progress,
@@ -318,7 +457,7 @@ def process_run(*, repo: PipelineRepository, settings: Settings, run: dict[str, 
             aip_id=aip_id,
             stage="categorize",
             payload=categorized_res.categorized_obj,
-            text=summary_res.summary_text,
+            text=summary_text,
         )
         repo.upsert_projects(
             aip_id=aip_id,

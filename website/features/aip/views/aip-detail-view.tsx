@@ -15,7 +15,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { RotateCw, Send, X } from "lucide-react";
+import {
+  CheckCircle2,
+  CircleDashed,
+  Loader2,
+  RotateCw,
+  Send,
+  TriangleAlert,
+  X,
+} from "lucide-react";
 
 import type {
   AipHeader,
@@ -46,7 +54,11 @@ import {
   useExtractionRunsRealtime,
   type ExtractionRunRealtimeEvent,
 } from "../hooks/use-extraction-runs-realtime";
-import { isEmbedSkipNoArtifactMessage } from "@/lib/constants/embedding";
+import {
+  getAipChatbotReadinessStatus,
+  type AipChatbotReadinessKind,
+  type AipChatbotReadinessTone,
+} from "../lib/chatbot-readiness";
 import { withCsrfHeader } from "@/lib/security/csrf";
 
 const PIPELINE_STAGES: PipelineStageUi[] = [
@@ -56,6 +68,20 @@ const PIPELINE_STAGES: PipelineStageUi[] = [
   "categorize",
   "embed",
 ];
+const PIPELINE_STAGE_ORDER_FOR_FAILURE: PipelineStageUi[] = [
+  "extract",
+  "validate",
+  "summarize",
+  "categorize",
+  "embed",
+];
+const PIPELINE_STAGE_LABELS: Record<PipelineStageUi, string> = {
+  extract: "Extraction",
+  validate: "Validation",
+  summarize: "Summarization",
+  categorize: "Categorization",
+  embed: "Embedding",
+};
 
 const PIPELINE_STATUS: PipelineStatusUi[] = ["queued", "running", "succeeded", "failed"];
 const FINALIZE_REFRESH_MAX_ATTEMPTS = 5;
@@ -65,45 +91,25 @@ const FINALIZE_PROGRESS_MESSAGE =
 const LIVE_STATUS_UNAVAILABLE_NOTICE =
   "Live extraction updates are unavailable right now. Refresh this page to check the latest status.";
 
-function isEmbeddingSkipped(embedding: AipHeader["embedding"]): boolean {
-  return Boolean(
-    embedding &&
-      embedding.status === "succeeded" &&
-      isEmbedSkipNoArtifactMessage(embedding.progressMessage)
-  );
+function getChatbotStatusToneClass(tone: AipChatbotReadinessTone): string {
+  switch (tone) {
+    case "success":
+      return "text-emerald-600";
+    case "info":
+      return "text-sky-600";
+    case "danger":
+      return "text-rose-600";
+    case "warning":
+    default:
+      return "text-amber-600";
+  }
 }
 
-function getEmbeddingStatusMessage(embedding: AipHeader["embedding"]): string {
-  if (!embedding) {
-    return "Indexing has not started yet.";
-  }
-  if (embedding.status === "queued") {
-    return embedding.progressMessage ?? "Indexing for search...";
-  }
-  if (embedding.status === "running") {
-    return embedding.progressMessage ?? "Indexing for search...";
-  }
-  if (embedding.status === "succeeded") {
-    if (isEmbeddingSkipped(embedding)) {
-      return "Indexing was skipped because no categorize artifact was available. You can embed for search now.";
-    }
-    return embedding.progressMessage ?? "Search index is ready.";
-  }
-  return embedding.errorMessage ?? "Indexing failed. You can retry indexing.";
-}
-
-function getEmbeddingStatusTitle(embedding: AipHeader["embedding"]): string {
-  if (!embedding) return "Search Index Pending";
-  if (embedding.status === "queued" || embedding.status === "running") {
-    return "Search Indexing In Progress";
-  }
-  if (embedding.status === "succeeded") {
-    if (isEmbeddingSkipped(embedding)) {
-      return "Search Index Pending";
-    }
-    return "Search Index Ready";
-  }
-  return "Search Indexing Failed";
+function ChatbotStatusIcon({ kind }: { kind: AipChatbotReadinessKind }) {
+  if (kind === "chatbot_ready") return <CheckCircle2 className="h-4 w-4" />;
+  if (kind === "embedding") return <Loader2 className="h-4 w-4 animate-spin" />;
+  if (kind === "failed") return <TriangleAlert className="h-4 w-4" />;
+  return <CircleDashed className="h-4 w-4" />;
 }
 
 type RunStatusPayload = {
@@ -126,6 +132,14 @@ type ActiveRunLookupPayload = {
     errorMessage: string | null;
     createdAt: string | null;
   } | null;
+  failedRun?: {
+    runId: string;
+    aipId: string;
+    stage: PipelineStageUi;
+    status: "failed";
+    errorMessage: string | null;
+    createdAt: string | null;
+  } | null;
 };
 
 type RunSnapshotPayload = {
@@ -138,6 +152,14 @@ type RunSnapshotPayload = {
   stageProgressPct?: number | null;
   progressMessage?: string | null;
   progressUpdatedAt?: string | null;
+};
+
+type RetryFailedRunMode = "scratch" | "failed_stage";
+
+type FailedRunState = {
+  runId: string;
+  stage: PipelineStageUi;
+  message: string | null;
 };
 
 function mapRealtimeEventToRunStatusPayload(
@@ -176,6 +198,16 @@ function clampProgress(value: number): number {
 
 function hasSummaryText(summaryText: string | undefined): boolean {
   return typeof summaryText === "string" && summaryText.trim().length > 0;
+}
+
+function getPipelineStageLabel(stage: PipelineStageUi): string {
+  return PIPELINE_STAGE_LABELS[stage];
+}
+
+function getCompletedPipelineStageLabels(failedStage: PipelineStageUi): string[] {
+  const failedIndex = PIPELINE_STAGE_ORDER_FOR_FAILURE.indexOf(failedStage);
+  if (failedIndex <= 0) return [];
+  return PIPELINE_STAGE_ORDER_FOR_FAILURE.slice(0, failedIndex).map(getPipelineStageLabel);
 }
 
 function wait(ms: number): Promise<void> {
@@ -278,12 +310,9 @@ export default function AipDetailView({
   const [processingRun, setProcessingRun] = useState<AipProcessingRunView | null>(null);
   const [processingState, setProcessingState] = useState<AipProcessingState>("idle");
   const [runNotice, setRunNotice] = useState<string | null>(null);
-  const [failedRun, setFailedRun] = useState<{
-    runId: string;
-    message: string | null;
-  } | null>(null);
-  const [dismissedFailedRunId, setDismissedFailedRunId] = useState<string | null>(null);
-  const [isRetrying, setIsRetrying] = useState(false);
+  const [failedRun, setFailedRun] = useState<FailedRunState | null>(null);
+  const [retryingMode, setRetryingMode] = useState<RetryFailedRunMode | null>(null);
+  const isRetrying = retryingMode !== null;
   const [retryError, setRetryError] = useState<string | null>(null);
   const [isFinalizingAfterSuccess, setIsFinalizingAfterSuccess] = useState(false);
   const [finalizingNotice, setFinalizingNotice] = useState<string | null>(null);
@@ -308,17 +337,22 @@ export default function AipDetailView({
   const [cityPublishConfirmOpen, setCityPublishConfirmOpen] = useState(false);
   const [deleteDraftConfirmOpen, setDeleteDraftConfirmOpen] = useState(false);
   const lastHydratedRunIdRef = useRef<string | null>(null);
-  const isEmbedMissing = !aip.embedding;
-  const isEmbedFailed = aip.embedding?.status === "failed";
-  const isEmbedRunning =
-    aip.embedding?.status === "queued" || aip.embedding?.status === "running";
-  const isEmbedSkipped = isEmbeddingSkipped(aip.embedding);
+  const chatbotReadiness =
+    aip.status === "published" ? getAipChatbotReadinessStatus(aip.embedding) : null;
+  const isEmbedFailed = chatbotReadiness?.kind === "failed";
+  const isEmbedRunning = chatbotReadiness?.kind === "embedding";
   const canManualEmbedDispatch =
     aip.status === "published" &&
     (isBarangayScope || isCityScope) &&
     !isEmbedRunning &&
-    (isEmbedMissing || isEmbedFailed || isEmbedSkipped);
-  const embedActionButtonLabel = isEmbedFailed ? "Retry Indexing" : "Embed for Search";
+    (chatbotReadiness?.kind === "failed" ||
+      chatbotReadiness?.kind === "needs_embedding");
+  const embedActionButtonLabel = isEmbedFailed
+    ? "Retry Embedding"
+    : "Start Embedding";
+  const embedActionButtonClass = isEmbedFailed
+    ? "w-full bg-rose-600 hover:bg-rose-700"
+    : "w-full bg-[#022437] hover:bg-[#022437]/90";
 
   const focusedRowId = searchParams.get("focus") ?? undefined;
 
@@ -372,12 +406,23 @@ export default function AipDetailView({
           setProcessingState("processing");
           setIsFinalizingAfterSuccess(false);
           setFailedRun(null);
-          setDismissedFailedRunId(null);
           setRetryError(null);
           setFinalizingNotice(null);
+        } else if (payload.failedRun?.runId) {
+          setActiveRunId(null);
+          setProcessingState("idle");
+          setIsFinalizingAfterSuccess(false);
+          setFinalizingNotice(null);
+          setFailedRun({
+            runId: payload.failedRun.runId,
+            stage: payload.failedRun.stage,
+            message: payload.failedRun.errorMessage,
+          });
+          setRetryError(null);
         } else {
           setActiveRunId(null);
           setProcessingState("idle");
+          setFailedRun(null);
         }
       } catch {
         if (cancelled) return;
@@ -456,7 +501,6 @@ export default function AipDetailView({
       if (nextState === "complete") {
         setActiveRunId(null);
         setFailedRun(null);
-        setDismissedFailedRunId(null);
         setRetryError(null);
         setRunNotice(null);
         setProcessingState("processing");
@@ -483,9 +527,9 @@ export default function AipDetailView({
       setActiveRunId(null);
       setFailedRun({
         runId: payload.runId,
+        stage: payload.stage,
         message: payload.errorMessage ?? payload.progressMessage ?? null,
       });
-      setDismissedFailedRunId(null);
       setRetryError(null);
       if (runIdFromQuery) {
         clearRunQuery();
@@ -568,11 +612,6 @@ export default function AipDetailView({
   });
 
   useEffect(() => {
-    if (!activeRunId) return;
-    setDismissedFailedRunId(null);
-  }, [activeRunId]);
-
-  useEffect(() => {
     if (!isFinalizingAfterSuccess) return;
 
     if (hasSummaryText(aip.summaryText)) {
@@ -642,31 +681,38 @@ export default function AipDetailView({
         reason?: "missing" | "failed" | "skipped";
       };
       if (!response.ok) {
-        throw new Error(payload.message ?? "Failed to dispatch search indexing.");
+        throw new Error(payload.message ?? "Failed to dispatch embedding.");
       }
-      setEmbeddingRetrySuccess(payload.message ?? "Search indexing job dispatched.");
+      const successMessage =
+        payload.reason === "failed"
+          ? "Embedding retry dispatched."
+          : "Embedding job dispatched.";
+      setEmbeddingRetrySuccess(successMessage);
       router.refresh();
     } catch (error) {
       setEmbeddingRetryError(
-        error instanceof Error ? error.message : "Failed to dispatch search indexing."
+        error instanceof Error ? error.message : "Failed to dispatch embedding."
       );
     } finally {
       setIsRetryingEmbedding(false);
     }
   }, [aip.id, isCityScope, router]);
 
-  const handleRetryFailedRun = useCallback(async () => {
+  const handleRetryFailedRun = useCallback(async (mode: RetryFailedRunMode) => {
     if (!failedRun) return;
 
     try {
-      setIsRetrying(true);
+      setRetryingMode(mode);
       setRetryError(null);
       setRunNotice(null);
       const runApiScope = isCityScope ? "city" : "barangay";
 
       const response = await fetch(
         `/api/${runApiScope}/aips/runs/${encodeURIComponent(failedRun.runId)}/retry`,
-        withCsrfHeader({ method: "POST" })
+        withCsrfHeader({
+          method: "POST",
+          body: JSON.stringify({ retryMode: mode }),
+        })
       );
 
       const payload = (await response.json()) as {
@@ -679,7 +725,6 @@ export default function AipDetailView({
       }
 
       setFailedRun(null);
-      setDismissedFailedRunId(null);
       setActiveRunId(payload.runId);
       setProcessingState("processing");
       setIsFinalizingAfterSuccess(false);
@@ -689,7 +734,7 @@ export default function AipDetailView({
         error instanceof Error ? error.message : "Failed to retry extraction run."
       );
     } finally {
-      setIsRetrying(false);
+      setRetryingMode(null);
     }
   }, [failedRun, isCityScope]);
 
@@ -999,8 +1044,11 @@ export default function AipDetailView({
       isFinalizingAfterSuccess ||
       (Boolean(activeRunId) && processingState === "processing"));
 
-  const failedNoticeRun =
-    failedRun && dismissedFailedRunId !== failedRun.runId ? failedRun : null;
+  const failedNoticeRun = failedRun;
+  const shouldShowFailedRunOnly = !shouldBlockWithProcessingUi && Boolean(failedNoticeRun);
+  const failedStageRetryLabel = failedNoticeRun
+    ? `Restart from ${getPipelineStageLabel(failedNoticeRun.stage)} Stage`
+    : "Restart from Failed Stage";
 
   return (
     <div className="space-y-6">
@@ -1030,51 +1078,25 @@ export default function AipDetailView({
             </CardContent>
           </Card>
 
-          {runNotice ? (
-            <Alert className="border-amber-200 bg-amber-50">
-              <AlertDescription className="text-amber-800">{runNotice}</AlertDescription>
-            </Alert>
-          ) : null}
-
-          {workflowError ? (
+          {shouldShowFailedRunOnly && failedNoticeRun ? (
             <Alert className="border-rose-200 bg-rose-50">
-              <AlertDescription className="text-rose-800">
-                {workflowError}
-              </AlertDescription>
-            </Alert>
-          ) : null}
-
-          {workflowSuccess ? (
-            <Alert className="border-emerald-200 bg-emerald-50">
-              <AlertDescription className="text-emerald-800">
-                {workflowSuccess}
-              </AlertDescription>
-            </Alert>
-          ) : null}
-
-          {finalizingNotice ? (
-            <Alert className="border-amber-200 bg-amber-50">
-              <AlertTitle className="text-amber-900">Processing Complete</AlertTitle>
-              <AlertDescription className="space-y-3 text-amber-800">
-                <p>{finalizingNotice}</p>
-                <div className="flex justify-start">
-                  <Button
-                    variant="outline"
-                    className="border-amber-300 text-amber-900 hover:bg-amber-100"
-                    onClick={handleManualRefresh}
-                    disabled={isManualRefreshing}
-                  >
-                    {isManualRefreshing ? "Refreshing..." : "Refresh now"}
-                  </Button>
-                </div>
-              </AlertDescription>
-            </Alert>
-          ) : null}
-
-          {failedNoticeRun ? (
-            <Alert className="border-rose-200 bg-rose-50">
-              <AlertTitle className="text-rose-900">Extraction Failed</AlertTitle>
+              <AlertTitle className="text-rose-900">Pipeline Failed</AlertTitle>
               <AlertDescription className="space-y-3 text-rose-800">
+                <p>
+                  <span className="font-semibold">Completed stages:</span>{" "}
+                  {(() => {
+                    const completedStages = getCompletedPipelineStageLabels(
+                      failedNoticeRun.stage
+                    );
+                    return completedStages.length > 0
+                      ? completedStages.join(" > ")
+                      : "None";
+                  })()}
+                </p>
+                <p>
+                  <span className="font-semibold">Failed at:</span>{" "}
+                  {getPipelineStageLabel(failedNoticeRun.stage)}
+                </p>
                 <p>
                   {failedNoticeRun.message ??
                     "We were unable to complete the AIP extraction pipeline."}
@@ -1083,53 +1105,105 @@ export default function AipDetailView({
                 <div className="flex flex-wrap gap-2">
                   <Button
                     className="bg-rose-600 hover:bg-rose-700"
-                    onClick={handleRetryFailedRun}
+                    onClick={() => {
+                      void handleRetryFailedRun("failed_stage");
+                    }}
                     disabled={isRetrying}
                   >
-                    {isRetrying ? "Retrying..." : "Retry Extraction"}
+                    {retryingMode === "failed_stage"
+                      ? "Restarting..."
+                      : failedStageRetryLabel}
                   </Button>
                   <Button
-                    variant="ghost"
-                    onClick={() => setDismissedFailedRunId(failedNoticeRun.runId)}
+                    variant="outline"
+                    className="border-rose-300 text-rose-900 hover:bg-rose-100"
+                    onClick={() => {
+                      void handleRetryFailedRun("scratch");
+                    }}
                     disabled={isRetrying}
                   >
-                    Dismiss
+                    {retryingMode === "scratch"
+                      ? "Restarting..."
+                      : "Restart from Scratch"}
                   </Button>
                 </div>
               </AlertDescription>
             </Alert>
-          ) : null}
+          ) : (
+            <>
+              {runNotice ? (
+                <Alert className="border-amber-200 bg-amber-50">
+                  <AlertDescription className="text-amber-800">{runNotice}</AlertDescription>
+                </Alert>
+              ) : null}
 
-          {(isBarangayScope || isCityScope) &&
-          (aip.status === "draft" || aip.status === "for_revision") &&
-          submitBlockedReason ? (
-            <Alert className="border-amber-200 bg-amber-50">
-              <AlertDescription className="text-amber-800">
-                {submitBlockedReason}
-              </AlertDescription>
-            </Alert>
-          ) : null}
+              {workflowError ? (
+                <Alert className="border-rose-200 bg-rose-50">
+                  <AlertDescription className="text-rose-800">
+                    {workflowError}
+                  </AlertDescription>
+                </Alert>
+              ) : null}
 
-          {isBarangayScope &&
-          !canManageBarangayWorkflow &&
-          (aip.status === "draft" ||
-            aip.status === "for_revision" ||
-            aip.status === "pending_review") ? (
-            <Alert className="border-amber-200 bg-amber-50">
-              <AlertDescription className="text-amber-800">
-                {barangayWorkflowLockReason}
-              </AlertDescription>
-            </Alert>
-          ) : null}
+              {workflowSuccess ? (
+                <Alert className="border-emerald-200 bg-emerald-50">
+                  <AlertDescription className="text-emerald-800">
+                    {workflowSuccess}
+                  </AlertDescription>
+                </Alert>
+              ) : null}
 
-          <div
-            className={
-              showRightSidebar ? "grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]" : "space-y-6"
-            }
-          >
+              {finalizingNotice ? (
+                <Alert className="border-amber-200 bg-amber-50">
+                  <AlertTitle className="text-amber-900">Processing Complete</AlertTitle>
+                  <AlertDescription className="space-y-3 text-amber-800">
+                    <p>{finalizingNotice}</p>
+                    <div className="flex justify-start">
+                      <Button
+                        variant="outline"
+                        className="border-amber-300 text-amber-900 hover:bg-amber-100"
+                        onClick={handleManualRefresh}
+                        disabled={isManualRefreshing}
+                      >
+                        {isManualRefreshing ? "Refreshing..." : "Refresh now"}
+                      </Button>
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              ) : null}
 
-            <div className="space-y-6">
-              <AipPdfContainer aip={aip} />
+              {(isBarangayScope || isCityScope) &&
+              (aip.status === "draft" || aip.status === "for_revision") &&
+              submitBlockedReason ? (
+                <Alert className="border-amber-200 bg-amber-50">
+                  <AlertDescription className="text-amber-800">
+                    {submitBlockedReason}
+                  </AlertDescription>
+                </Alert>
+              ) : null}
+
+              {isBarangayScope &&
+              !canManageBarangayWorkflow &&
+              (aip.status === "draft" ||
+                aip.status === "for_revision" ||
+                aip.status === "pending_review") ? (
+                <Alert className="border-amber-200 bg-amber-50">
+                  <AlertDescription className="text-amber-800">
+                    {barangayWorkflowLockReason}
+                  </AlertDescription>
+                </Alert>
+              ) : null}
+
+              <div
+                className={
+                  showRightSidebar
+                    ? "grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]"
+                    : "space-y-6"
+                }
+              >
+
+                <div className="space-y-6">
+                  <AipPdfContainer aip={aip} />
 
               <div className="flex items-center">
                 <Tabs
@@ -1289,8 +1363,8 @@ export default function AipDetailView({
               </div>
             </div>
 
-            {showRightSidebar ? (
-              <div className="h-fit space-y-6 lg:sticky lg:top-4">
+                {showRightSidebar ? (
+                  <div className="h-fit space-y-6 lg:sticky lg:top-4">
                 {showRevisionWorkflowSidebar ? (
                   <>
                     <Card className="border-slate-200">
@@ -1431,25 +1505,22 @@ export default function AipDetailView({
               <AipStatusInfoCard status={aip.status} reviewerMessage={aip.feedback} />
                 ) : null}
 
-                {aip.status === "published" ? (
+                {aip.status === "published" && chatbotReadiness ? (
                   <Card className="border-slate-200">
                     <CardContent className="space-y-3 px-5">
-                      <div className="text-sm font-semibold text-slate-900">
-                        {getEmbeddingStatusTitle(aip.embedding)}
+                      <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                        <span className={getChatbotStatusToneClass(chatbotReadiness.tone)}>
+                          <ChatbotStatusIcon kind={chatbotReadiness.kind} />
+                        </span>
+                        {chatbotReadiness.title}
                       </div>
                       <div className="text-xs text-slate-600">
-                        {getEmbeddingStatusMessage(aip.embedding)}
+                        {chatbotReadiness.message}
                       </div>
-                      {typeof aip.embedding?.overallProgressPct === "number" &&
-                      (aip.embedding.status === "queued" ||
-                        aip.embedding.status === "running") ? (
+                      {chatbotReadiness.kind === "embedding" &&
+                      typeof chatbotReadiness.progressPct === "number" ? (
                         <div className="text-xs text-slate-500">
-                          Progress:{" "}
-                          {Math.max(
-                            0,
-                            Math.min(100, Math.round(aip.embedding.overallProgressPct))
-                          )}
-                          %
+                          Progress: {chatbotReadiness.progressPct}%
                         </div>
                       ) : null}
                       {embeddingRetrySuccess ? (
@@ -1464,7 +1535,7 @@ export default function AipDetailView({
                       ) : null}
                       {canManualEmbedDispatch ? (
                         <Button
-                          className="w-full bg-rose-600 hover:bg-rose-700"
+                          className={embedActionButtonClass}
                           onClick={() => {
                             void handleRetryEmbedding();
                           }}
@@ -1492,9 +1563,11 @@ export default function AipDetailView({
                     emptyRepliesLabel="No official reply saved for this cycle yet."
                   />
                 ) : null}
+                  </div>
+                ) : null}
               </div>
-            ) : null}
-          </div>
+            </>
+          )}
         </>
       )}
       <Dialog open={cityPublishConfirmOpen} onOpenChange={setCityPublishConfirmOpen}>

@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import NotificationsBell from "@/features/notifications/components/notifications-bell";
 import type { NotificationRealtimeEvent } from "@/features/notifications/realtime-listener";
+import { NOTIFICATION_READ_EVENT } from "@/lib/notifications/read-events";
 
 const mockGetUser = vi.fn();
 const realtimeState: { onEvent?: (event: NotificationRealtimeEvent) => void } = {};
@@ -114,7 +115,7 @@ describe("NotificationsBell", () => {
     expect(screen.getByRole("button", { name: "Open notifications" })).toHaveClass("h-9", "w-9");
   });
 
-  it("opens the preview, caps unread items at five, and shows the view-all action", async () => {
+  it("opens the preview, caps unread items at five, and closes when view-all is clicked", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/notifications/unread-count") {
@@ -130,9 +131,13 @@ describe("NotificationsBell", () => {
           json: async () => ({
             items: Array.from({ length: 6 }, (_, index) => ({
               id: `notif-${index + 1}`,
+              event_type: "FEEDBACK_CREATED",
+              scope_type: "citizen",
+              recipient_role: "citizen",
               title: `Title ${index + 1}`,
               message: `Preview item ${index + 1}`,
               action_url: `/notifications/${index + 1}`,
+              metadata: {},
               created_at: "2026-03-03T00:00:00.000Z",
               read_at: null,
             })),
@@ -152,22 +157,48 @@ describe("NotificationsBell", () => {
     const trigger = await screen.findByRole("button", { name: "Open notifications" });
     fireEvent.click(trigger);
 
-    await screen.findByText("Preview item 1");
-    expect(screen.getByText("Preview item 5")).toBeInTheDocument();
-    expect(screen.queryByText("Preview item 6")).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "View all notifications" })).toHaveAttribute(
+    expect((await screen.findAllByText("New feedback was posted.")).length).toBe(5);
+    const viewAllLink = screen.getByRole("link", { name: "View all notifications" });
+    expect(viewAllLink).toHaveAttribute(
       "href",
       "/notifications"
     );
+    fireEvent.click(viewAllLink);
+
+    await waitFor(() => {
+      expect(screen.queryByRole("link", { name: "View all notifications" })).not.toBeInTheDocument();
+    });
   });
 
-  it("marks a preview item as read when clicked", async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+  it("decrements the bell count only after a read-success event", async () => {
+    const unreadCountResponses = [1, 0];
+    const unreadPreviewResponses = [
+      [
+        {
+          id: "notif-1",
+          event_type: "AIP_REVISION_REQUESTED",
+          scope_type: "barangay",
+          recipient_role: "barangay_official",
+          title: "Review update",
+          message: "Returned for revision",
+          action_url: "/city/projects/1",
+          metadata: {
+            fiscal_year: 2026,
+            lgu_name: "Barangay Uno",
+          },
+          created_at: "2026-03-03T00:00:00.000Z",
+          read_at: null,
+        },
+      ],
+      [],
+    ];
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/notifications/unread-count") {
         return {
           ok: true,
-          json: async () => ({ unreadCount: 1 }),
+          json: async () => ({ unreadCount: unreadCountResponses.shift() ?? 0 }),
         };
       }
 
@@ -175,25 +206,8 @@ describe("NotificationsBell", () => {
         return {
           ok: true,
           json: async () => ({
-            items: [
-              {
-                id: "notif-1",
-                title: "Review update",
-                message: "Returned for revision",
-                action_url: "/city/projects/1",
-                created_at: "2026-03-03T00:00:00.000Z",
-                read_at: null,
-              },
-            ],
+            items: unreadPreviewResponses.shift() ?? [],
           }),
-        };
-      }
-
-      if (url === "/api/notifications/notif-1/read") {
-        expect(init).toMatchObject({ method: "PATCH" });
-        return {
-          ok: true,
-          json: async () => ({ ok: true }),
         };
       }
 
@@ -207,20 +221,31 @@ describe("NotificationsBell", () => {
     render(<NotificationsBell href="/notifications" />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Open notifications" }));
-    const previewLink = await screen.findByRole("link", { name: /Returned for revision/i });
-    expect(previewLink).toHaveAttribute("href", "/city/projects/1");
+    const previewLink = await screen.findByRole("link", { name: /Revision requested for your AIP/i });
+    expect(previewLink).toHaveAttribute("href", "/city/projects/1?notificationId=notif-1");
 
     fireEvent.click(previewLink);
+    expect(screen.getByText("1")).toBeInTheDocument();
 
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/api/notifications/notif-1/read",
-        expect.objectContaining({ method: "PATCH" })
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(NOTIFICATION_READ_EVENT, {
+          detail: { notificationId: "notif-1" },
+        })
       );
     });
+
     await waitFor(() => {
-      expect(screen.queryByText("Returned for revision")).not.toBeInTheDocument();
+      expect(screen.queryByText("1")).not.toBeInTheDocument();
     });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open notifications" }));
+    await screen.findByText("No unread notifications.");
+
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/notifications/notif-1/read",
+      expect.objectContaining({ method: "PATCH" })
+    );
   });
 
   it("updates unread badge and preview list when a realtime notification arrives", async () => {
@@ -258,6 +283,12 @@ describe("NotificationsBell", () => {
         row: {
           id: "notif-live",
           recipient_user_id: "user-123",
+          recipient_role: "citizen",
+          scope_type: "citizen",
+          event_type: "FEEDBACK_CREATED",
+          action_url: "/notifications/live",
+          metadata: {},
+          created_at: "2026-03-03T00:00:00.000Z",
           read_at: null,
           title: "Live update",
           message: "A realtime notification arrived.",
@@ -268,6 +299,6 @@ describe("NotificationsBell", () => {
     await waitFor(() => {
       expect(screen.getByText("2")).toBeInTheDocument();
     });
-    expect(screen.getAllByText("A realtime notification arrived.").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("New feedback was posted.").length).toBeGreaterThan(0);
   });
 });

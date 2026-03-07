@@ -31,6 +31,7 @@ import {
   resolveProjectImageSource,
 } from "@/features/projects/shared/project-image";
 import { toDateRangeLabel } from "@/features/projects/shared/project-date";
+import { isProjectMediaProxyUrl } from "@/lib/projects/media";
 
 /**
  * InfrastructureProjectInformationCard Component
@@ -104,6 +105,7 @@ export default function InfrastructureProjectInformationCard({
                 fill
                 className="object-cover object-center"
                 sizes="(min-width: 1024px) 384px, 100vw"
+                unoptimized={isProjectMediaProxyUrl(imageSrc) ? true : undefined}
                 onError={() => {
                   if (!useLogoFallback) return;
                   setImageSrc((current) =>

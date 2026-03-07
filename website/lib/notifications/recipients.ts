@@ -43,6 +43,13 @@ type ProjectUpdateScopeRow = {
   status: "active" | "hidden";
 };
 
+type ProjectUpdateTemplateRow = {
+  id: string;
+  title: string | null;
+  description: string | null;
+  status: "active" | "hidden";
+};
+
 export type NotificationRecipient = {
   userId: string;
   role: ProfileRole;
@@ -60,6 +67,7 @@ export type ResolvedAipScope = {
 export type ResolvedFeedbackContext = {
   feedbackId: string;
   authorUserId: string | null;
+  rootAuthorUserId: string | null;
   targetType: "aip" | "project";
   aipId: string | null;
   projectId: string | null;
@@ -92,7 +100,14 @@ export type FeedbackTemplateContext = {
   feedbackKind: string | null;
   feedbackBody: string | null;
   entityLabel: string | null;
+  targetLabel: string | null;
   targetType: "aip" | "project" | null;
+};
+
+export type ProjectUpdateTemplateContext = {
+  updateTitle: string | null;
+  updateBody: string | null;
+  status: "active" | "hidden" | null;
 };
 
 export function toScopeTypeFromRole(role: ProfileRole): NotificationScopeType {
@@ -432,11 +447,26 @@ export async function resolveFeedbackContext(
 
   const row = data as FeedbackScopeRow;
   const rootFeedbackId = row.parent_feedback_id ?? row.id;
+  let rootAuthorUserId: string | null = row.parent_feedback_id ? null : row.author_id;
+
+  if (row.parent_feedback_id) {
+    const { data: rootData, error: rootError } = await admin
+      .from("feedback")
+      .select("id,author_id")
+      .eq("id", rootFeedbackId)
+      .maybeSingle();
+    if (rootError) throw new Error(rootError.message);
+
+    const rootRow = (rootData ?? null) as { id: string; author_id: string | null } | null;
+    rootAuthorUserId = rootRow?.author_id ?? null;
+  }
+
   if (row.target_type === "aip" && row.aip_id) {
     const scope = await resolveAipScope(admin, row.aip_id);
     return {
       feedbackId: row.id,
       authorUserId: row.author_id,
+      rootAuthorUserId,
       targetType: row.target_type,
       aipId: row.aip_id,
       projectId: null,
@@ -451,6 +481,7 @@ export async function resolveFeedbackContext(
     return {
       feedbackId: row.id,
       authorUserId: row.author_id,
+      rootAuthorUserId,
       targetType: row.target_type,
       aipId: projectScope?.aipId ?? null,
       projectId: row.project_id,
@@ -464,6 +495,7 @@ export async function resolveFeedbackContext(
   return {
     feedbackId: row.id,
     authorUserId: row.author_id,
+    rootAuthorUserId,
     targetType: row.target_type,
     aipId: row.aip_id,
     projectId: row.project_id,
@@ -488,29 +520,24 @@ export async function resolveFeedbackTemplateContext(
 
   const row = data as FeedbackScopeRow;
   let entityLabel: string | null = null;
+  let targetLabel: string | null = null;
 
   if (row.target_type === "aip" && row.aip_id) {
     const aipContext = await resolveAipTemplateContext(admin, row.aip_id);
-    const fiscalYearLabel =
-      typeof aipContext?.fiscalYear === "number" ? `FY ${aipContext.fiscalYear}` : null;
-    if (aipContext?.lguName && fiscalYearLabel) {
-      entityLabel = `${aipContext.lguName} ${fiscalYearLabel} AIP`;
-    } else if (aipContext?.lguName) {
-      entityLabel = `${aipContext.lguName} AIP`;
-    } else if (fiscalYearLabel) {
-      entityLabel = `${fiscalYearLabel} AIP`;
-    } else {
-      entityLabel = "AIP";
-    }
+    targetLabel =
+      typeof aipContext?.fiscalYear === "number" ? `AIP FY ${aipContext.fiscalYear}` : "AIP";
+    entityLabel = targetLabel;
   } else if (row.target_type === "project" && row.project_id) {
     const projectContext = await resolveProjectTemplateContext(admin, row.project_id);
-    entityLabel = projectContext?.projectName ?? "Project";
+    targetLabel = projectContext?.projectName ?? "Project";
+    entityLabel = targetLabel;
   }
 
   return {
     feedbackKind: normalizeText(row.kind ?? null),
     feedbackBody: normalizeText(row.body ?? null),
     entityLabel,
+    targetLabel,
     targetType: row.target_type ?? null,
   };
 }
@@ -535,6 +562,26 @@ export async function resolveProjectUpdateContext(
     status: row.status,
     projectCategory: projectScope?.projectCategory ?? null,
     scope: projectScope?.scope ?? (await resolveAipScope(admin, row.aip_id)),
+  };
+}
+
+export async function resolveProjectUpdateTemplateContext(
+  admin: SupabaseAdminClient,
+  updateId: string
+): Promise<ProjectUpdateTemplateContext | null> {
+  const { data, error } = await admin
+    .from("project_updates")
+    .select("id,title,description,status")
+    .eq("id", updateId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+
+  const row = data as ProjectUpdateTemplateRow;
+  return {
+    updateTitle: normalizeText(row.title ?? null),
+    updateBody: normalizeText(row.description ?? null),
+    status: row.status ?? null,
   };
 }
 

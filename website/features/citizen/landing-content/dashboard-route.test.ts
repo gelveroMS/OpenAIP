@@ -31,7 +31,7 @@ function buildResult(overrides?: Partial<LandingContentResult>): LandingContentR
         totalBudget: 1,
         projectCount: 1,
         aipStatus: "Published",
-        activeUsers: 1,
+        citizenCount: 1,
         map: {
           center: { lat: 1, lng: 1 },
           zoom: 13,

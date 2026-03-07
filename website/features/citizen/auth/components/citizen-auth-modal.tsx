@@ -18,7 +18,12 @@ import {
 } from "@/features/citizen/auth/utils/auth-query";
 import { emitCitizenAuthChanged } from "@/features/citizen/auth/utils/auth-sync";
 import { maskEmail } from "@/features/citizen/auth/utils/mask-email";
-import { validatePasswordWithPolicy } from "@/lib/security/password-policy";
+import { fetchPasswordPolicy } from "@/lib/security/password-policy-client";
+import {
+  getPasswordPolicyRuleStatus,
+  validatePasswordWithPolicy,
+  type PasswordPolicyLike,
+} from "@/lib/security/password-policy";
 
 type CitizenAuthModalProps = {
   isOpen: boolean;
@@ -218,13 +223,7 @@ export default function CitizenAuthModal({
   const [password, setPassword] = useState("");
   const [otpEmail, setOtpEmail] = useState("");
   const [otpCode, setOtpCode] = useState("");
-  const [passwordPolicy, setPasswordPolicy] = useState<{
-    minLength: number;
-    requireUppercase: boolean;
-    requireLowercase: boolean;
-    requireNumbers: boolean;
-    requireSpecialCharacters: boolean;
-  } | null>(null);
+  const [passwordPolicy, setPasswordPolicy] = useState<PasswordPolicyLike | null>(null);
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -394,29 +393,9 @@ export default function CitizenAuthModal({
     if (!isOpen) return;
     let active = true;
     const loadPolicy = async () => {
-      try {
-        const response = await fetch("/api/system/security-policy", {
-          cache: "no-store",
-        });
-        const payload = (await response.json().catch(() => null)) as
-          | {
-              securitySettings?: {
-                passwordPolicy?: {
-                  minLength: number;
-                  requireUppercase: boolean;
-                  requireLowercase: boolean;
-                  requireNumbers: boolean;
-                  requireSpecialCharacters: boolean;
-                };
-              };
-            }
-          | null;
-        if (!active) return;
-        if (!response.ok || !payload?.securitySettings?.passwordPolicy) return;
-        setPasswordPolicy(payload.securitySettings.passwordPolicy);
-      } catch {
-        // Ignore policy fetch errors and rely on server-side validation.
-      }
+      const policy = await fetchPasswordPolicy();
+      if (!active || !policy) return;
+      setPasswordPolicy(policy);
     };
     void loadPolicy();
     return () => {
@@ -448,6 +427,26 @@ export default function CitizenAuthModal({
         option.localityId === selectedLocality.id
     );
   }, [barangayOptions, selectedLocality]);
+  const signupPolicyRules = useMemo(
+    () =>
+      flow.mode === "signup" && passwordPolicy
+        ? getPasswordPolicyRuleStatus(password, passwordPolicy)
+        : [],
+    [flow.mode, password, passwordPolicy]
+  );
+  const signupPolicyErrors = useMemo(
+    () =>
+      flow.mode === "signup" && passwordPolicy
+        ? validatePasswordWithPolicy(password, passwordPolicy)
+        : [],
+    [flow.mode, password, passwordPolicy]
+  );
+  const disableEmailPasswordSubmit = useMemo(() => {
+    if (isLoading) return true;
+    if (!isValidEmail(email) || !password) return true;
+    if (flow.mode !== "signup") return false;
+    return signupPolicyErrors.length > 0;
+  }, [email, flow.mode, isLoading, password, signupPolicyErrors.length]);
 
   const resolveReturnTo = (): string | null => {
     if (isSafeNextPath(nextPath)) {
@@ -499,11 +498,8 @@ export default function CitizenAuthModal({
 
     try {
       if (flow.mode === "signup") {
-        if (passwordPolicy) {
-          const errors = validatePasswordWithPolicy(password, passwordPolicy);
-          if (errors.length > 0) {
-            throw new Error(errors[0]);
-          }
+        if (signupPolicyErrors.length > 0) {
+          throw new Error(signupPolicyErrors[0]);
         }
         await postJson<AuthStepResponse>("/auth/sign-up", {
           email: email.trim().toLowerCase(),
@@ -661,8 +657,10 @@ export default function CitizenAuthModal({
           mode={flow.mode}
           email={email}
           password={password}
+          policyRules={signupPolicyRules}
           errorMessage={errorMessage}
           isLoading={isLoading}
+          disableSubmit={disableEmailPasswordSubmit}
           onEmailChange={setEmail}
           onPasswordChange={setPassword}
           onSubmit={() => {

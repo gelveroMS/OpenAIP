@@ -7,6 +7,7 @@ import type {
 const RETRYABLE_STATUS_CODES = new Set([401, 403]);
 const RETRY_DELAYS_MS = [200, 400, 800];
 const DASHBOARD_ROUTE_PATH = "/api/admin/dashboard";
+const SNAPSHOT_FETCH_TIMEOUT_MS = 15_000;
 
 const inFlightSnapshotRequests = new Map<string, Promise<AdminDashboardSnapshot>>();
 
@@ -54,6 +55,28 @@ function delay(ms: number): Promise<void> {
   });
 }
 
+async function fetchSnapshot(url: string): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => {
+    controller.abort();
+  }, SNAPSHOT_FETCH_TIMEOUT_MS);
+
+  try {
+    return await fetch(url, {
+      method: "GET",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("Dashboard request timed out. Please try again.");
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
+}
+
 async function requestSnapshot(
   filters?: AdminDashboardFilters,
   attempt = 0
@@ -61,10 +84,7 @@ async function requestSnapshot(
   const query = buildQuery(filters);
   const url = query.length > 0 ? `${DASHBOARD_ROUTE_PATH}?${query}` : DASHBOARD_ROUTE_PATH;
 
-  const response = await fetch(url, {
-    method: "GET",
-    cache: "no-store",
-  });
+  const response = await fetchSnapshot(url);
 
   const payload = (await response.json().catch(() => null)) as
     | unknown

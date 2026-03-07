@@ -58,6 +58,31 @@ function toScopeRelationName(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+export function resolveBaseUrlFromHeaderValues(input: {
+  host: string | null;
+  forwardedHost: string | null;
+  forwardedProto: string | null;
+}): string {
+  const configuredBaseUrl = process.env.BASE_URL?.trim();
+  if (configuredBaseUrl) {
+    return configuredBaseUrl.replace(/\/+$/, "");
+  }
+
+  const forwardedHost = input.forwardedHost?.split(",")[0]?.trim() ?? "";
+  if (forwardedHost.length > 0) {
+    const forwardedProto = input.forwardedProto?.split(",")[0]?.trim() ?? "";
+    const protocol = forwardedProto.length > 0 ? forwardedProto : "https";
+    return `${protocol}://${forwardedHost}`;
+  }
+
+  const host = input.host?.split(",")[0]?.trim() ?? "";
+  if (host.length > 0) {
+    return `http://${host}`;
+  }
+
+  return "http://localhost:3000";
+}
+
 export const getUser = cache(async (): Promise<GetUserResult> => {
 
   const baseURL = process.env.BASE_URL;

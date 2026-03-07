@@ -6,6 +6,11 @@ type BuildTrackedNotificationOpenHrefInput = {
   dedupe?: string | null;
 };
 
+type BuildNotificationDestinationHrefInput = {
+  next: string | null | undefined;
+  notificationId?: string | null;
+};
+
 export function isSafeInternalPath(value: string | null | undefined): value is string {
   if (typeof value !== "string") return false;
   const trimmed = value.trim();
@@ -18,6 +23,20 @@ export function isSafeInternalPath(value: string | null | undefined): value is s
 
 function normalizeTrackedTarget(value: string | null | undefined): string {
   return isSafeInternalPath(value) ? value.trim() : "/";
+}
+
+export function buildNotificationDestinationHref(
+  input: BuildNotificationDestinationHrefInput
+): string {
+  const target = normalizeTrackedTarget(input.next);
+  const notificationId = input.notificationId?.trim();
+  if (!notificationId) {
+    return target;
+  }
+
+  const parsed = new URL(target, "https://openaip.local");
+  parsed.searchParams.set("notificationId", notificationId);
+  return `${parsed.pathname}${parsed.search}${parsed.hash}`;
 }
 
 export function buildTrackedNotificationOpenHref(

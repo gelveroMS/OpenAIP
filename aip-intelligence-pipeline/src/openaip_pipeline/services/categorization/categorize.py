@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections import deque
 from typing import Any, Callable, Literal
 
 from openai import OpenAI
@@ -16,6 +17,12 @@ from openaip_pipeline.core.artifact_contract import (
 )
 from openaip_pipeline.core.clock import now_utc_iso
 from openaip_pipeline.core.resources import read_text
+from openaip_pipeline.services.chunking.context_window import (
+    chunk_items_by_token_budget,
+    estimate_tokens_from_text,
+    is_context_limit_error,
+    sum_usage,
+)
 from openaip_pipeline.services.openai_utils import build_openai_client, safe_usage_dict
 
 
@@ -63,6 +70,26 @@ class CategorizationResult:
         self.model = model
 
 
+def _read_positive_int_env(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        parsed = int(raw.strip())
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _truncate_text(value: Any, char_limit: int) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return text[: max(1, char_limit)]
+
+
 def _build_classification_text(project: ProjectForCategorization) -> str:
     parts: list[str] = []
     if project.aip_ref_code:
@@ -78,6 +105,23 @@ def _build_classification_text(project: ProjectForCategorization) -> str:
     return "\n".join(parts).strip() or "No details provided."
 
 
+def _build_user_text(item_texts: list[str]) -> str:
+    numbered = [f"ITEM {idx}\n{text}" for idx, text in enumerate(item_texts)]
+    return "Items:\n\n" + "\n\n---\n\n".join(numbered)
+
+
+def _build_chunk_estimate_payload(
+    static_payload: dict[str, Any],
+    chunk_indices: list[int],
+    item_texts: list[str],
+) -> dict[str, Any]:
+    chunk_texts = [item_texts[index] for index in chunk_indices]
+    return {
+        **static_payload,
+        "user_text": _build_user_text(chunk_texts),
+    }
+
+
 def categorize_batch(
     *,
     batch: list[ProjectForCategorization],
@@ -86,8 +130,7 @@ def categorize_batch(
     batch_no: int | None = None,
     total_batches: int | None = None,
 ) -> tuple[CategorizationResponse, dict[str, Any]]:
-    numbered = [f"ITEM {idx}\n{_build_classification_text(project)}" for idx, project in enumerate(batch)]
-    user_text = "Items:\n\n" + "\n\n---\n\n".join(numbered)
+    user_text = _build_user_text([_build_classification_text(project) for project in batch])
     system_prompt = read_text("prompts/categorization/system.txt")
     response = client.responses.parse(
         model=model,
@@ -102,7 +145,7 @@ def categorize_batch(
     usage = safe_usage_dict(response)
     tag = ""
     if batch_no is not None and total_batches is not None:
-        tag = f" batch={batch_no}/{total_batches}"
+        tag = f" chunk={batch_no}/{total_batches}"
     print(f"[CATEGORIZATION]{tag} count={len(batch)}", flush=True)
     return parsed, usage
 
@@ -111,51 +154,133 @@ def categorize_all_projects(
     *,
     projects_raw: list[dict[str, Any]],
     model: str,
-    batch_size: int,
+    batch_size: int | None,
     on_progress: Callable[[int, int, int, int], None] | None,
     client: OpenAI,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    if batch_size is not None and batch_size <= 0:
+        raise ValueError("batch_size must be >= 1 when provided.")
+
     total = len(projects_raw)
-    usage_total: dict[str, Any] = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+    if total == 0:
+        return projects_raw, {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+
+    categorize_context_window_tokens = _read_positive_int_env(
+        "PIPELINE_CATEGORIZE_CONTEXT_WINDOW_TOKENS", 128000
+    )
+    categorize_response_buffer_tokens = _read_positive_int_env(
+        "PIPELINE_CATEGORIZE_RESPONSE_BUFFER_TOKENS", 2000
+    )
+    categorize_project_field_char_limit = _read_positive_int_env(
+        "PIPELINE_CATEGORIZE_PROJECT_FIELD_CHAR_LIMIT", 500
+    )
     minimal = [
         ProjectForCategorization(
-            aip_ref_code=row.get("aip_ref_code"),
-            program_project_description=row.get("program_project_description"),
-            implementing_agency=row.get("implementing_agency"),
-            expected_output=row.get("expected_output"),
-            source_of_funds=row.get("source_of_funds"),
+            aip_ref_code=_truncate_text(row.get("aip_ref_code"), categorize_project_field_char_limit),
+            program_project_description=_truncate_text(
+                row.get("program_project_description"),
+                categorize_project_field_char_limit,
+            ),
+            implementing_agency=_truncate_text(
+                row.get("implementing_agency"),
+                categorize_project_field_char_limit,
+            ),
+            expected_output=_truncate_text(row.get("expected_output"), categorize_project_field_char_limit),
+            source_of_funds=_truncate_text(
+                row.get("source_of_funds"),
+                categorize_project_field_char_limit,
+            ),
         )
         for row in projects_raw
     ]
-    if total == 0:
-        return projects_raw, usage_total
-    total_batches = (total + batch_size - 1) // batch_size
-    for batch_index, start in enumerate(range(0, total, batch_size), start=1):
-        end = min(start + batch_size, total)
-        parsed, usage = categorize_batch(
-            batch=minimal[start:end],
-            model=model,
-            client=client,
-            batch_no=batch_index,
-            total_batches=total_batches,
-        )
+    item_texts = [_build_classification_text(project) for project in minimal]
+    static_payload = {"stage": "categorization"}
+    system_prompt = read_text("prompts/categorization/system.txt")
+    prompt_tokens = estimate_tokens_from_text(system_prompt + "\nItems:\n\n")
+    input_budget_tokens = max(
+        1024,
+        categorize_context_window_tokens
+        - categorize_response_buffer_tokens
+        - prompt_tokens,
+    )
+
+    initial_chunks = chunk_items_by_token_budget(
+        items=list(range(total)),
+        static_payload=static_payload,
+        add_item_fn=lambda payload, chunk: _build_chunk_estimate_payload(
+            payload, chunk, item_texts
+        ),
+        budget_tokens=input_budget_tokens,
+        max_items_per_chunk=batch_size,
+    )
+    chunk_queue: deque[list[int]] = deque(initial_chunks)
+    total_chunks_planned = len(initial_chunks)
+    completed_chunks = 0
+    done_projects = 0
+    chunk_usages: list[dict[str, Any]] = []
+
+    while chunk_queue:
+        chunk_indices = chunk_queue.popleft()
+        chunk_size = len(chunk_indices)
+        if chunk_size == 0:
+            continue
+
+        try:
+            parsed, usage = categorize_batch(
+                batch=[minimal[index] for index in chunk_indices],
+                model=model,
+                client=client,
+                batch_no=completed_chunks + 1,
+                total_batches=total_chunks_planned,
+            )
+        except Exception as error:
+            if not is_context_limit_error(error):
+                raise
+            if chunk_size <= 1:
+                index = chunk_indices[0]
+                ref_code = str(projects_raw[index].get("aip_ref_code") or "").strip()
+                raise RuntimeError(
+                    (
+                        "Categorization chunk exceeds model context window for a single project. "
+                        f"index={index} aip_ref_code={ref_code or 'unknown'}"
+                    )
+                ) from error
+            midpoint = chunk_size // 2
+            left_chunk = chunk_indices[:midpoint]
+            right_chunk = chunk_indices[midpoint:]
+            chunk_queue.appendleft(right_chunk)
+            chunk_queue.appendleft(left_chunk)
+            total_chunks_planned += 1
+            continue
+
         idx_to_cat = {item.index: normalize_category(item.category) for item in parsed.items}
-        for local_idx in range(end - start):
-            global_idx = start + local_idx
+        out_of_range_indices = [index for index in idx_to_cat if index < 0 or index >= chunk_size]
+        if out_of_range_indices:
+            raise RuntimeError(
+                (
+                    "Invalid categorization response indices for chunk: "
+                    f"indices={out_of_range_indices} chunk_size={chunk_size}"
+                )
+            )
+        for local_idx, global_idx in enumerate(chunk_indices):
             row = projects_raw[global_idx]
             classification = row.get("classification") if isinstance(row.get("classification"), dict) else {}
             classification["category"] = idx_to_cat.get(local_idx, "other")
             classification["sector_code"] = infer_sector_code(row.get("aip_ref_code"))
             row["classification"] = classification
-        for key in ["input_tokens", "output_tokens", "total_tokens"]:
-            value = usage.get(key)
-            if isinstance(value, int) and isinstance(usage_total.get(key), int):
-                usage_total[key] += value
-            else:
-                usage_total[key] = None
+
+        chunk_usages.append(usage)
+        done_projects += chunk_size
+        completed_chunks += 1
         if on_progress:
-            on_progress(end, total, batch_index, total_batches)
-    return projects_raw, usage_total
+            on_progress(
+                min(done_projects, total),
+                total,
+                completed_chunks,
+                total_chunks_planned,
+            )
+
+    return projects_raw, sum_usage(chunk_usages)
 
 
 def _fallback_document() -> dict[str, Any]:
@@ -170,7 +295,7 @@ def _fallback_document() -> dict[str, Any]:
 def categorize_from_summarized_json_str(
     summarized_json_str: str,
     model: str = "gpt-5.2",
-    batch_size: int = 25,
+    batch_size: int | None = 25,
     heartbeat_seconds: float = 10.0,
     on_progress: Callable[[int, int, int, int], None] | None = None,
     client: OpenAI | None = None,

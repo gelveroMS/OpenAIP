@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   AdminDashboardFilters,
   AdminDashboardSnapshot,
@@ -57,6 +57,10 @@ const snapshot: AdminDashboardSnapshot = {
 describe("admin dashboard repo API snapshot fetch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("dedupes concurrent metric calls to a single fetch", async () => {
@@ -122,5 +126,32 @@ describe("admin dashboard repo API snapshot fetch", () => {
       "Dashboard request returned an invalid payload."
     );
     expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("throws a controlled timeout error when snapshot fetch hangs", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
+      return new Promise((_resolve, reject) => {
+        const signal = init?.signal;
+        if (!signal) return;
+        signal.addEventListener("abort", () => {
+          const error = new Error("Aborted");
+          (error as Error & { name: string }).name = "AbortError";
+          reject(error);
+        });
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const repo = createSupabaseAdminDashboardRepo();
+    const summaryPromise = repo.getSummary(filters);
+    const expectation = expect(summaryPromise).rejects.toThrow(
+      "Dashboard request timed out. Please try again."
+    );
+
+    await vi.advanceTimersByTimeAsync(15_001);
+
+    await expectation;
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -16,6 +16,9 @@ import type {
 type FixtureAip = (typeof AIPS_TABLE)[number];
 type FixtureProject = (typeof AIP_PROJECT_ROWS_TABLE)[number];
 
+const MOCK_CITY_SCOPE_ID = "city-cabuyao";
+const MOCK_CITY_SCOPE_LABEL = "City of Cabuyao";
+
 function normalizeBarangayName(name: string): string {
   return name.replace(/^(brgy\.?|barangay)\s+/i, "").trim();
 }
@@ -34,6 +37,16 @@ function toScopeType(aip: FixtureAip): "city" | "barangay" {
 
 function toScopeId(aip: FixtureAip): string {
   return aip.id;
+}
+
+function toBarangayScopeId(aip: FixtureAip): string | null {
+  if (aip.scope !== "barangay") return null;
+  const normalized = normalizeBarangayName(aip.barangayName ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return normalized ? `brgy-${normalized}` : `brgy-${aip.id}`;
 }
 
 function toSectorLabel(value: FixtureProject["sector"]): CitizenAipProjectSector {
@@ -65,6 +78,10 @@ function toListRecord(aip: FixtureAip): CitizenAipListRecord {
     scopeType: toScopeType(aip),
     scopeId: toScopeId(aip),
     lguLabel,
+    cityScopeId: MOCK_CITY_SCOPE_ID,
+    cityScopeLabel: MOCK_CITY_SCOPE_LABEL,
+    barangayScopeId: toBarangayScopeId(aip),
+    barangayScopeLabel: aip.scope === "barangay" ? lguLabel : null,
     title: `${lguLabel} - Annual Investment Plan (AIP) ${aip.year}`,
     description:
       aip.summaryText?.slice(0, 280) ??

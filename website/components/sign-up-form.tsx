@@ -1,6 +1,7 @@
 'use client'
 
 import { supabaseBrowser } from '@/lib/supabase/client'
+import { PasswordPolicyChecklist } from '@/components/auth/password-policy-checklist'
 import { Button } from '@/components/ui/button'
 import type { AuthParameters } from "@/types";
 
@@ -24,11 +25,16 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ListOfBarangays } from '@/constants'
 import { getRolePath, getRoleEmailPlaceholder } from "@/lib/ui/auth-helpers";
 import { verifyOfficialInviteEligibilityAction } from "@/lib/actions/signup.actions";
-import { validatePasswordWithPolicy } from "@/lib/security/password-policy";
+import { fetchPasswordPolicy } from "@/lib/security/password-policy-client";
+import {
+  getPasswordPolicyRuleStatus,
+  validatePasswordWithPolicy,
+  type PasswordPolicyLike,
+} from "@/lib/security/password-policy";
 // import { time } from 'console'
 
 export function SignUpForm({role, baseURL}:AuthParameters) {
@@ -36,18 +42,12 @@ export function SignUpForm({role, baseURL}:AuthParameters) {
   const [email, setEmail] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [passwordPolicy, setPasswordPolicy] = useState<{
-    minLength: number;
-    requireUppercase: boolean;
-    requireLowercase: boolean;
-    requireNumbers: boolean;
-    requireSpecialCharacters: boolean;
-  } | null>(null)
+  const [password, setPassword] = useState('')
+  const [repeatPassword, setRepeatPassword] = useState('')
+  const [passwordPolicy, setPasswordPolicy] = useState<PasswordPolicyLike | null>(null)
   
   const fullNameRef = useRef('');
   const localeRef = useRef('');
-  const passwordRef = useRef('');
-  const repeatPasswordRef = useRef('');
 
   const router = useRouter()
   
@@ -55,6 +55,23 @@ export function SignUpForm({role, baseURL}:AuthParameters) {
 
   const isInvitedOfficialRole =
     role === "barangay" || role === "city" || role === "municipality";
+
+  const policyRules = useMemo(
+    () => (passwordPolicy ? getPasswordPolicyRuleStatus(password, passwordPolicy) : []),
+    [password, passwordPolicy]
+  )
+  const policyErrors = useMemo(
+    () => (passwordPolicy ? validatePasswordWithPolicy(password, passwordPolicy) : []),
+    [password, passwordPolicy]
+  )
+  const passwordsMatch = password === repeatPassword
+  const canSubmit =
+    !isLoading &&
+    email.trim().length > 0 &&
+    password.length > 0 &&
+    repeatPassword.length > 0 &&
+    passwordsMatch &&
+    policyErrors.length === 0
 
   useEffect(() => {
     if(email.trim() === '') {
@@ -65,30 +82,9 @@ export function SignUpForm({role, baseURL}:AuthParameters) {
   useEffect(() => {
     let active = true;
     const loadPolicy = async () => {
-      try {
-        const response = await fetch("/api/system/security-policy", {
-          cache: "no-store",
-        });
-        const payload = (await response.json().catch(() => null)) as
-          | {
-              securitySettings?: {
-                passwordPolicy?: {
-                  minLength: number;
-                  requireUppercase: boolean;
-                  requireLowercase: boolean;
-                  requireNumbers: boolean;
-                  requireSpecialCharacters: boolean;
-                };
-              };
-            }
-          | null;
-
-        if (!active) return;
-        if (!response.ok || !payload?.securitySettings?.passwordPolicy) return;
-        setPasswordPolicy(payload.securitySettings.passwordPolicy);
-      } catch {
-        // Ignore policy fetch errors and let server-side validation handle enforcement.
-      }
+      const policy = await fetchPasswordPolicy()
+      if (!active || !policy) return
+      setPasswordPolicy(policy)
     };
     void loadPolicy();
     return () => {
@@ -126,25 +122,23 @@ export function SignUpForm({role, baseURL}:AuthParameters) {
       return
     }
 
-    if (passwordRef.current !== repeatPasswordRef.current) {
+    if (!passwordsMatch) {
       setError('Passwords do not match')
       setIsLoading(false)
       return
     }
 
-    if (passwordPolicy) {
-      const errors = validatePasswordWithPolicy(passwordRef.current, passwordPolicy);
-      if (errors.length > 0) {
-        setError(errors[0]);
-        setIsLoading(false);
-        return;
-      }
+    const errors = passwordPolicy ? validatePasswordWithPolicy(password, passwordPolicy) : []
+    if (errors.length > 0) {
+      setError(errors[0]);
+      setIsLoading(false);
+      return;
     }
 
     try {
       const { data, error } = await supabase.auth.signUp({
         email,
-        password: passwordRef.current,
+        password,
         options: {
           emailRedirectTo: rolePath,
           data: {
@@ -242,9 +236,13 @@ export function SignUpForm({role, baseURL}:AuthParameters) {
                   id="password"
                   type="password"
                   required
-                  onChange={(e) => passwordRef.current = e.target.value}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
                 />
               </div>
+              {passwordPolicy ? (
+                <PasswordPolicyChecklist rules={policyRules} className="space-y-1" />
+              ) : null}
               <div className="grid gap-2">
                 <div className="flex items-center">
                   <Label htmlFor="repeat-password">Repeat Password</Label>
@@ -253,11 +251,15 @@ export function SignUpForm({role, baseURL}:AuthParameters) {
                   id="repeat-password"
                   type="password"
                   required
-                  onChange={(e) => repeatPasswordRef.current = e.target.value}
+                  value={repeatPassword}
+                  onChange={(e) => setRepeatPassword(e.target.value)}
                 />
               </div>
+              {repeatPassword.length > 0 && !passwordsMatch ? (
+                <p className="text-sm text-red-500">Passwords do not match.</p>
+              ) : null}
               {error && <p className="text-sm text-red-500">{error}</p>}
-              <Button type="submit" className="w-full" disabled={isLoading}>
+              <Button type="submit" className="w-full" disabled={!canSubmit}>
                 {isLoading ? 'Creating an account...' : 'Sign up'}
               </Button>
             </div>

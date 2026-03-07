@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import time
+from collections import deque
 from typing import Any, Callable
 
 from openai import OpenAI
@@ -9,24 +11,33 @@ from openai import OpenAI
 from openaip_pipeline.core.artifact_contract import SCHEMA_VERSION, make_stage_root, normalize_source_refs
 from openaip_pipeline.core.clock import now_utc_iso
 from openaip_pipeline.core.resources import read_text
+from openaip_pipeline.services.chunking.context_window import (
+    chunk_items_by_token_budget,
+    estimate_tokens_from_text,
+    is_context_limit_error,
+    sum_usage,
+)
 from openaip_pipeline.services.openai_utils import build_openai_client, safe_usage_dict
 
 
-def _split_into_n_chunks(items: list[Any], n: int) -> list[list[Any]]:
-    if n <= 0:
-        raise ValueError("n must be >= 1")
-    total = len(items)
-    if total == 0:
-        return [[] for _ in range(n)]
-    base = total // n
-    rem = total % n
-    chunks: list[list[Any]] = []
-    start = 0
-    for index in range(n):
-        size = base + (1 if index < rem else 0)
-        chunks.append(items[start : start + size])
-        start += size
-    return chunks
+def _read_positive_int_env(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        parsed = int(raw.strip())
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _truncate_text(value: Any, char_limit: int) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return text[: max(1, char_limit)]
 
 
 class ValidationResult:
@@ -49,14 +60,6 @@ class ValidationResult:
         self.chunk_elapsed_seconds = chunk_elapsed_seconds or []
 
 
-def _sum_usage(usages: list[dict[str, Any]]) -> dict[str, Any]:
-    def s(key: str) -> int | None:
-        vals = [u.get(key) for u in usages if isinstance(u.get(key), int)]
-        return sum(vals) if vals else None
-
-    return {"input_tokens": s("input_tokens"), "output_tokens": s("output_tokens"), "total_tokens": s("total_tokens")}
-
-
 def _fallback_document() -> dict[str, Any]:
     year = int(now_utc_iso()[:4])
     return {
@@ -66,22 +69,36 @@ def _fallback_document() -> dict[str, Any]:
     }
 
 
-def _flatten_project_for_model(project: dict[str, Any]) -> dict[str, Any]:
+def _flatten_project_for_model(project: dict[str, Any], char_limit: int) -> dict[str, Any]:
     amounts = project.get("amounts") if isinstance(project.get("amounts"), dict) else {}
+    raw_errors = project.get("errors") if isinstance(project.get("errors"), list) else None
+    errors = (
+        [
+            truncated
+            for truncated in (_truncate_text(item, char_limit) for item in raw_errors)
+            if truncated
+        ][:10]
+        if raw_errors
+        else None
+    )
     return {
-        "aip_ref_code": project.get("aip_ref_code"),
-        "program_project_description": project.get("program_project_description"),
-        "implementing_agency": project.get("implementing_agency"),
-        "start_date": project.get("start_date"),
-        "completion_date": project.get("completion_date"),
-        "expected_output": project.get("expected_output"),
-        "source_of_funds": project.get("source_of_funds"),
+        "aip_ref_code": _truncate_text(project.get("aip_ref_code"), char_limit),
+        "program_project_description": _truncate_text(
+            project.get("program_project_description"), char_limit
+        ),
+        "implementing_agency": _truncate_text(project.get("implementing_agency"), char_limit),
+        "start_date": _truncate_text(project.get("start_date"), char_limit),
+        "completion_date": _truncate_text(project.get("completion_date"), char_limit),
+        "expected_output": _truncate_text(project.get("expected_output"), char_limit),
+        "source_of_funds": _truncate_text(project.get("source_of_funds"), char_limit),
         "personal_services": amounts.get("personal_services"),
-        "maintenance_and_other_operating_expenses": amounts.get("maintenance_and_other_operating_expenses"),
+        "maintenance_and_other_operating_expenses": amounts.get(
+            "maintenance_and_other_operating_expenses"
+        ),
         "financial_expenses": amounts.get("financial_expenses"),
         "capital_outlay": amounts.get("capital_outlay"),
         "total": amounts.get("total"),
-        "errors": project.get("errors"),
+        "errors": errors,
     }
 
 
@@ -131,10 +148,21 @@ def _validate_total_barangay(project: dict[str, Any]) -> list[str]:
     return [f"R004 total mismatch: expected {expected:.2f} but got {float(total):.2f}"]
 
 
+def _build_chunk_payload(
+    static_payload: dict[str, Any],
+    chunk_indices: list[int],
+    flattened_projects: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        **static_payload,
+        "projects": [flattened_projects[index] for index in chunk_indices],
+    }
+
+
 def validate_projects_json_str(
     extraction_json_str: str,
     model: str = "gpt-5.2",
-    num_batches: int = 4,
+    batch_size: int | None = 25,
     on_progress: Callable[[int, int, int, int, str], None] | None = None,
     client: OpenAI | None = None,
 ) -> ValidationResult:
@@ -148,62 +176,141 @@ def validate_projects_json_str(
     projects = extraction_obj.get("projects")
     if not isinstance(projects, list):
         raise ValueError('Top-level key "projects" must be a list.')
+    if batch_size is not None and batch_size <= 0:
+        raise ValueError("batch_size must be >= 1 when provided.")
 
     total_projects = len(projects)
     merged_projects = json.loads(json.dumps(projects, ensure_ascii=False))
 
     if total_projects > 0:
-        chunks = _split_into_n_chunks(projects, num_batches)
+        validate_context_window_tokens = _read_positive_int_env(
+            "PIPELINE_VALIDATE_CONTEXT_WINDOW_TOKENS", 128000
+        )
+        validate_response_buffer_tokens = _read_positive_int_env(
+            "PIPELINE_VALIDATE_RESPONSE_BUFFER_TOKENS", 2000
+        )
+        validate_project_field_char_limit = _read_positive_int_env(
+            "PIPELINE_VALIDATE_PROJECT_FIELD_CHAR_LIMIT", 500
+        )
+
+        flattened_projects = [
+            _flatten_project_for_model(project, validate_project_field_char_limit)
+            if isinstance(project, dict)
+            else {}
+            for project in projects
+        ]
+        static_payload: dict[str, Any] = {}
+        resolved_client = client or build_openai_client()
+        system_prompt = read_text("prompts/validation/barangay_system.txt")
+        prompt_tokens = estimate_tokens_from_text(system_prompt)
+        input_budget_tokens = max(
+            1024,
+            validate_context_window_tokens
+            - validate_response_buffer_tokens
+            - prompt_tokens,
+        )
+        initial_chunks = chunk_items_by_token_budget(
+            items=list(range(total_projects)),
+            static_payload=static_payload,
+            add_item_fn=lambda payload, chunk: _build_chunk_payload(
+                payload, chunk, flattened_projects
+            ),
+            budget_tokens=input_budget_tokens,
+            max_items_per_chunk=batch_size,
+        )
+        chunk_queue: deque[list[int]] = deque(initial_chunks)
+        total_chunks_planned = len(initial_chunks)
+        completed_chunks = 0
+        done_projects = 0
+
         overall_start = time.perf_counter()
         chunk_usages: list[dict[str, Any]] = []
         chunk_times: list[float] = []
-        cursor = 0
 
-        resolved_client = client or build_openai_client()
-        system_prompt = read_text("prompts/validation/barangay_system.txt")
-
-        for batch_index, chunk in enumerate(chunks, start=1):
-            chunk_size = len(chunk)
+        while chunk_queue:
+            chunk_indices = chunk_queue.popleft()
+            chunk_size = len(chunk_indices)
             if chunk_size == 0:
                 continue
-            batch_start = time.perf_counter()
-            payload_obj = {"projects": [_flatten_project_for_model(project) for project in chunk if isinstance(project, dict)]}
-            response = resolved_client.responses.create(
-                model=model,
-                input=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": json.dumps(payload_obj, ensure_ascii=False)},
-                ],
-                text={"format": {"type": "json_object"}},
+
+            payload_obj = _build_chunk_payload(
+                static_payload, chunk_indices, flattened_projects
             )
+            batch_start = time.perf_counter()
+            try:
+                response = resolved_client.responses.create(
+                    model=model,
+                    input=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": json.dumps(payload_obj, ensure_ascii=False)},
+                    ],
+                    text={"format": {"type": "json_object"}},
+                )
+            except Exception as error:
+                if not is_context_limit_error(error):
+                    raise
+                if chunk_size <= 1:
+                    index = chunk_indices[0]
+                    ref_code = (
+                        str(merged_projects[index].get("aip_ref_code") or "").strip()
+                        if isinstance(merged_projects[index], dict)
+                        else ""
+                    )
+                    raise RuntimeError(
+                        (
+                            "Validation chunk exceeds model context window for a single project. "
+                            f"index={index} aip_ref_code={ref_code or 'unknown'}"
+                        )
+                    ) from error
+                midpoint = chunk_size // 2
+                left_chunk = chunk_indices[:midpoint]
+                right_chunk = chunk_indices[midpoint:]
+                chunk_queue.appendleft(right_chunk)
+                chunk_queue.appendleft(left_chunk)
+                total_chunks_planned += 1
+                continue
+
             batch_elapsed = round(time.perf_counter() - batch_start, 4)
             usage = safe_usage_dict(response)
             validated_chunk_obj = json.loads(response.output_text)
             validated_chunk_projects = validated_chunk_obj.get("projects")
             if not isinstance(validated_chunk_projects, list) or len(validated_chunk_projects) != chunk_size:
                 raise RuntimeError(
-                    f"Batch {batch_index}: invalid model output. expected={chunk_size}, got={len(validated_chunk_projects) if isinstance(validated_chunk_projects, list) else type(validated_chunk_projects)}"
+                    (
+                        f"Chunk {completed_chunks + 1}: invalid model output. "
+                        f"expected={chunk_size}, "
+                        f"got={len(validated_chunk_projects) if isinstance(validated_chunk_projects, list) else type(validated_chunk_projects)}"
+                    )
                 )
-            for local_idx in range(chunk_size):
-                original_idx = cursor + local_idx
-                merged_projects[original_idx]["errors"] = validated_chunk_projects[local_idx].get("errors", None)
-            cursor += chunk_size
+
+            for local_idx, original_idx in enumerate(chunk_indices):
+                merged_projects[original_idx]["errors"] = validated_chunk_projects[local_idx].get(
+                    "errors", None
+                )
+
             chunk_usages.append(usage)
             chunk_times.append(batch_elapsed)
-            done_projects = min(cursor, total_projects)
+            done_projects += chunk_size
+            completed_chunks += 1
             if on_progress:
                 on_progress(
-                    done_projects,
+                    min(done_projects, total_projects),
                     total_projects,
-                    batch_index,
-                    num_batches,
-                    f"Validating projects {done_projects}/{total_projects} (batch {batch_index}/{num_batches})...",
+                    completed_chunks,
+                    total_chunks_planned,
+                    (
+                        f"Validating projects {min(done_projects, total_projects)}/{total_projects} "
+                        f"(chunk {completed_chunks}/{total_chunks_planned})..."
+                    ),
                 )
-        usage_total = _sum_usage(chunk_usages)
+
+        usage_total = sum_usage(chunk_usages)
         overall_elapsed = round(time.perf_counter() - overall_start, 4)
     else:
         usage_total = {"input_tokens": None, "output_tokens": None, "total_tokens": None}
         overall_elapsed = 0.0
+        chunk_usages = []
+        chunk_times = []
         if on_progress:
             on_progress(0, 0, 1, 1, "No projects to validate.")
 
@@ -258,4 +365,6 @@ def validate_projects_json_str(
         usage=usage_total,
         elapsed_seconds=overall_elapsed,
         model=model,
+        chunk_usages=chunk_usages,
+        chunk_elapsed_seconds=chunk_times,
     )

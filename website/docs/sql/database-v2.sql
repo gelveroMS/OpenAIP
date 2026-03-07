@@ -1420,8 +1420,10 @@ create table if not exists public.extraction_runs (
 
   aip_id uuid not null references public.aips(id) on delete cascade,
   uploaded_file_id uuid null references public.uploaded_files(id) on delete set null,
+  retry_of_run_id uuid null references public.extraction_runs(id) on delete set null,
 
   stage public.pipeline_stage not null default 'extract',
+  resume_from_stage public.pipeline_stage null,
   status public.pipeline_status not null default 'queued',
 
   model_name text null,
@@ -1438,6 +1440,10 @@ create table if not exists public.extraction_runs (
   created_by uuid null references public.profiles(id) on delete set null,
   created_at timestamptz not null default now(),
 
+  constraint extraction_runs_resume_from_stage_requires_retry_chk check (
+    resume_from_stage is null
+    or retry_of_run_id is not null
+  ),
   constraint chk_extraction_runs_time_order check (
     started_at is null
     or finished_at is null
@@ -1450,7 +1456,26 @@ alter table public.extraction_runs
   add column if not exists overall_progress_pct smallint null,
   add column if not exists stage_progress_pct smallint null,
   add column if not exists progress_message text null,
-  add column if not exists progress_updated_at timestamptz null;
+  add column if not exists progress_updated_at timestamptz null,
+  add column if not exists retry_of_run_id uuid null references public.extraction_runs(id) on delete set null,
+  add column if not exists resume_from_stage public.pipeline_stage null;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'extraction_runs_resume_from_stage_requires_retry_chk'
+  ) then
+    alter table public.extraction_runs
+      add constraint extraction_runs_resume_from_stage_requires_retry_chk
+      check (
+        resume_from_stage is null
+        or retry_of_run_id is not null
+      );
+  end if;
+end
+$$;
 
 do $$
 begin
@@ -1491,6 +1516,9 @@ create index if not exists idx_extraction_runs_aip_id
 
 create index if not exists idx_extraction_runs_uploaded_file_id
   on public.extraction_runs(uploaded_file_id);
+
+create index if not exists idx_extraction_runs_retry_of_run_id
+  on public.extraction_runs(retry_of_run_id);
 
 create index if not exists idx_extraction_runs_status
   on public.extraction_runs(status);
@@ -5177,6 +5205,7 @@ using (
 
 commit;
 
+
 begin;
 
 -- =============================================================================
@@ -6816,6 +6845,294 @@ create trigger trg_extraction_runs_emit_admin_pipeline_failed
 after insert or update of status on public.extraction_runs
 for each row
 execute function public.emit_admin_pipeline_job_failed();
+
+commit;
+
+-- =============================================================================
+-- Phase 25 - Uploader Extraction Terminal Notifications (2026-03-06)
+-- Source migration: website/docs/sql/2026-03-06_notifications_aip_uploader_terminal_status.sql
+-- =============================================================================
+
+begin;
+
+-- =============================================================================
+-- Uploader terminal notifications for extraction runs
+-- - Emits uploader-facing notifications/emails when extraction_runs reaches:
+--   succeeded or failed.
+-- - Keeps admin PIPELINE_JOB_FAILED flow unchanged (separate trigger).
+-- =============================================================================
+
+drop function if exists public.emit_uploader_extraction_terminal_notifications();
+create or replace function public.emit_uploader_extraction_terminal_notifications()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_should_emit boolean := false;
+  v_profile record;
+  v_aip record;
+  v_event_type text;
+  v_template_key text;
+  v_title text;
+  v_message text;
+  v_subject text;
+  v_scope_type text := 'city';
+  v_action_url text := '/notifications';
+  v_lgu_name text := null;
+  v_barangay_name text := null;
+  v_city_name text := null;
+  v_entity_label text := 'AIP';
+  v_occurred_at timestamptz := coalesce(new.finished_at, now());
+  v_error_line text := null;
+  v_excerpt text := null;
+  v_dedupe_key text;
+  v_in_app_enabled boolean := true;
+  v_email_enabled boolean := true;
+  v_metadata jsonb;
+  v_template_data jsonb;
+begin
+  if tg_op = 'INSERT' then
+    v_should_emit := (new.status in ('succeeded', 'failed'));
+  elsif tg_op = 'UPDATE' then
+    v_should_emit := (new.status in ('succeeded', 'failed') and old.status is distinct from new.status);
+  end if;
+
+  if not v_should_emit then
+    return new;
+  end if;
+
+  if new.created_by is null then
+    return new;
+  end if;
+
+  select
+    p.id,
+    p.role::text as role,
+    p.email,
+    p.is_active
+  into v_profile
+  from public.profiles p
+  where p.id = new.created_by
+  limit 1;
+
+  if not found or coalesce(v_profile.is_active, false) = false then
+    return new;
+  end if;
+
+  select
+    a.id,
+    a.fiscal_year,
+    a.barangay_id,
+    a.city_id,
+    a.municipality_id
+  into v_aip
+  from public.aips a
+  where a.id = new.aip_id
+  limit 1;
+
+  if not found then
+    return new;
+  end if;
+
+  if v_aip.barangay_id is not null then
+    select b.name into v_lgu_name from public.barangays b where b.id = v_aip.barangay_id limit 1;
+    v_barangay_name := v_lgu_name;
+  elsif v_aip.city_id is not null then
+    select c.name into v_lgu_name from public.cities c where c.id = v_aip.city_id limit 1;
+    v_city_name := v_lgu_name;
+  elsif v_aip.municipality_id is not null then
+    select m.name into v_lgu_name from public.municipalities m where m.id = v_aip.municipality_id limit 1;
+  end if;
+
+  if v_aip.fiscal_year is not null then
+    v_entity_label := format('AIP FY %s', v_aip.fiscal_year);
+  end if;
+
+  if v_profile.role = 'barangay_official' then
+    v_scope_type := 'barangay';
+    v_action_url := format('/barangay/aips/%s?run=%s', new.aip_id, new.id);
+  elsif v_profile.role in ('city_official', 'municipal_official') then
+    v_scope_type := 'city';
+    v_action_url := format('/city/aips/%s?run=%s', new.aip_id, new.id);
+  elsif v_profile.role = 'admin' then
+    v_scope_type := 'admin';
+    v_action_url := format('/admin/aip-monitoring?run=%s', new.id);
+  else
+    v_scope_type := 'citizen';
+    v_action_url := '/notifications';
+  end if;
+
+  if new.status = 'succeeded' then
+    v_event_type := 'AIP_EXTRACTION_SUCCEEDED';
+    v_template_key := 'aip_extraction_succeeded';
+    v_title := 'AIP processing completed';
+    v_message := 'Your AIP upload was processed successfully.';
+    v_subject := 'OpenAIP - AIP upload processing completed';
+    v_excerpt := 'Extraction and validation completed successfully.';
+    v_dedupe_key := format(
+      'AIP_EXTRACTION_SUCCEEDED:aip:%s:run:%s:status->succeeded',
+      new.aip_id,
+      new.id
+    );
+  else
+    v_event_type := 'AIP_EXTRACTION_FAILED';
+    v_template_key := 'aip_extraction_failed';
+    v_title := 'AIP processing failed';
+    v_message := 'AIP processing failed. Please review and retry.';
+    v_subject := 'OpenAIP - AIP upload processing failed';
+    v_error_line := split_part(coalesce(new.error_message, ''), E'\n', 1);
+    v_error_line := trim(regexp_replace(v_error_line, '[[:space:]]+', ' ', 'g'));
+    if v_error_line = '' then
+      v_error_line := null;
+    end if;
+    if v_error_line is not null and length(v_error_line) > 120 then
+      v_error_line := rtrim(substr(v_error_line, 1, 117)) || '...';
+    end if;
+    v_excerpt := coalesce(v_error_line, 'No error details were provided.');
+    v_dedupe_key := format(
+      'AIP_EXTRACTION_FAILED:aip:%s:run:%s:status->failed',
+      new.aip_id,
+      new.id
+    );
+  end if;
+
+  select
+    np.in_app_enabled,
+    np.email_enabled
+  into
+    v_in_app_enabled,
+    v_email_enabled
+  from public.notification_preferences np
+  where np.user_id = v_profile.id
+    and np.event_type = v_event_type
+  limit 1;
+
+  if not found then
+    v_in_app_enabled := true;
+    v_email_enabled := true;
+  end if;
+
+  v_metadata := jsonb_strip_nulls(
+    jsonb_build_object(
+      'aip_id', new.aip_id,
+      'run_id', new.id,
+      'stage', new.stage,
+      'status', new.status,
+      'error_code', new.error_code,
+      'error_message', new.error_message,
+      'fiscal_year', v_aip.fiscal_year,
+      'lgu_name', v_lgu_name,
+      'barangay_name', v_barangay_name,
+      'city_name', v_city_name,
+      'scope_type', v_scope_type,
+      'entity_type', 'aip',
+      'entity_label', v_entity_label,
+      'occurred_at', v_occurred_at,
+      'excerpt', v_excerpt,
+      'action_url', v_action_url
+    )
+  );
+
+  v_template_data := jsonb_strip_nulls(
+    jsonb_build_object(
+      'app_name', 'OpenAIP',
+      'event_type', v_event_type,
+      'scope_type', v_scope_type,
+      'entity_type', 'aip',
+      'entity_id', new.aip_id,
+      'aip_id', new.aip_id,
+      'run_id', new.id,
+      'stage', new.stage,
+      'status', new.status,
+      'error_code', new.error_code,
+      'error_message', new.error_message,
+      'fiscal_year', v_aip.fiscal_year,
+      'lgu_name', v_lgu_name,
+      'barangay_name', v_barangay_name,
+      'city_name', v_city_name,
+      'entity_label', v_entity_label,
+      'occurred_at', v_occurred_at,
+      'excerpt', v_excerpt,
+      'action_url', v_action_url
+    )
+  );
+
+  if coalesce(v_in_app_enabled, true) then
+    insert into public.notifications (
+      recipient_user_id,
+      recipient_role,
+      scope_type,
+      event_type,
+      entity_type,
+      entity_id,
+      title,
+      message,
+      action_url,
+      metadata,
+      dedupe_key
+    )
+    values (
+      v_profile.id,
+      v_profile.role,
+      v_scope_type,
+      v_event_type,
+      'aip',
+      new.aip_id,
+      v_title,
+      v_message,
+      v_action_url,
+      v_metadata,
+      v_dedupe_key
+    )
+    on conflict (recipient_user_id, dedupe_key) do nothing;
+  end if;
+
+  if coalesce(v_email_enabled, true)
+     and v_profile.email is not null
+     and length(trim(v_profile.email)) > 0 then
+    insert into public.email_outbox (
+      recipient_user_id,
+      to_email,
+      template_key,
+      subject,
+      payload,
+      status,
+      dedupe_key
+    )
+    values (
+      v_profile.id,
+      v_profile.email,
+      v_template_key,
+      v_subject,
+      jsonb_build_object(
+        'title', v_title,
+        'message', v_message,
+        'action_url', v_action_url,
+        'notification_ref', v_dedupe_key,
+        'event_type', v_event_type,
+        'scope_type', v_scope_type,
+        'entity_type', 'aip',
+        'entity_id', new.aip_id,
+        'template_data', v_template_data,
+        'metadata', v_metadata
+      ),
+      'queued',
+      v_dedupe_key
+    )
+    on conflict (to_email, dedupe_key) do nothing;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_extraction_runs_emit_uploader_terminal_notifications on public.extraction_runs;
+create trigger trg_extraction_runs_emit_uploader_terminal_notifications
+after insert or update of status on public.extraction_runs
+for each row
+execute function public.emit_uploader_extraction_terminal_notifications();
 
 commit;
 

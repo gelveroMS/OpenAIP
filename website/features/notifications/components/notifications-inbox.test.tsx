@@ -11,8 +11,30 @@ vi.mock("next/link", () => ({
   ),
 }));
 
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/notifications",
+}));
+
+vi.mock("@/lib/supabase/client", () => ({
+  supabaseBrowser: () => ({
+    auth: {
+      getUser: async () => ({
+        data: {
+          user: {
+            id: "user-123",
+          },
+        },
+      }),
+    },
+  }),
+}));
+
 vi.mock("@/lib/security/csrf", () => ({
   withCsrfHeader: (init: RequestInit) => init,
+}));
+
+vi.mock("@/features/notifications/realtime-listener", () => ({
+  default: () => null,
 }));
 
 function okJson(data: unknown) {
@@ -35,17 +57,33 @@ describe("NotificationsInbox", () => {
           items: [
             {
               id: "notif-1",
+              event_type: "AIP_SUBMITTED",
+              recipient_role: "city_official",
+              scope_type: "city",
               title: "Submission updated",
               message: "AIP submission was returned for revision.",
-              action_url: "/city/projects/1",
+              action_url: "/city/submissions/aip/aip-1",
+              metadata: {
+                fiscal_year: 2026,
+                barangay_name: "Barangay Uno",
+                entity_type: "aip",
+              },
               created_at: "2026-03-03T00:00:00.000Z",
               read_at: null,
             },
             {
               id: "notif-2",
+              event_type: "AIP_CLAIMED",
+              recipient_role: "barangay_official",
+              scope_type: "barangay",
               title: "Read item",
               message: "The city reviewer approved the update.",
               action_url: null,
+              metadata: {
+                fiscal_year: 2026,
+                lgu_name: "Barangay Uno",
+                entity_type: "aip",
+              },
               created_at: "2026-03-02T00:00:00.000Z",
               read_at: "2026-03-03T00:00:00.000Z",
             },
@@ -68,7 +106,7 @@ describe("NotificationsInbox", () => {
 
     render(<NotificationsInbox title="All Notifications" />);
 
-    await screen.findByText("AIP submission was returned for revision.");
+    expect((await screen.findAllByText("AIP submitted")).length).toBeGreaterThan(0);
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "All (7)" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Unread (1)" })).toBeInTheDocument();
@@ -84,17 +122,33 @@ describe("NotificationsInbox", () => {
           items: [
             {
               id: "notif-1",
+              event_type: "AIP_REVISION_REQUESTED",
+              recipient_role: "barangay_official",
+              scope_type: "barangay",
               title: "Unread item",
               message: "Unread review note.",
               action_url: null,
+              metadata: {
+                fiscal_year: 2026,
+                lgu_name: "Barangay Uno",
+                entity_type: "aip",
+              },
               created_at: "2026-03-03T00:00:00.000Z",
               read_at: null,
             },
             {
               id: "notif-2",
+              event_type: "AIP_CLAIMED",
+              recipient_role: "barangay_official",
+              scope_type: "barangay",
               title: "Read item",
               message: "Already read update.",
               action_url: null,
+              metadata: {
+                fiscal_year: 2026,
+                lgu_name: "Barangay Uno",
+                entity_type: "aip",
+              },
               created_at: "2026-03-02T00:00:00.000Z",
               read_at: "2026-03-03T00:00:00.000Z",
             },
@@ -112,9 +166,17 @@ describe("NotificationsInbox", () => {
           items: [
             {
               id: "notif-1",
+              event_type: "AIP_REVISION_REQUESTED",
+              recipient_role: "barangay_official",
+              scope_type: "barangay",
               title: "Unread item",
               message: "Unread review note.",
               action_url: null,
+              metadata: {
+                fiscal_year: 2026,
+                lgu_name: "Barangay Uno",
+                entity_type: "aip",
+              },
               created_at: "2026-03-03T00:00:00.000Z",
               read_at: null,
             },
@@ -137,7 +199,7 @@ describe("NotificationsInbox", () => {
 
     render(<NotificationsInbox />);
 
-    await screen.findByText("Unread review note.");
+    await screen.findByText("Revision requested for AIP");
     fireEvent.click(screen.getByRole("button", { name: "Unread (1)" }));
 
     await waitFor(() => {
@@ -147,43 +209,30 @@ describe("NotificationsInbox", () => {
       );
     });
     await waitFor(() => {
-      expect(screen.queryByText("Already read update.")).not.toBeInTheDocument();
+      expect(screen.queryByText("AIP claimed for review")).not.toBeInTheDocument();
     });
-    expect(screen.getByText("Unread review note.")).toBeInTheDocument();
+    expect(screen.getByText("Revision requested for AIP")).toBeInTheDocument();
   });
 
-  it("removes a notification from the unread tab when marked as read", async () => {
-    const unreadCountResponses = [1, 1, 0];
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+  it("renders fully clickable cards with destination read-tracking query params", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/notifications?offset=0&limit=20&status=all") {
         return okJson({
           items: [
             {
               id: "notif-1",
+              event_type: "AIP_SUBMITTED",
+              recipient_role: "city_official",
+              scope_type: "city",
               title: "Unread item",
               message: "Pending review item.",
-              action_url: null,
-              created_at: "2026-03-03T00:00:00.000Z",
-              read_at: null,
-            },
-          ],
-          offset: 0,
-          limit: 20,
-          total: 1,
-          hasNext: false,
-          nextOffset: null,
-        });
-      }
-
-      if (url === "/api/notifications?offset=0&limit=20&status=unread") {
-        return okJson({
-          items: [
-            {
-              id: "notif-1",
-              title: "Unread item",
-              message: "Pending review item.",
-              action_url: null,
+              action_url: "/city/submissions/aip/aip-1",
+              metadata: {
+                fiscal_year: 2026,
+                barangay_name: "Barangay Uno",
+                entity_type: "aip",
+              },
               created_at: "2026-03-03T00:00:00.000Z",
               read_at: null,
             },
@@ -197,12 +246,7 @@ describe("NotificationsInbox", () => {
       }
 
       if (url === "/api/notifications/unread-count") {
-        return okJson({ unreadCount: unreadCountResponses.shift() ?? 0 });
-      }
-
-      if (url === "/api/notifications/notif-1/read") {
-        expect(init).toMatchObject({ method: "PATCH" });
-        return okJson({ ok: true });
+        return okJson({ unreadCount: 1 });
       }
 
       return okJson({});
@@ -211,22 +255,13 @@ describe("NotificationsInbox", () => {
 
     render(<NotificationsInbox />);
 
-    await screen.findByText("Pending review item.");
-    fireEvent.click(screen.getByRole("button", { name: "Unread (1)" }));
-    await screen.findAllByText("Pending review item.");
-
-    fireEvent.click(screen.getByRole("button", { name: "Mark as read" }));
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/api/notifications/notif-1/read",
-        expect.objectContaining({ method: "PATCH" })
-      );
-    });
-    await waitFor(() => {
-      expect(screen.getByText("No unread notifications.")).toBeInTheDocument();
-    });
-    expect(screen.getByRole("button", { name: "Unread (0)" })).toBeInTheDocument();
+    const cardLink = await screen.findByRole("link", { name: /AIP submitted/i });
+    expect(cardLink).toHaveAttribute(
+      "href",
+      "/city/submissions/aip/aip-1?notificationId=notif-1"
+    );
+    expect(screen.queryByText("Open related page")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Mark as read" })).not.toBeInTheDocument();
   });
 
   it("marks all notifications as read from the all tab", async () => {
@@ -238,17 +273,33 @@ describe("NotificationsInbox", () => {
           items: [
             {
               id: "notif-1",
+              event_type: "AIP_SUBMITTED",
+              recipient_role: "city_official",
+              scope_type: "city",
               title: "Unread item 1",
               message: "Unread item 1",
               action_url: null,
+              metadata: {
+                fiscal_year: 2026,
+                barangay_name: "Barangay Uno",
+                entity_type: "aip",
+              },
               created_at: "2026-03-03T00:00:00.000Z",
               read_at: null,
             },
             {
               id: "notif-2",
+              event_type: "AIP_SUBMITTED",
+              recipient_role: "city_official",
+              scope_type: "city",
               title: "Unread item 2",
               message: "Unread item 2",
               action_url: null,
+              metadata: {
+                fiscal_year: 2026,
+                barangay_name: "Barangay Uno",
+                entity_type: "aip",
+              },
               created_at: "2026-03-03T00:00:00.000Z",
               read_at: null,
             },
@@ -276,7 +327,7 @@ describe("NotificationsInbox", () => {
 
     render(<NotificationsInbox />);
 
-    await screen.findByText("Unread item 1");
+    expect((await screen.findAllByText("AIP submitted")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Mark all read" }));
 
     await waitFor(() => {
@@ -288,6 +339,5 @@ describe("NotificationsInbox", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Unread (0)" })).toBeInTheDocument();
     });
-    expect(screen.queryByRole("button", { name: "Mark as read" })).not.toBeInTheDocument();
   });
 });

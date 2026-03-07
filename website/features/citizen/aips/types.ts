@@ -12,6 +12,10 @@ export type AipListItem = {
   scopeType: CitizenAipScopeType;
   scopeId: string;
   lguLabel: string;
+  cityScopeId?: string | null;
+  cityScopeLabel?: string | null;
+  barangayScopeId?: string | null;
+  barangayScopeLabel?: string | null;
   title: string;
   fiscalYear: number;
   publishedAt: string | null;

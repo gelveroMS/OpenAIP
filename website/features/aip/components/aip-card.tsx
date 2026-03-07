@@ -13,24 +13,41 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import type { AipHeader } from "../types";
-import { CalendarDays, PhilippinePeso } from "lucide-react";
+import {
+  CalendarDays,
+  CheckCircle2,
+  CircleDashed,
+  Loader2,
+  PhilippinePeso,
+  TriangleAlert,
+} from "lucide-react";
 import { formatPeso } from "@/lib/formatting";
 import { getAipStatusBadgeClass } from "../utils";
+import {
+  getAipChatbotReadinessStatus,
+  type AipChatbotReadinessKind,
+  type AipChatbotReadinessTone,
+} from "../lib/chatbot-readiness";
 
-function getEmbeddingStatusLabel(
-  embedding: AipHeader["embedding"]
-): string | null {
-  if (!embedding) return null;
-  if (embedding.status === "queued" || embedding.status === "running") {
-    return "Indexing for search...";
+function getChatbotStatusBadgeClass(tone: AipChatbotReadinessTone): string {
+  switch (tone) {
+    case "success":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "info":
+      return "border-sky-200 bg-sky-50 text-sky-700";
+    case "danger":
+      return "border-rose-200 bg-rose-50 text-rose-700";
+    case "warning":
+    default:
+      return "border-amber-200 bg-amber-50 text-amber-700";
   }
-  if (embedding.status === "succeeded") {
-    return "Search index ready";
-  }
-  if (embedding.status === "failed") {
-    return "Indexing failed";
-  }
-  return null;
+}
+
+function ChatbotStatusIcon({ kind }: { kind: AipChatbotReadinessKind }) {
+  if (kind === "chatbot_ready") return <CheckCircle2 className="h-3.5 w-3.5" />;
+  if (kind === "embedding") return <Loader2 className="h-3.5 w-3.5 animate-spin" />;
+  if (kind === "failed") return <TriangleAlert className="h-3.5 w-3.5" />;
+  return <CircleDashed className="h-3.5 w-3.5" />;
 }
 
 /**
@@ -64,8 +81,8 @@ export default function AipCard({
       typeof aip.description === "string" &&
       aip.summaryText.length > aip.description.length
   );
-  const embeddingStatusLabel =
-    aip.status === "published" ? getEmbeddingStatusLabel(aip.embedding) : null;
+  const chatbotReadiness =
+    aip.status === "published" ? getAipChatbotReadinessStatus(aip.embedding) : null;
 
   return (
     <Link href={`/${scope}/aips/${aip.id}`} className="block">
@@ -121,8 +138,18 @@ export default function AipCard({
                       </div>
                     ) : null}
                   </div>
-                  {embeddingStatusLabel ? (
-                    <p className="mt-2 text-xs text-slate-500">{embeddingStatusLabel}</p>
+                  {chatbotReadiness ? (
+                    <div className="mt-2">
+                      <Badge
+                        variant="outline"
+                        className={`h-6 gap-1 rounded-full px-2 text-[11px] font-medium ${getChatbotStatusBadgeClass(
+                          chatbotReadiness.tone
+                        )}`}
+                      >
+                        <ChatbotStatusIcon kind={chatbotReadiness.kind} />
+                        {chatbotReadiness.label}
+                      </Badge>
+                    </div>
                   ) : null}
                 </>
               )}

@@ -38,6 +38,26 @@ describe("buildNotificationActionUrl()", () => {
         aipId: "aip-1",
       })
     ).toBe("/city/submissions/aip/aip-1");
+
+    expect(
+      buildNotificationActionUrl({
+        eventType: "AIP_EXTRACTION_SUCCEEDED",
+        recipientScopeType: "barangay",
+        entityType: "aip",
+        aipId: "aip-1",
+        runId: "run-1",
+      })
+    ).toBe("/barangay/aips/aip-1?run=run-1");
+
+    expect(
+      buildNotificationActionUrl({
+        eventType: "AIP_EXTRACTION_FAILED",
+        recipientScopeType: "city",
+        entityType: "aip",
+        aipId: "aip-1",
+        runId: "run-2",
+      })
+    ).toBe("/city/aips/aip-1?run=run-2");
   });
 
   it("routes aip published per recipient scope", () => {
@@ -182,6 +202,14 @@ describe("buildNotificationActionUrl()", () => {
         entityType: "system",
       })
     ).toBe("/admin/aip-monitoring");
+
+    expect(
+      buildNotificationActionUrl({
+        eventType: "AIP_EXTRACTION_FAILED",
+        recipientScopeType: "admin",
+        entityType: "aip",
+        runId: "run-3",
+      })
+    ).toBe("/admin/aip-monitoring?run=run-3");
   });
 });
-

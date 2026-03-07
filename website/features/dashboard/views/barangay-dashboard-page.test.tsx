@@ -1,8 +1,12 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BarangayDashboardPage } from "./barangay-dashboard-page";
 import type { DashboardData, DashboardQueryState, DashboardViewModel } from "@/features/dashboard/types/dashboard-types";
 import type { ActivityLogRow } from "@/lib/repos/audit/repo";
+
+const { citizenEngagementPulseColumnMock } = vi.hoisted(() => ({
+  citizenEngagementPulseColumnMock: vi.fn(),
+}));
 
 vi.mock("@/features/dashboard/components/dashboard-header-widgets", () => ({
   DashboardHeader: ({ title }: { title: string }) => <div>{title}</div>,
@@ -24,7 +28,10 @@ vi.mock("@/features/dashboard/components/dashboard-aip-publication-status", () =
 }));
 
 vi.mock("@/features/dashboard/components/dashboard-feedback-insights", () => ({
-  CitizenEngagementPulseColumn: () => <div>Citizen Engagement Pulse</div>,
+  CitizenEngagementPulseColumn: (props: unknown) => {
+    citizenEngagementPulseColumnMock(props);
+    return <div>Citizen Engagement Pulse</div>;
+  },
 }));
 
 vi.mock("@/features/dashboard/components/dashboard-activity-updates", () => ({
@@ -68,7 +75,12 @@ function buildVm(): DashboardViewModel {
     topFundedFiltered: [],
     citizenFeedbackCount: 0,
     awaitingReplyCount: 0,
-    feedbackCategorySummary: [],
+    feedbackCategorySummary: [
+      { key: "commend", label: "Commend", count: 0, percentage: 0 },
+      { key: "suggestion", label: "Suggestion", count: 3, percentage: 60 },
+      { key: "concern", label: "Concern", count: 1, percentage: 20 },
+      { key: "question", label: "Question", count: 1, percentage: 20 },
+    ],
     feedbackTargets: [],
     statusDistribution: [],
     pendingReviewAging: [],
@@ -91,11 +103,16 @@ const queryState: DashboardQueryState = {
 };
 
 describe("BarangayDashboardPage", () => {
+  beforeEach(() => {
+    citizenEngagementPulseColumnMock.mockClear();
+  });
+
   it("keeps dashboard sections visible and shows the no-AIP KPI placeholder", () => {
+    const vm = buildVm();
     render(
       <BarangayDashboardPage
         data={buildData()}
-        vm={buildVm()}
+        vm={vm}
         queryState={queryState}
         recentActivityLogs={[] as ActivityLogRow[]}
       />
@@ -106,5 +123,9 @@ describe("BarangayDashboardPage", () => {
     expect(screen.getByText("AIP Coverage")).toBeInTheDocument();
     expect(screen.getByText("No AIP")).toBeInTheDocument();
     expect(screen.queryByText("No AIP for 2026")).toBeNull();
+    expect(citizenEngagementPulseColumnMock).toHaveBeenCalled();
+    expect(citizenEngagementPulseColumnMock.mock.calls[0]?.[0]).toMatchObject({
+      feedbackCategorySummary: vm.feedbackCategorySummary,
+    });
   });
 });
