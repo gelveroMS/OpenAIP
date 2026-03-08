@@ -235,6 +235,18 @@ const PROJECT_SELECT_COLUMNS = [
   "edited_at",
 ].join(",");
 
+const SUPABASE_PAGE_SIZE = 1_000;
+const IN_FILTER_CHUNK_SIZE = 200;
+
+function chunkArray<T>(values: T[], size = IN_FILTER_CHUNK_SIZE): T[][] {
+  if (values.length === 0) return [];
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
+}
+
 type DbProjectReviewNoteRow = {
   project_id: string | null;
   body: string;
@@ -1177,24 +1189,61 @@ async function getLatestProjectComments(
   projectIds: string[]
 ): Promise<Map<string, string>> {
   const commentsByProject = new Map<string, string>();
-  if (!projectIds.length) return commentsByProject;
+  const uniqueProjectIds = Array.from(
+    new Set(
+      projectIds.filter(
+        (value): value is string => typeof value === "string" && value.trim().length > 0
+      )
+    )
+  );
+  if (!uniqueProjectIds.length) return commentsByProject;
 
-  const { data: notes, error } = await client
-    .from("feedback")
-    .select("project_id,body,created_at")
-    .eq("target_type", "project")
-    .eq("kind", "lgu_note")
-    .in("project_id", projectIds)
-    .order("created_at", { ascending: false });
+  for (const projectIdChunk of chunkArray(uniqueProjectIds)) {
+    const { data: notes, error } = await client
+      .from("feedback")
+      .select("project_id,body,created_at")
+      .eq("target_type", "project")
+      .eq("kind", "lgu_note")
+      .in("project_id", projectIdChunk)
+      .order("created_at", { ascending: false });
 
-  if (error) throw new Error(error.message);
+    if (error) throw new Error(error.message);
 
-  for (const row of (notes ?? []) as DbProjectReviewNoteRow[]) {
-    if (row.project_id && !commentsByProject.has(row.project_id)) {
-      commentsByProject.set(row.project_id, row.body);
+    for (const row of (notes ?? []) as DbProjectReviewNoteRow[]) {
+      if (row.project_id && !commentsByProject.has(row.project_id)) {
+        commentsByProject.set(row.project_id, row.body);
+      }
     }
   }
   return commentsByProject;
+}
+
+async function listProjectsByAipId(
+  client: Awaited<ReturnType<typeof supabaseServer>>,
+  aipId: string
+): Promise<ProjectSelectRow[]> {
+  const rows: ProjectSelectRow[] = [];
+  let from = 0;
+
+  while (true) {
+    const to = from + SUPABASE_PAGE_SIZE - 1;
+    const { data, error } = await client
+      .from("projects")
+      .select(PROJECT_SELECT_COLUMNS)
+      .eq("aip_id", aipId)
+      .order("aip_ref_code", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, to);
+
+    if (error) throw new Error(error.message);
+
+    const batch = (data ?? []) as unknown as ProjectSelectRow[];
+    rows.push(...batch);
+    if (batch.length < SUPABASE_PAGE_SIZE) break;
+    from += SUPABASE_PAGE_SIZE;
+  }
+
+  return rows;
 }
 
 const REVIEWABLE_AIP_STATUSES = new Set<AipStatusRow["status"]>(["draft", "for_revision"]);
@@ -1384,14 +1433,7 @@ export function createSupabaseAipProjectRepo(): AipProjectRepo {
   return {
     async listByAip(aipId) {
       const client = await supabaseServer();
-      const { data: projects, error } = await client
-        .from("projects")
-        .select(PROJECT_SELECT_COLUMNS)
-        .eq("aip_id", aipId)
-        .order("aip_ref_code", { ascending: true });
-
-      if (error) throw new Error(error.message);
-      const rows = (projects ?? []) as unknown as ProjectSelectRow[];
+      const rows = await listProjectsByAipId(client, aipId);
       const projectIds = rows.map((p) => p.id);
       const commentsByProject = await getLatestProjectComments(client, projectIds);
       return rows.map((row) => mapProjectSelectRowToAipProjectRow(row, commentsByProject.get(row.id)));

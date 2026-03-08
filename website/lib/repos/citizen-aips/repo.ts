@@ -124,6 +124,17 @@ const PROJECT_SELECT_COLUMNS = [
 const DEFAULT_SUMMARY =
   "Development and improvement of community infrastructure, social services, and local economic initiatives are prioritized under this annual plan.";
 
+const IN_FILTER_CHUNK_SIZE = 200;
+
+function chunkArray<T>(values: T[], size = IN_FILTER_CHUNK_SIZE): T[][] {
+  if (values.length === 0) return [];
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
+}
+
 function scopeNameOf(scope: ScopeRow | ScopeRow[] | undefined): string | null {
   if (!scope) return null;
   if (Array.isArray(scope)) return scope[0]?.name ?? null;
@@ -410,19 +421,22 @@ async function getProjectIdsWithPublicLguNotes(projectIds: string[]): Promise<Se
   if (!uniqueProjectIds.length) return new Set();
 
   const client = await supabaseServer();
-  const { data, error } = await client
-    .from("feedback")
-    .select("project_id")
-    .eq("target_type", "project")
-    .eq("kind", "lgu_note")
-    .in("project_id", uniqueProjectIds);
-
-  if (error) throw new Error(error.message);
-
   const projectIdsWithLguNotes = new Set<string>();
-  for (const row of (data ?? []) as Array<{ project_id: string | null }>) {
-    if (typeof row.project_id === "string" && row.project_id.length > 0) {
-      projectIdsWithLguNotes.add(row.project_id);
+
+  for (const projectIdChunk of chunkArray(uniqueProjectIds)) {
+    const { data, error } = await client
+      .from("feedback")
+      .select("project_id")
+      .eq("target_type", "project")
+      .eq("kind", "lgu_note")
+      .in("project_id", projectIdChunk);
+
+    if (error) throw new Error(error.message);
+
+    for (const row of (data ?? []) as Array<{ project_id: string | null }>) {
+      if (typeof row.project_id === "string" && row.project_id.length > 0) {
+        projectIdsWithLguNotes.add(row.project_id);
+      }
     }
   }
 

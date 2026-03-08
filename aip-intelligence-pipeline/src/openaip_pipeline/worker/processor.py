@@ -20,6 +20,8 @@ from openaip_pipeline.services.validation.barangay import validate_projects_json
 from openaip_pipeline.services.validation.city import validate_projects_json_str as validate_city
 from openaip_pipeline.worker.progress import clamp_pct, read_positive_float_env, run_with_heartbeat
 
+VALIDATION_FIXED_BATCH_SIZE = 25
+
 
 class PipelineGuardrailError(RuntimeError):
     def __init__(self, reason_code: str, message: str):
@@ -350,6 +352,15 @@ def process_run(*, repo: PipelineRepository, settings: Settings, run: dict[str, 
 
             current_stage = "validate"
             repo.set_run_stage(run_id=run_id, stage=current_stage)
+            repo.set_run_progress(
+                run_id=run_id,
+                stage=current_stage,
+                stage_progress_pct=0,
+                progress_message=(
+                    "Validation configured with fixed chunk size: "
+                    f"{VALIDATION_FIXED_BATCH_SIZE} project(s) per request."
+                ),
+            )
 
             def validation_progress(
                 done_projects: int,
@@ -377,7 +388,7 @@ def process_run(*, repo: PipelineRepository, settings: Settings, run: dict[str, 
             validation_res = validation_fn(
                 json.dumps(extraction_payload, ensure_ascii=False),
                 model=model_name,
-                batch_size=None,
+                batch_size=VALIDATION_FIXED_BATCH_SIZE,
                 on_progress=validation_progress,
             )
             validation_payload = validation_res.validated_obj

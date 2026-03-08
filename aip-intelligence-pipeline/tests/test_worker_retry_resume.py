@@ -197,6 +197,7 @@ def _patch_pipeline_fns(
     validate_payload: dict[str, Any] | None = None,
     summarize_payload: dict[str, Any] | None = None,
     categorize_payload: dict[str, Any] | None = None,
+    validation_batch_sizes: list[int | None] | None = None,
 ) -> None:
     monkeypatch.setattr(
         processor_module,
@@ -216,6 +217,9 @@ def _patch_pipeline_fns(
 
     def fake_validate(extraction_json_str: str, **kwargs: Any) -> Any:
         call_counts["validate"] += 1
+        if validation_batch_sizes is not None:
+            value = kwargs.get("batch_size")
+            validation_batch_sizes.append(value if isinstance(value, int) else None)
         payload = validate_payload or _validate_payload()
         progress_cb = kwargs.get("on_progress")
         if callable(progress_cb):
@@ -279,7 +283,12 @@ def _patch_pipeline_fns(
 
 def test_resume_from_validate_skips_extraction(monkeypatch) -> None:
     calls = {"extract": 0, "validate": 0, "summarize": 0, "categorize": 0}
-    _patch_pipeline_fns(monkeypatch, call_counts=calls)
+    validation_batch_sizes: list[int | None] = []
+    _patch_pipeline_fns(
+        monkeypatch,
+        call_counts=calls,
+        validation_batch_sizes=validation_batch_sizes,
+    )
 
     repo = _FakeRepo(
         lineage={"run-new": "run-old"},
@@ -304,6 +313,7 @@ def test_resume_from_validate_skips_extraction(monkeypatch) -> None:
     assert "extract" not in inserted_types
     assert inserted_types[:3] == ["validate", "summarize", "categorize"]
     assert repo.upsert_totals_calls
+    assert validation_batch_sizes == [processor_module.VALIDATION_FIXED_BATCH_SIZE]
 
 
 def test_validate_stage_writes_intermediate_progress_and_logs(monkeypatch, capsys) -> None:
@@ -331,6 +341,7 @@ def test_validate_stage_writes_intermediate_progress_and_logs(monkeypatch, capsy
         if stage == "validate" and isinstance(message, str)
     ]
     assert validate_messages
+    assert any("fixed chunk size" in message.lower() for message in validate_messages)
     assert any("Validation preflight:" in message for message in validate_messages)
     assert any("Validation chunk start:" in message for message in validate_messages)
     assert "Validation complete." in validate_messages

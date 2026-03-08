@@ -65,6 +65,7 @@ type ProjectUpdateWithoutRef = Omit<ProjectUpdate, "projectRefCode">;
 
 const HIDDEN_PROJECT_UPDATE_PLACEHOLDER =
   "This project update has been hidden due to policy violation.";
+const IN_FILTER_CHUNK_SIZE = 200;
 
 const PROJECT_SELECT_COLUMNS = [
   "id",
@@ -98,6 +99,15 @@ const PROJECT_SELECT_COLUMNS = [
   "created_at",
   "updated_at",
 ].join(",");
+
+function chunkArray<T>(values: T[], size = IN_FILTER_CHUNK_SIZE): T[][] {
+  if (values.length === 0) return [];
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
+}
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -167,41 +177,50 @@ async function resolveReadableAipIds(
 async function loadDetailsByProjectIds(projectIds: string[]) {
   const healthByProjectId = new Map<string, HealthProjectDetailsRow>();
   const infraByProjectId = new Map<string, InfrastructureProjectDetailsRow>();
+  const uniqueProjectIds = Array.from(
+    new Set(
+      projectIds.filter(
+        (value): value is string => typeof value === "string" && value.trim().length > 0
+      )
+    )
+  );
 
-  if (projectIds.length === 0) {
+  if (uniqueProjectIds.length === 0) {
     return { healthByProjectId, infraByProjectId };
   }
 
   const client = await supabaseServer();
-  const [healthResult, infraResult] = await Promise.all([
-    client
-      .from("health_project_details")
-      .select(
-        "project_id,program_name,description,target_participants,total_target_participants,updated_by,updated_at,created_at"
-      )
-      .in("project_id", projectIds),
-    client
-      .from("infrastructure_project_details")
-      .select(
-        "project_id,project_name,contractor_name,contract_cost,start_date,target_completion_date,updated_by,updated_at,created_at"
-      )
-      .in("project_id", projectIds),
-  ]);
+  for (const projectIdChunk of chunkArray(uniqueProjectIds)) {
+    const [healthResult, infraResult] = await Promise.all([
+      client
+        .from("health_project_details")
+        .select(
+          "project_id,program_name,description,target_participants,total_target_participants,updated_by,updated_at,created_at"
+        )
+        .in("project_id", projectIdChunk),
+      client
+        .from("infrastructure_project_details")
+        .select(
+          "project_id,project_name,contractor_name,contract_cost,start_date,target_completion_date,updated_by,updated_at,created_at"
+        )
+        .in("project_id", projectIdChunk),
+    ]);
 
-  if (healthResult.error) {
-    throw new Error(healthResult.error.message);
-  }
+    if (healthResult.error) {
+      throw new Error(healthResult.error.message);
+    }
 
-  if (infraResult.error) {
-    throw new Error(infraResult.error.message);
-  }
+    if (infraResult.error) {
+      throw new Error(infraResult.error.message);
+    }
 
-  for (const row of (healthResult.data ?? []) as HealthProjectDetailsRow[]) {
-    healthByProjectId.set(row.project_id, row);
-  }
+    for (const row of (healthResult.data ?? []) as HealthProjectDetailsRow[]) {
+      healthByProjectId.set(row.project_id, row);
+    }
 
-  for (const row of (infraResult.data ?? []) as InfrastructureProjectDetailsRow[]) {
-    infraByProjectId.set(row.project_id, row);
+    for (const row of (infraResult.data ?? []) as InfrastructureProjectDetailsRow[]) {
+      infraByProjectId.set(row.project_id, row);
+    }
   }
 
   return { healthByProjectId, infraByProjectId };
@@ -209,44 +228,59 @@ async function loadDetailsByProjectIds(projectIds: string[]) {
 
 async function loadUpdatesByProjectIds(projectIds: string[], options?: ProjectReadOptions) {
   const updatesByProjectId = new Map<string, ProjectUpdateWithoutRef[]>();
-  if (projectIds.length === 0) {
+  const uniqueProjectIds = Array.from(
+    new Set(
+      projectIds.filter(
+        (value): value is string => typeof value === "string" && value.trim().length > 0
+      )
+    )
+  );
+
+  if (uniqueProjectIds.length === 0) {
     return updatesByProjectId;
   }
   const showHiddenContent = hasBarangayScopeHint(options) || hasCityScopeHint(options);
 
   const client = await supabaseServer();
-  const { data: updatesData, error: updatesError } = await client
-    .from("project_updates")
-    .select(
-      "id,project_id,title,description,progress_percent,attendance_count,status,hidden_reason,hidden_violation_category,created_at"
-    )
-    .in("project_id", projectIds)
-    .in("status", ["active", "hidden"])
-    .order("created_at", { ascending: false });
-  if (updatesError) {
-    throw new Error(updatesError.message);
+  const updateRows: ProjectUpdateSelectRow[] = [];
+  for (const projectIdChunk of chunkArray(uniqueProjectIds)) {
+    const { data: updatesData, error: updatesError } = await client
+      .from("project_updates")
+      .select(
+        "id,project_id,title,description,progress_percent,attendance_count,status,hidden_reason,hidden_violation_category,created_at"
+      )
+      .in("project_id", projectIdChunk)
+      .in("status", ["active", "hidden"])
+      .order("created_at", { ascending: false });
+    if (updatesError) {
+      throw new Error(updatesError.message);
+    }
+    updateRows.push(...((updatesData ?? []) as ProjectUpdateSelectRow[]));
   }
 
-  const updateRows = (updatesData ?? []) as ProjectUpdateSelectRow[];
   const updateIds = updateRows
     .filter((row) => row.status !== "hidden" || showHiddenContent)
-    .map((row) => row.id);
+    .map((row) => row.id)
+    .filter((value) => typeof value === "string" && value.length > 0);
+  const uniqueUpdateIds = Array.from(new Set(updateIds));
 
   const mediaByUpdateId = new Map<string, ProjectUpdateMediaSelectRow[]>();
-  if (updateIds.length > 0) {
-    const { data: mediaData, error: mediaError } = await client
-      .from("project_update_media")
-      .select("id,update_id,project_id,created_at")
-      .in("update_id", updateIds)
-      .order("created_at", { ascending: true });
-    if (mediaError) {
-      throw new Error(mediaError.message);
-    }
+  if (uniqueUpdateIds.length > 0) {
+    for (const updateIdChunk of chunkArray(uniqueUpdateIds)) {
+      const { data: mediaData, error: mediaError } = await client
+        .from("project_update_media")
+        .select("id,update_id,project_id,created_at")
+        .in("update_id", updateIdChunk)
+        .order("created_at", { ascending: true });
+      if (mediaError) {
+        throw new Error(mediaError.message);
+      }
 
-    for (const row of (mediaData ?? []) as ProjectUpdateMediaSelectRow[]) {
-      const list = mediaByUpdateId.get(row.update_id) ?? [];
-      list.push(row);
-      mediaByUpdateId.set(row.update_id, list);
+      for (const row of (mediaData ?? []) as ProjectUpdateMediaSelectRow[]) {
+        const list = mediaByUpdateId.get(row.update_id) ?? [];
+        list.push(row);
+        mediaByUpdateId.set(row.update_id, list);
+      }
     }
   }
 
