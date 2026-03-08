@@ -27,8 +27,15 @@ export function LoginForm({role, baseURL}:AuthParameters) {
 
   const rolePath = getRolePath(baseURL, role);
   const isStaffRole = role === "admin" || role === "city" || role === "barangay"
+  const isLguRole = role === "city" || role === "barangay"
   const roleBadgeLabel =
     role === 'city' ? 'City Official' : role === 'barangay' ? 'Barangay Official' : 'Admin'
+  const staffHeroTitle = isLguRole
+    ? "Promoting transparency in Annual Investment Plans."
+    : "Turn AIP documents into actionable planning data.";
+  const staffHeroDescription = isLguRole
+    ? "OpenAIP transforms Annual Investment Plans into structured, searchable records that support transparency and make local planning information easier for the public to access and understand."
+    : "OpenAIP converts Annual Investment Plans into structured, searchable records so officials can publish, review, and monitor budgets and projects with clarity and accountability.";
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -172,18 +179,10 @@ export function LoginForm({role, baseURL}:AuthParameters) {
                       Forgot password?
                     </Link>
                   </div>
-                  <div className="space-y-2">
-                    <a
-                      href="mailto:administrator@lgu.gov.ph"
-                      className="inline-flex rounded-sm text-sm font-medium text-slate-700 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                    >
-                      Contact system administrator
-                    </a>
-                    <p className="text-sm leading-relaxed text-slate-500">
-                      For account access or resets, contact your LGU administrator.
-                    </p>
-                  </div>
                 </form>
+                <p className="mt-6 text-center text-sm leading-relaxed text-slate-500">
+                  For account access or resets, contact your LGU administrator.
+                </p>
               </CardContent>
             </Card>
             </div>
@@ -205,11 +204,10 @@ export function LoginForm({role, baseURL}:AuthParameters) {
               </div>
               <div className="max-w-2xl space-y-6 pb-2 lg:pb-10">
                 <h1 className="text-4xl font-bold leading-tight sm:text-5xl">
-                  Turn AIP documents into actionable planning data.
+                  {staffHeroTitle}
                 </h1>
                 <p className="text-base leading-relaxed text-slate-100/90 sm:text-lg">
-                  OpenAIP converts Annual Investment Plans into structured, searchable records so officials can publish,
-                  review, and monitor budgets and projects with clarity and accountability.
+                  {staffHeroDescription}
                 </p>
               </div>
             </div>

@@ -30,6 +30,15 @@ function looksLikeScopeBudgetQuery(message: string, normalized: string): boolean
     return false;
   }
 
+  const hasDomainSpecificBudgetCue =
+    /\b(health|education|infrastructure|agriculture|environment|social services|economic services|general services|sector|fund source|funding source|category)\b/.test(
+      normalized
+    ) ||
+    /\bbudget\s+for\b/.test(normalized);
+  if (hasDomainSpecificBudgetCue) {
+    return false;
+  }
+
   if (
     STRICT_LINE_ITEM_REF_PATTERN.test(message) ||
     HYBRID_LINE_ITEM_REF_PATTERN.test(message) ||
@@ -46,7 +55,15 @@ function looksLikeScopeBudgetQuery(message: string, normalized: string): boolean
     return false;
   }
 
-  return true;
+  const hasScopeOrTotalBudgetCue =
+    /\bbudget\s+of\b/.test(normalized) ||
+    /\boverall\s+budget\b/.test(normalized) ||
+    /\btotal\s+budget\b/.test(normalized) ||
+    /\baip\s+budget\b/.test(normalized) ||
+    /\bacross\s+all\s+barangays\b/.test(normalized) ||
+    /\bfor\s+(barangay|city|municipality)\b/.test(normalized);
+
+  return hasScopeOrTotalBudgetCue;
 }
 
 export function detectIntent(message: string): { intent: ChatIntent } {

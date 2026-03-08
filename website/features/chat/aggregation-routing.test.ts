@@ -12,6 +12,7 @@ const mockRouteSqlFirstTotals = vi.fn();
 const mockGetSession = vi.fn();
 const mockCreateSession = vi.fn();
 const mockAppendUserMessage = vi.fn();
+const mockListMessages = vi.fn();
 const mockConsumeQuotaRpc = vi.fn();
 const mockServerRpc = vi.fn();
 const mockConsoleInfo = vi.spyOn(console, "info").mockImplementation(() => {});
@@ -397,6 +398,47 @@ function createAdminClient() {
         };
       }
 
+      if (table === "aip_line_items") {
+        return {
+          select: () => {
+            let inFilter: { field: string; values: string[] } | null = null;
+            const applyFilters = () =>
+              Object.values(lineItemsById).filter((row) => {
+                if (!inFilter) return true;
+                const candidate = String((row as Record<string, unknown>)[inFilter.field] ?? "");
+                return inFilter.values.includes(candidate);
+              });
+
+            const builder = {
+              in: (field: string, values: string[]) => {
+                inFilter = { field, values };
+                return builder;
+              },
+              then: (
+                resolve: (
+                  value: {
+                    data: Array<Record<string, unknown>>;
+                    error: null;
+                  }
+                ) => void,
+                reject?: (reason?: unknown) => void
+              ) =>
+                Promise.resolve({
+                  data: applyFilters().map((row) => ({
+                    aip_id: row.aip_id,
+                    fund_source: row.fund_source,
+                    sector_code: (row as Record<string, unknown>).sector_code ?? null,
+                    sector_name: (row as Record<string, unknown>).sector_name ?? null,
+                    implementing_agency: row.implementing_agency,
+                  })),
+                  error: null as null,
+                }).then(resolve, reject),
+            };
+            return builder;
+          },
+        };
+      }
+
       if (table === "aip_totals") {
         return {
           select: () => {
@@ -489,6 +531,7 @@ vi.mock("@/lib/repos/chat/repo.server", () => ({
     getSession: (...args: unknown[]) => mockGetSession(...args),
     createSession: (...args: unknown[]) => mockCreateSession(...args),
     appendUserMessage: (...args: unknown[]) => mockAppendUserMessage(...args),
+    listMessages: (...args: unknown[]) => mockListMessages(...args),
   }),
 }));
 
@@ -660,6 +703,7 @@ describe("aggregation routing", () => {
     mockGetSession.mockReset();
     mockCreateSession.mockReset();
     mockAppendUserMessage.mockReset();
+    mockListMessages.mockReset();
     mockResolveRetrievalScope.mockReset();
     mockGetActorContext.mockReset();
     mockSupabaseServer.mockReset();
@@ -698,6 +742,17 @@ describe("aggregation routing", () => {
       };
       return message;
     });
+    mockListMessages.mockImplementation(async () =>
+      assistantRows.map((row) => ({
+        id: row.id,
+        sessionId: row.session_id,
+        role: row.role,
+        content: row.content,
+        citations: row.citations as ChatMessage["citations"],
+        retrievalMeta: row.retrieval_meta as ChatMessage["retrievalMeta"],
+        createdAt: row.created_at,
+      }))
+    );
 
     mockResolveRetrievalScope.mockResolvedValue({
       mode: "global",
@@ -754,6 +809,9 @@ describe("aggregation routing", () => {
         };
       }
     );
+
+    delete process.env.CHAT_SEMANTIC_REPEAT_CACHE_ENABLED;
+    delete process.env.CHAT_SEMANTIC_REPEAT_CACHE_TTL_SEC;
   });
 
   it("routes Top 3 projects in FY 2026 to get_top_projects with expected filters", async () => {
@@ -777,6 +835,22 @@ describe("aggregation routing", () => {
     ).toBe(false);
     expect(mockRequestPipelineChatAnswer).not.toHaveBeenCalled();
     expect(mockRequestPipelineQueryEmbedding).not.toHaveBeenCalled();
+  });
+
+  it("routes singular top project phrasing to get_top_projects with limit 10", async () => {
+    await callMessagesRoute({
+      sessionId: session.id,
+      content: "top project of pulo",
+    });
+
+    expect(
+      mockServerRpc.mock.calls.some(
+        ([fn, args]) =>
+          fn === "get_top_projects" &&
+          (args as Record<string, unknown>).p_limit === 10
+      )
+    ).toBe(true);
+    expect(mockRequestPipelineChatAnswer).not.toHaveBeenCalled();
   });
 
   it("routes totals by sector query to get_totals_by_sector", async () => {
@@ -1149,22 +1223,563 @@ describe("aggregation routing", () => {
     ).toBe(true);
   });
 
-  it("routes fund-source existence query to aggregation list mode", async () => {
+  it("routes scoped fund-source breakdown phrasing to aggregation (not line-item)", async () => {
+    await callMessagesRoute({
+      sessionId: session.id,
+      content: "Total amount per fund source for Pulo only",
+    });
+
+    expect(
+      mockServerRpc.mock.calls.some(
+        ([fn, args]) =>
+          fn === "get_totals_by_fund_source" &&
+          (args as Record<string, unknown>).p_barangay_id === "brgy-3"
+      )
+    ).toBe(true);
+    expect(
+      mockServerRpc.mock.calls.some(([fn]) => fn === "match_aip_line_items")
+    ).toBe(false);
+  });
+
+  it("keeps totals output mode for fund-source query with show+totals wording", async () => {
+    const { payload } = await callMessagesRoute({
+      sessionId: session.id,
+      content: "Across all barangays FY 2026, show budget totals by fund source.",
+    });
+
+    expect(payload.status).toBe("answer");
+    const assistant = payload.assistantMessage as { content: string };
+    expect(assistant.content).toContain("Budget totals by fund source");
+    expect(assistant.content).toContain("General Fund");
+    expect(assistant.content).toContain("PHP");
+    expect(assistant.content).not.toContain("Fund sources (");
+
+    expect(
+      mockServerRpc.mock.calls.some(([fn]) => fn === "get_totals_by_fund_source")
+    ).toBe(true);
+  });
+
+  it("routes fund-source existence query to metadata SQL mode", async () => {
     const { payload } = await callMessagesRoute({
       sessionId: session.id,
       content: "What fund sources exist in FY 2026?",
     });
 
     expect(payload.status).toBe("answer");
-    const assistant = payload.assistantMessage as { content: string };
-    expect(assistant.content).toContain("Fund sources (");
-    expect(assistant.content).not.toContain("Budget totals by fund source");
+    const assistant = payload.assistantMessage as {
+      content: string;
+      retrievalMeta?: { verifierMode?: string };
+    };
+    expect(assistant.content).toContain("Fund sources");
+    expect(assistant.retrievalMeta?.verifierMode).toBe("structured");
 
     expect(
       mockServerRpc.mock.calls.some(([fn]) => fn === "get_totals_by_fund_source")
-    ).toBe(true);
+    ).toBe(false);
     expect(
       mockServerRpc.mock.calls.some(([fn]) => fn === "match_aip_line_items")
     ).toBe(false);
+    expect(mockRequestPipelineChatAnswer).not.toHaveBeenCalled();
+  });
+
+  it("answers lowest allocated sector budget as structured sector aggregation", async () => {
+    rpcResponses.get_totals_by_sector = [
+      {
+        sector_code: "INFRA",
+        sector_name: "Infrastructure",
+        sector_total: 2500000,
+        count_items: 3,
+      },
+      {
+        sector_code: "HEALTH",
+        sector_name: "Health",
+        sector_total: 500000,
+        count_items: 2,
+      },
+      {
+        sector_code: "GEN",
+        sector_name: "General Services",
+        sector_total: 1200000,
+        count_items: 4,
+      },
+    ];
+
+    const { payload } = await callMessagesRoute({
+      sessionId: session.id,
+      content: "sector that have lowest allocated budget",
+    });
+
+    expect(payload.status).toBe("answer");
+    const assistant = payload.assistantMessage as { content: string };
+    expect(assistant.content).toContain("Sector with lowest allocated budget");
+    expect(assistant.content).toContain("HEALTH - Health");
+    expect(
+      mockServerRpc.mock.calls.some(([fn]) => fn === "get_totals_by_sector")
+    ).toBe(true);
+    expect(mockRequestPipelineChatAnswer).not.toHaveBeenCalled();
+  });
+
+  it("applies explicit barangay scope for possessive compare query", async () => {
+    const { payload } = await callMessagesRoute({
+      sessionId: session.id,
+      content: "Compare pulo's budget from 2025 to 2026",
+    });
+
+    expect(payload.status).toBe("answer");
+    const assistant = payload.assistantMessage as { content: string };
+    expect(assistant.content).toContain("Fiscal year comparison (Barangay Pulo)");
+    expect(assistant.content).not.toContain("Fiscal year comparison (All barangays)");
+  });
+
+  it("compares same-year totals across two bare barangay names instead of defaulting to account scope", async () => {
+    const { payload } = await callMessagesRoute({
+      sessionId: session.id,
+      content: "compare the budget of mamatid vs pulo in 2026",
+    });
+
+    expect(payload.status).toBe("answer");
+    const assistant = payload.assistantMessage as { content: string };
+    expect(assistant.content).toContain("Budget comparison for FY 2026");
+    expect(assistant.content).toContain("Barangay Mamatid");
+    expect(assistant.content).toContain("Barangay Pulo");
+    expect(assistant.content).not.toContain("based on your account scope");
+  });
+
+  it("stamps pipeline fallback route family when retrieval telemetry is sparse", async () => {
+    const { payload } = await callMessagesRoute({
+      sessionId: session.id,
+      content: "What does the AIP say about flood control?",
+    });
+
+    const assistant = payload.assistantMessage as {
+      retrievalMeta?: { routeFamily?: string; verifierMode?: string };
+    };
+    expect(assistant.retrievalMeta?.routeFamily).toBe("pipeline_fallback");
+    expect(assistant.retrievalMeta?.verifierMode).toBe("retrieval");
+  });
+
+  it("short-circuits 'who are you' as conversational without semantic retrieval", async () => {
+    const { payload } = await callMessagesRoute({
+      sessionId: session.id,
+      content: "who are you?",
+    });
+
+    expect(payload.status).toBe("answer");
+    const assistant = payload.assistantMessage as {
+      content: string;
+      retrievalMeta?: { reason?: string };
+    };
+    expect(assistant.content).toContain("published AIP questions only");
+    expect(assistant.retrievalMeta?.reason).toBe("conversational_shortcut");
+    expect(mockRequestPipelineChatAnswer).not.toHaveBeenCalled();
+  });
+
+  it("short-circuits simple general-knowledge prompt without semantic retrieval", async () => {
+    const { payload } = await callMessagesRoute({
+      sessionId: session.id,
+      content: "what is eggs",
+    });
+
+    expect(payload.status).toBe("answer");
+    const assistant = payload.assistantMessage as {
+      content: string;
+      retrievalMeta?: { reason?: string };
+    };
+    expect(assistant.content).toContain("published AIP questions only");
+    expect(assistant.retrievalMeta?.reason).toBe("conversational_shortcut");
+    expect(mockRequestPipelineChatAnswer).not.toHaveBeenCalled();
+  });
+
+  it("reuses semantic fallback response from cache for normalized query variants", async () => {
+    process.env.CHAT_SEMANTIC_REPEAT_CACHE_ENABLED = "true";
+    process.env.CHAT_SEMANTIC_REPEAT_CACHE_TTL_SEC = "600";
+    mockRequestPipelineChatAnswer.mockResolvedValue({
+      answer: "Road maintenance is described in infrastructure sections. [S1]",
+      refused: false,
+      citations: [
+        {
+          source_id: "S1",
+          snippet: "Infrastructure projects include maintenance-related works.",
+          scope_name: "Barangay Pulo",
+          metadata: { chunk_id: "chunk-1" },
+        },
+      ],
+      retrieval_meta: {
+        reason: "ok",
+        verifier_passed: true,
+        verifier_mode: "retrieval",
+        response_mode_source: "pipeline_generated",
+      },
+    });
+
+    const first = await callMessagesRoute({
+      sessionId: session.id,
+      content: "What does the AIP say about road maintenance in Pulo",
+    });
+    const second = await callMessagesRoute({
+      sessionId: session.id,
+      content: "  what does the AIP say about road maintenance in pulo?   ",
+    });
+
+    expect(first.payload.status).toBe("answer");
+    expect(second.payload.status).toBe("answer");
+    expect(mockRequestPipelineChatAnswer).toHaveBeenCalledTimes(1);
+
+    const firstAssistant = first.payload.assistantMessage as {
+      content: string;
+      retrievalMeta?: {
+        responseModeSource?: string;
+        semanticRepeatCacheHit?: boolean;
+        responseStabilizedFromCache?: boolean;
+      };
+    };
+    const secondAssistant = second.payload.assistantMessage as {
+      content: string;
+      retrievalMeta?: {
+        responseModeSource?: string;
+        semanticRepeatCacheHit?: boolean;
+        responseStabilizedFromCache?: boolean;
+      };
+    };
+
+    expect(firstAssistant.retrievalMeta?.semanticRepeatCacheHit).toBe(false);
+    expect(firstAssistant.retrievalMeta?.responseStabilizedFromCache).toBe(false);
+    expect(firstAssistant.retrievalMeta?.responseModeSource).toBe("pipeline_generated");
+
+    expect(secondAssistant.content).toBe(firstAssistant.content);
+    expect(secondAssistant.retrievalMeta?.semanticRepeatCacheHit).toBe(true);
+    expect(secondAssistant.retrievalMeta?.responseStabilizedFromCache).toBe(true);
+    expect(secondAssistant.retrievalMeta?.responseModeSource).toBe("website_repeat_cache");
+  });
+
+  it("does not reuse semantic repeat cache when previous response is refusal", async () => {
+    process.env.CHAT_SEMANTIC_REPEAT_CACHE_ENABLED = "true";
+    process.env.CHAT_SEMANTIC_REPEAT_CACHE_TTL_SEC = "600";
+    mockRequestPipelineChatAnswer.mockResolvedValue({
+      answer: "I can't provide a grounded answer from available sources.",
+      refused: true,
+      citations: [],
+      retrieval_meta: {
+        reason: "insufficient_evidence",
+        verifier_mode: "retrieval",
+        response_mode_source: "pipeline_refusal",
+      },
+    });
+
+    const first = await callMessagesRoute({
+      sessionId: session.id,
+      content: "What does the AIP say about unsupported project details?",
+    });
+    const second = await callMessagesRoute({
+      sessionId: session.id,
+      content: "What does the AIP say about unsupported project details?",
+    });
+
+    expect(first.payload.status).toBe("refusal");
+    expect(second.payload.status).toBe("refusal");
+    expect(mockRequestPipelineChatAnswer).toHaveBeenCalledTimes(2);
+
+    const secondAssistant = second.payload.assistantMessage as {
+      retrievalMeta?: { semanticRepeatCacheHit?: boolean; responseStabilizedFromCache?: boolean };
+    };
+    expect(secondAssistant.retrievalMeta?.semanticRepeatCacheHit).toBe(false);
+    expect(secondAssistant.retrievalMeta?.responseStabilizedFromCache).toBe(false);
+  });
+
+  it("does not reuse semantic repeat cache when previous response was clarification", async () => {
+    process.env.CHAT_SEMANTIC_REPEAT_CACHE_ENABLED = "true";
+    process.env.CHAT_SEMANTIC_REPEAT_CACHE_TTL_SEC = "600";
+
+    assistantRows.push({
+      id: "assistant-clarify-seed",
+      session_id: session.id,
+      role: "assistant",
+      content: "Please clarify your requested scope.",
+      citations: [],
+      retrieval_meta: {
+        status: "clarification",
+        responseModeSource: "pipeline_generated",
+        semanticStabilityKey: "what does the aip say about drainage||mode:global||targets:none||fy:none",
+      },
+      created_at: new Date().toISOString(),
+    });
+
+    mockRequestPipelineChatAnswer.mockResolvedValue({
+      answer: "Drainage projects are listed in infrastructure sections. [S1]",
+      refused: false,
+      citations: [
+        {
+          source_id: "S1",
+          snippet: "Drainage and canal rehabilitation projects are listed.",
+          scope_name: "Barangay Pulo",
+          metadata: { chunk_id: "chunk-3" },
+        },
+      ],
+      retrieval_meta: {
+        reason: "ok",
+        verifier_passed: true,
+        verifier_mode: "retrieval",
+        response_mode_source: "pipeline_generated",
+      },
+    });
+
+    const { payload } = await callMessagesRoute({
+      sessionId: session.id,
+      content: "What does the AIP say about drainage?",
+    });
+
+    expect(payload.status).toBe("answer");
+    expect(mockRequestPipelineChatAnswer).toHaveBeenCalledTimes(1);
+
+    const assistant = payload.assistantMessage as {
+      retrievalMeta?: { semanticRepeatCacheHit?: boolean; responseStabilizedFromCache?: boolean };
+    };
+    expect(assistant.retrievalMeta?.semanticRepeatCacheHit).toBe(false);
+    expect(assistant.retrievalMeta?.responseStabilizedFromCache).toBe(false);
+  });
+
+  it("does not reuse semantic repeat cache when fiscal year differs", async () => {
+    process.env.CHAT_SEMANTIC_REPEAT_CACHE_ENABLED = "true";
+    process.env.CHAT_SEMANTIC_REPEAT_CACHE_TTL_SEC = "600";
+    mockRequestPipelineChatAnswer.mockResolvedValue({
+      answer: "Narrative answer with citation [S1].",
+      refused: false,
+      citations: [
+        {
+          source_id: "S1",
+          snippet: "AIP narrative snippet.",
+          scope_name: "Barangay Pulo",
+          metadata: { chunk_id: "chunk-2" },
+        },
+      ],
+      retrieval_meta: {
+        reason: "ok",
+        verifier_passed: true,
+        verifier_mode: "retrieval",
+        response_mode_source: "pipeline_generated",
+      },
+    });
+
+    const first = await callMessagesRoute({
+      sessionId: session.id,
+      content: "Explain road maintenance in FY 2026 with citations.",
+    });
+    const second = await callMessagesRoute({
+      sessionId: session.id,
+      content: "Explain road maintenance in FY 2025 with citations.",
+    });
+
+    expect(first.payload.status).toBe("answer");
+    expect(second.payload.status).toBe("answer");
+    expect(mockRequestPipelineChatAnswer).toHaveBeenCalledTimes(2);
+
+    const secondAssistant = second.payload.assistantMessage as {
+      retrievalMeta?: { semanticRepeatCacheHit?: boolean };
+    };
+    expect(secondAssistant.retrievalMeta?.semanticRepeatCacheHit).toBe(false);
+  });
+
+  it("blocks pipeline fallback answers when retrieval verifier fails", async () => {
+    mockRequestPipelineChatAnswer.mockResolvedValueOnce({
+      answer: "This is an ungrounded answer.",
+      refused: false,
+      citations: [
+        {
+          source_id: "S1",
+          snippet: "Weak snippet",
+          scope_name: "Barangay Mamatid",
+          metadata: { chunk_id: "chunk-1" },
+        },
+      ],
+      retrieval_meta: {
+        reason: "ok",
+        verifier_passed: false,
+        verifier_mode: "retrieval",
+      },
+    });
+
+    const { payload } = await callMessagesRoute({
+      sessionId: session.id,
+      content: "Explain flood control with citations.",
+    });
+
+    expect(payload.status).toBe("refusal");
+    const assistant = payload.assistantMessage as {
+      content: string;
+      retrievalMeta?: { reason?: string; refused?: boolean; verifierPolicyPassed?: boolean };
+    };
+    expect(assistant.content).toContain("I couldn't find a matching published AIP entry");
+    expect(assistant.retrievalMeta?.reason).toBe("verifier_failed");
+    expect(assistant.retrievalMeta?.refused).toBe(true);
+    expect(assistant.retrievalMeta?.verifierPolicyPassed).toBe(false);
+  });
+
+  it("adds ref mismatch diagnostics for unavailable year and barangay filters", async () => {
+    mockResolveRetrievalScope.mockResolvedValueOnce({
+      mode: "named_scopes",
+      retrievalScope: {
+        mode: "named_scopes",
+        targets: [{ scope_type: "barangay", scope_id: "brgy-3", scope_name: "Pulo" }],
+      },
+      scopeResolution: {
+        mode: "named_scopes",
+        requestedScopes: [{ scopeType: "barangay", scopeName: "Pulo" }],
+        resolvedTargets: [{ scopeType: "barangay", scopeId: "brgy-3", scopeName: "Pulo" }],
+        unresolvedScopes: [],
+        ambiguousScopes: [],
+      },
+    });
+
+    const { payload } = await callMessagesRoute({
+      sessionId: session.id,
+      content: "For Ref 8000-003-002-006 in Pulo FY 2025, what is the total amount?",
+    });
+
+    expect(payload.status).toBe("refusal");
+    const assistant = payload.assistantMessage as { content: string };
+    expect(assistant.content).toContain("available fiscal years for this Ref: FY 2026");
+    expect(assistant.content).toContain("available barangays for this Ref: Barangay Mamatid");
+  });
+
+  it("refuses opinionated inflated-budget prompt instead of line-item clarification", async () => {
+    const { payload } = await callMessagesRoute({
+      sessionId: session.id,
+      content: "Do you think Pulo's FY 2026 AIP has inflated budgets?",
+    });
+
+    expect(payload.status).toBe("refusal");
+    const assistant = payload.assistantMessage as { content: string };
+    expect(assistant.content).toContain("I can only answer based on published AIP data");
+    expect(
+      mockServerRpc.mock.calls.some(([fn]) => fn === "match_aip_line_items")
+    ).toBe(false);
+  });
+
+  it("runs 10-question end-to-end smoke report with expected vs observed outputs", async () => {
+    type SmokeCase = {
+      id: string;
+      question: string;
+      expectedRouteFamily:
+        | "sql_totals"
+        | "aggregate_sql"
+        | "row_sql"
+        | "metadata_sql"
+        | "pipeline_fallback"
+        | "mixed_plan";
+      expectedStatus: "answer" | "clarification" | "refusal";
+      expectedContains: string;
+    };
+
+    const cases: SmokeCase[] = [
+      {
+        id: "q1",
+        question: "What is the Total Investment Program for FY 2026 of pulo?",
+        expectedRouteFamily: "sql_totals",
+        expectedStatus: "answer",
+        expectedContains: "Total Investment Program",
+      },
+      {
+        id: "q2",
+        question: "Show top 5 projects this year.",
+        expectedRouteFamily: "aggregate_sql",
+        expectedStatus: "answer",
+        expectedContains: "Top 5 projects",
+      },
+      {
+        id: "q3",
+        question: "Totals by sector for 2025.",
+        expectedRouteFamily: "aggregate_sql",
+        expectedStatus: "answer",
+        expectedContains: "Budget totals by sector",
+      },
+      {
+        id: "q4",
+        question: "Compare 2025 vs 2026 spending.",
+        expectedRouteFamily: "aggregate_sql",
+        expectedStatus: "answer",
+        expectedContains: "Fiscal year comparison",
+      },
+      {
+        id: "q5",
+        question: "What is the fund source for Ref 8000-003-002-006?",
+        expectedRouteFamily: "row_sql",
+        expectedStatus: "answer",
+        expectedContains: "fund source",
+      },
+      {
+        id: "q6",
+        question: "What fund sources exist in FY 2026?",
+        expectedRouteFamily: "metadata_sql",
+        expectedStatus: "answer",
+        expectedContains: "Fund sources",
+      },
+      {
+        id: "q7",
+        question: "What barangays are available in the dataset?",
+        expectedRouteFamily: "metadata_sql",
+        expectedStatus: "answer",
+        expectedContains: "Available scopes",
+      },
+      {
+        id: "q8",
+        question: "What does the AIP say about flood control?",
+        expectedRouteFamily: "pipeline_fallback",
+        expectedStatus: "answer",
+        expectedContains: "Pipeline fallback answer",
+      },
+      {
+        id: "q9",
+        question: "What did you eat?",
+        expectedRouteFamily: "pipeline_fallback",
+        expectedStatus: "answer",
+        expectedContains: "Pipeline fallback answer",
+      },
+      {
+        id: "q10",
+        question:
+          "Compare infrastructure spending this year and last year, then explain what projects drove the change with citations.",
+        expectedRouteFamily: "mixed_plan",
+        expectedStatus: "answer",
+        expectedContains: "[S",
+      },
+    ];
+
+    const results: Array<Record<string, unknown>> = [];
+    for (const testCase of cases) {
+      const { payload } = await callMessagesRoute({
+        sessionId: session.id,
+        content: testCase.question,
+      });
+      const assistant = (payload.assistantMessage ?? {}) as {
+        content?: string;
+        retrievalMeta?: { routeFamily?: string };
+      };
+      const content = String(assistant.content ?? "");
+      const actualRouteFamily = String(assistant.retrievalMeta?.routeFamily ?? "unknown");
+      const actualStatus = String(payload.status ?? "unknown");
+      const containsExpected = content.includes(testCase.expectedContains);
+      const routeMatch = actualRouteFamily === testCase.expectedRouteFamily;
+      const statusMatch = actualStatus === testCase.expectedStatus;
+
+      results.push({
+        id: testCase.id,
+        question: testCase.question,
+        expected_route: testCase.expectedRouteFamily,
+        actual_route: actualRouteFamily,
+        expected_status: testCase.expectedStatus,
+        actual_status: actualStatus,
+        expected_contains: testCase.expectedContains,
+        contains_expected: containsExpected,
+        pass: routeMatch && statusMatch && containsExpected,
+        answer_preview: content.slice(0, 120),
+      });
+    }
+
+    console.log(`\n[chat-smoke-10q] expected-vs-actual report\n${JSON.stringify(results, null, 2)}\n`);
+
+    expect(results).toHaveLength(10);
+    expect(
+      results.every((row) => typeof row.actual_route === "string" && typeof row.actual_status === "string")
+    ).toBe(true);
   });
 });

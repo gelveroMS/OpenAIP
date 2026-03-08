@@ -44,6 +44,10 @@ describe("line-item routing helpers", () => {
     ).toBe(false);
   });
 
+  it("does not classify scoped fund-source breakdown follow-up as line-item specific", () => {
+    expect(isLineItemSpecificQuery("Total amount per fund source for Pulo only")).toBe(false);
+  });
+
   it("flags winning-bidder phrasing as unanswerable document-limit field", () => {
     const parsed = parseLineItemQuestion("Who is the winning bidder for Road Concreting?");
     expect(parsed.isUnanswerableFieldQuestion).toBe(true);

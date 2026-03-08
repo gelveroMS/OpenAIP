@@ -8,7 +8,8 @@ const FOR_SEGMENT_PATTERN = /\bfor\s+([a-z0-9][a-z0-9\s-]{1,140})/g;
 const FOR_SEGMENT_STOP_PATTERN =
   /\b(?:in|at|on|fy|fiscal|year|barangay|city|municipality|across|all|within|during|with|from)\b/i;
 const ITEM_SPECIFIC_CUE_PATTERNS: RegExp[] = [
-  /\bfor\s+[a-z0-9]/i,
+  /\bhow much\s+for\b/i,
+  /\bamount\s+for\b/i,
   /\bwhat is allocated for\b/i,
   /\bhow much is allocated for\b/i,
   /\bschedule for\b/i,
@@ -73,6 +74,7 @@ const NOISE_TERMS = new Set([
   "all",
   "published",
   "aips",
+  "only",
 ]);
 
 export type LineItemFactField =

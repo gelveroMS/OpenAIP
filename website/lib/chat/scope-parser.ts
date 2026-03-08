@@ -16,7 +16,7 @@ const OWN_BARANGAY_PATTERNS: RegExp[] = [
 
 const PLACE_NAME_CAPTURE =
   "([a-z0-9][a-z0-9 .,'-]{1,80}?)" +
-  "(?=\\s+(?:and|at|vs|versus|kumpara)\\s+(?:sa\\s+)?(?:barangay|city|municipality|lungsod|bayan)\\b|[.,;!?]|$)";
+  "(?=\\s+(?:and|or|at|vs|versus|kumpara)\\s+(?:sa\\s+)?(?:barangay|city|municipality|lungsod|bayan)\\b|\\s+(?:fy|fiscal|year|for|with|about|regarding|what|how|who|which|that)\\b|[.,;:!?]|$)";
 
 const SCOPE_PATTERNS: Array<{ scopeType: ScopeType; pattern: RegExp }> = [
   {
@@ -51,15 +51,21 @@ const PLACE_NOISE_WORDS = new Set([
   "barangay",
   "city",
   "municipality",
+  "project",
+  "projects",
+  "budget",
+  "budgets",
+  "citation",
+  "citations",
 ]);
 
 function normalizeName(raw: string): string | null {
-  const headOnly = raw.split(/[.,;!?]/)[0] ?? raw;
+  const headOnly = raw.split(/[.,;:!?]/)[0] ?? raw;
   const splitByConnector = headOnly
-    .split(/\b(?:and|at|vs|versus|kumpara)\b/i)[0]
+    .split(/\b(?:and|or|at|vs|versus|kumpara)\b/i)[0]
     ?.trim();
   const withoutTrailingClause = (splitByConnector ?? headOnly)
-    .split(/\b(?:where|who|which|that|na|kung|for|with|about|regarding)\b/i)[0]
+    .split(/\b(?:what|how|when|where|who|which|that|na|kung|for|with|about|regarding|fy|fiscal|year)\b/i)[0]
     ?.trim();
 
   const candidate = withoutTrailingClause;
@@ -72,12 +78,22 @@ function normalizeName(raw: string): string | null {
 
   if (!cleaned) return null;
 
-  const lowered = cleaned.toLowerCase();
+  const trailingScopedName = cleaned.match(
+    /(?:barangay|city|municipality|lungsod|bayan)\s+([a-z0-9][a-z0-9 .,'-]{1,80})$/i
+  );
+  const normalizedScoped =
+    trailingScopedName?.[1]?.replace(/\s+/g, " ").replace(/^[\s'"-]+|[\s'"-]+$/g, "").trim() ??
+    cleaned;
+
+  const lowered = normalizedScoped.toLowerCase();
   const firstToken = lowered.split(/\s+/)[0] ?? lowered;
   if (PLACE_NOISE_WORDS.has(firstToken)) return null;
   if (PLACE_NOISE_WORDS.has(lowered)) return null;
   if (lowered.startsWith("this ") || lowered.startsWith("our ")) return null;
-  return cleaned;
+  if (/\b(?:in|for|with|about|regarding|project|projects|budget|citation|citations)\b/.test(lowered)) {
+    return null;
+  }
+  return normalizedScoped;
 }
 
 function collectMatches(

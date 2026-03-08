@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ChatStrategyCase",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "category",
+    "conversation_id",
+    "turn_index",
+    "question",
+    "expected"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^S\\d{4}$"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "structured_only",
+        "semantic_only",
+        "mixed",
+        "follow_up",
+        "clarify_refuse",
+        "verifier_sensitive",
+        "casual_out_of_domain"
+      ]
+    },
+    "conversation_id": {
+      "type": ["string", "null"]
+    },
+    "turn_index": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "question": {
+      "type": "string",
+      "minLength": 1
+    },
+    "expected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expected_planner_mode",
+        "expected_route_family",
+        "expected_rewrite",
+        "expected_response_mode",
+        "expected_verifier_mode",
+        "semantic_retrieval_expected",
+        "multi_query_allowed",
+        "expected_status"
+      ],
+      "properties": {
+        "expected_planner_mode": {
+          "enum": ["structured_only", "semantic_only", "mixed", null]
+        },
+        "expected_route_family": {
+          "enum": [
+            "sql_totals",
+            "aggregate_sql",
+            "row_sql",
+            "metadata_sql",
+            "pipeline_fallback",
+            "mixed_plan",
+            "conversational",
+            "unknown",
+            null
+          ]
+        },
+        "expected_rewrite": {
+          "type": ["boolean", "null"]
+        },
+        "expected_response_mode": {
+          "enum": ["full", "partial", "clarify", "refuse", null]
+        },
+        "expected_verifier_mode": {
+          "enum": ["structured", "retrieval", "mixed", null]
+        },
+        "semantic_retrieval_expected": {
+          "type": "boolean"
+        },
+        "multi_query_allowed": {
+          "type": "boolean"
+        },
+        "expected_status": {
+          "enum": ["answer", "clarification", "refusal", null]
+        }
+      }
+    }
+  }
+}

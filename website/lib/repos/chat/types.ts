@@ -126,11 +126,13 @@ export type ChatRetrievalMeta = {
   reason:
     | "ok"
     | "insufficient_evidence"
+    | "partial_evidence"
     | "clarification_needed"
     | "verifier_failed"
     | "ambiguous_scope"
     | "pipeline_error"
     | "validation_failed"
+    | "conversational_shortcut"
     | "unknown";
   topK?: number;
   minSimilarity?: number;
@@ -160,6 +162,65 @@ export type ChatRetrievalMeta = {
     aggregationSource: string;
   };
   intentClassification?: PipelineIntentClassification;
+  verifierMode?: "structured" | "retrieval" | "mixed";
+  verifierPolicyPassed?: boolean;
+  denseCandidateCount?: number;
+  keywordCandidateCount?: number;
+  fusedCandidateCount?: number;
+  denseFinalCount?: number;
+  keywordFinalCount?: number;
+  denseContributedToFinal?: boolean;
+  keywordContributedToFinal?: boolean;
+  evidenceGateDecision?: "allow" | "clarify" | "refuse";
+  evidenceGateReason?: string;
+  evidenceGateReasonCode?: string;
+  generationSkippedByGate?: boolean;
+  queryRewriteApplied?: boolean;
+  queryRewriteReason?: string;
+  queryPlanMode?: "structured_only" | "semantic_only" | "mixed";
+  queryPlanStructuredTaskCount?: number;
+  queryPlanSemanticTaskCount?: number;
+  queryPlanClarificationRequired?: boolean;
+  queryPlanDiagnostics?: string[];
+  semanticConditioningApplied?: boolean;
+  semanticConditioningHintCount?: number;
+  mixedResponseMode?: "full" | "partial" | "clarify" | "refuse";
+  mixedNarrativeIncluded?: boolean;
+  selectiveMultiQueryTriggered?: boolean;
+  selectiveMultiQueryVariantCount?: number;
+  multiQueryReasonCode?: string;
+  activeRagFlags?: Record<string, boolean>;
+  ragCalibration?: Record<string, number | boolean>;
+  routeFamily?:
+    | "sql_totals"
+    | "aggregate_sql"
+    | "row_sql"
+    | "metadata_sql"
+    | "pipeline_fallback"
+    | "mixed_plan"
+    | "conversational"
+    | "unknown";
+  rewriteReasonCode?: string;
+  plannerReasonCode?: string;
+  responseModeReasonCode?: string;
+  verifierPolicyReasonCode?: string;
+  responseModeSource?: "pipeline_generated" | "pipeline_partial" | "pipeline_refusal" | "website_repeat_cache";
+  semanticStabilityKey?: string;
+  responseStabilizedFromCache?: boolean;
+  semanticRepeatCacheHit?: boolean;
+  borderlineDetected?: boolean;
+  borderlineReasonCode?: string;
+  clarificationEmitted?: boolean;
+  refusalEmitted?: boolean;
+  activeChatFlags?: Record<string, boolean>;
+  chatStrategyCalibration?: {
+    rewrite_max_user_turns: number;
+    rewrite_max_assistant_turns: number;
+    mixed_max_structured_tasks: number;
+    mixed_max_semantic_tasks: number;
+  };
+  stageLatencyMs?: Record<string, number>;
+  semanticRetrievalAttempted?: boolean;
 };
 
 export const ChatRepoErrors = {

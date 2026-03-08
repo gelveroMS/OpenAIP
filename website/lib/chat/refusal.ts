@@ -47,6 +47,9 @@ function getDocumentFieldLabel(field: RefusalContext["docLimitField"]): string {
 function hasUnsupportedCue(queryText: string): boolean {
   const normalized = queryText.toLowerCase();
   return (
+    (/\bdo you think\b/.test(normalized) &&
+      /\b(inflated|overpriced|overprice|suspicious|anomal(y|ies)|too high)\b/.test(normalized) &&
+      /\bbudget(s)?\b/.test(normalized)) ||
     /\bwho stole\b/.test(normalized) ||
     /\bembezzl/.test(normalized) ||
     /\bcorrupt(ion)?\b/.test(normalized) ||

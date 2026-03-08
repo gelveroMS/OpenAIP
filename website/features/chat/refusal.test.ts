@@ -52,4 +52,15 @@ describe("refusal helper", () => {
     expect(response.reason).toBe("missing_required_parameter");
     expect(response.message).toContain("Which fiscal year should I use");
   });
+
+  it("classifies inflated-budget opinion ask as unsupported_request", () => {
+    const response = buildRefusalMessage({
+      intent: "pipeline_fallback",
+      queryText: "Do you think Pulo's FY 2026 AIP has inflated budgets?",
+    });
+
+    expect(response.status).toBe("refusal");
+    expect(response.reason).toBe("unsupported_request");
+    expect(response.message).toContain("I can only answer based on published AIP data");
+  });
 });

@@ -2,11 +2,16 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { formatTotalsEvidence } from "@/lib/chat/evidence";
 import { getLguChatAuthFailure } from "@/lib/chat/lgu-route-auth";
+import { detectMetadataIntent } from "@/lib/chat/metadata-intent";
+import { resolveMetadataSqlPayload } from "@/lib/chat/metadata-sql-routing";
 import { buildRefusalMessage } from "@/lib/chat/refusal";
+import { maybeRewriteFollowUpQuery } from "@/lib/chat/contextual-query-rewrite";
+import { getChatStrategyConfigSnapshot } from "@/lib/chat/chat-strategy-config";
 import {
   detectAggregationIntent,
   type AggregationIntentResult,
 } from "@/lib/chat/aggregation-intent";
+import { decideRoute, type RouteDecision } from "@/lib/chat/router-decision";
 import {
   detectExplicitCityMention,
   listBarangayIdsInCity,
@@ -15,6 +20,10 @@ import {
   type CityScopeResult,
 } from "@/lib/chat/city-scope";
 import { detectIntent, extractFiscalYear } from "@/lib/chat/intent";
+import {
+  evaluateVerifierPolicy,
+  type VerifierMode,
+} from "@/lib/chat/verifier-policy";
 import {
   buildClarificationOptions,
   buildLineItemAnswer,
@@ -49,6 +58,24 @@ import {
 } from "@/lib/chat/scope";
 import { resolveRetrievalScope } from "@/lib/chat/scope-resolver.server";
 import { routeSqlFirstTotals, buildTotalsMissingMessage } from "@/lib/chat/totals-sql-routing";
+import { detectCompoundAsk, splitIntoSubAsks, shouldClarifyBeforeExecution } from "@/lib/chat/query-planner";
+import { buildQueryPlan } from "@/lib/chat/query-plan-builder";
+import { executeMixedPlan } from "@/lib/chat/query-plan-executor";
+import {
+  inferRouteFamily,
+  inferSemanticRetrievalAttempted,
+  mapPlannerReasonCode,
+  mapResponseModeReasonCode,
+  mapRewriteReasonCode,
+  mapVerifierReasonCode,
+} from "@/lib/chat/telemetry-reason-codes";
+import type {
+  QueryPlanRecentDomainContext,
+  QueryPlanSemanticTask,
+  QueryPlanStructuredTask,
+  SemanticTaskExecutionResult,
+  StructuredTaskExecutionResult,
+} from "@/lib/chat/query-plan-types";
 import type { PipelineChatCitation, PipelineIntentClassification } from "@/lib/chat/types";
 import type { Json } from "@/lib/contracts/databasev2";
 import type { ActorContext } from "@/lib/domain/actor-context";
@@ -235,11 +262,12 @@ type NonTotalsRoutingLogPayload = {
     | "unanswerable_field"
     | "clarification_needed"
     | "pipeline_fallback"
+    | "metadata_lookup"
     | "aggregate_top_projects"
     | "aggregate_totals_by_sector"
     | "aggregate_totals_by_fund_source"
     | "aggregate_compare_years";
-  route: "row_sql" | "pipeline_fallback" | "aggregate_sql";
+  route: "row_sql" | "pipeline_fallback" | "aggregate_sql" | "metadata_sql";
   fiscal_year_parsed: number | null;
   scope_reason: RouteScopeReason;
   barangay_id_used: string | null;
@@ -351,6 +379,36 @@ function containsDomainCues(text: string): boolean {
   return cues.some((cue) => normalized.includes(cue));
 }
 
+function isLikelyGeneralKnowledgeQuery(text: string): boolean {
+  const normalized = text
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
+  if (!normalized) return false;
+  if (containsDomainCues(normalized)) return false;
+
+  // Keep this narrow: only obvious non-domain/general prompts should shortcut.
+  if (
+    /\b(aip|budget|investment|fund|source|sector|project|barangay|city|municipality|scope|fiscal|year|fy|ref|line item|total|amount|top|compare)\b/.test(
+      normalized
+    )
+  ) {
+    return false;
+  }
+
+  const tokenCount = normalized.split(" ").length;
+  if (tokenCount > 10) return false;
+
+  return (
+    /^who are you\??$/.test(normalized) ||
+    /^what are you\??$/.test(normalized) ||
+    /^what did you eat\??$/.test(normalized) ||
+    /^how are you\??$/.test(normalized) ||
+    /^what is [a-z][a-z\s'-]{1,40}\??$/.test(normalized) ||
+    /^what are [a-z][a-z\s'-]{1,40}\??$/.test(normalized)
+  );
+}
+
 function isConversationalIntent(
   intent?: string
 ): intent is "GREETING" | "THANKS" | "COMPLAINT" | "CLARIFY" | "OUT_OF_SCOPE" {
@@ -402,6 +460,23 @@ function inferAggregationIntentFromPipelineClassification(input: {
   }
 
   const normalized = input.message.toLowerCase();
+  const metadataIntent = detectMetadataIntent(input.message).intent;
+  const hasAggregationCue =
+    normalized.includes("top") ||
+    normalized.includes("totals") ||
+    normalized.includes("total by") ||
+    normalized.includes("breakdown") ||
+    normalized.includes("distribution") ||
+    normalized.includes("compare") ||
+    normalized.includes("comparison") ||
+    normalized.includes("difference") ||
+    normalized.includes("vs") ||
+    normalized.includes("versus");
+
+  if (metadataIntent !== "none" && !hasAggregationCue) {
+    return input.detected;
+  }
+
   const hasSectorCue = normalized.includes("sector");
   const hasFundCue =
     normalized.includes("fund source") ||
@@ -411,11 +486,11 @@ function inferAggregationIntentFromPipelineClassification(input: {
     normalized.includes("source of funds") ||
     normalized.includes("sources of funds");
 
-  if (hasSectorCue) {
+  if (hasSectorCue && hasAggregationCue) {
     return { intent: "totals_by_sector" };
   }
 
-  if (hasFundCue) {
+  if (hasFundCue && hasAggregationCue) {
     return { intent: "totals_by_fund_source" };
   }
 
@@ -887,6 +962,22 @@ function isFundSourceListQuery(message: string): boolean {
     normalized.includes("source of funds") ||
     normalized.includes("sources of funds");
   if (!hasFundTopic) return false;
+
+  const hasAggregationCue =
+    normalized.includes("total") ||
+    normalized.includes("totals") ||
+    normalized.includes("amount") ||
+    normalized.includes("sum") ||
+    normalized.includes("breakdown") ||
+    normalized.includes("distribution") ||
+    normalized.includes("by fund source") ||
+    normalized.includes("per fund source") ||
+    normalized.includes("compare") ||
+    normalized.includes("comparison") ||
+    normalized.includes("difference") ||
+    normalized.includes("vs") ||
+    normalized.includes("versus");
+  if (hasAggregationCue) return false;
 
   return (
     normalized.includes("exist") ||
@@ -1561,40 +1652,36 @@ async function resolveAggregationScopeDecision(input: {
     }
   }
 
-  const shouldCheckBareMention =
-    /\b(?:barangay|brgy\.?)\b/i.test(input.message) || /\b(?:of|for|in)\s+[a-z]/i.test(input.message);
-  if (shouldCheckBareMention) {
-    const barangays = await getActiveBarangays();
-    const knownBarangayNamesNormalized = new Set(
-      barangays
-        .map((barangay) => normalizeBarangayNameForMatch(barangay.name))
-        .filter((normalizedName) => Boolean(normalizedName))
-    );
-    const bareMentionCandidate = detectBareBarangayScopeMention(
-      input.message,
-      knownBarangayNamesNormalized
-    );
-    if (bareMentionCandidate) {
-      const match = resolveExplicitBarangayByCandidate(bareMentionCandidate, barangays);
-      if (match.status === "single" && match.barangay) {
-        return {
-          scopeReason: "explicit_barangay",
-          barangayIdUsed: match.barangay.id,
-          barangayName: match.barangay.name,
-          unsupportedScopeType: null,
-        };
-      }
+  const barangays = await getActiveBarangays();
+  const knownBarangayNamesNormalized = new Set(
+    barangays
+      .map((barangay) => normalizeBarangayNameForMatch(barangay.name))
+      .filter((normalizedName) => Boolean(normalizedName))
+  );
+  const bareMentionCandidate = detectBareBarangayScopeMention(
+    input.message,
+    knownBarangayNamesNormalized
+  );
+  if (bareMentionCandidate) {
+    const match = resolveExplicitBarangayByCandidate(bareMentionCandidate, barangays);
+    if (match.status === "single" && match.barangay) {
+      return {
+        scopeReason: "explicit_barangay",
+        barangayIdUsed: match.barangay.id,
+        barangayName: match.barangay.name,
+        unsupportedScopeType: null,
+      };
+    }
 
-      if (match.status === "ambiguous") {
-        return {
-          scopeReason: "unknown",
-          barangayIdUsed: null,
-          barangayName: null,
-          unsupportedScopeType: null,
-          clarificationMessage:
-            "I found multiple barangays with that name. Please specify the exact barangay name.",
-        };
-      }
+    if (match.status === "ambiguous") {
+      return {
+        scopeReason: "unknown",
+        barangayIdUsed: null,
+        barangayName: null,
+        unsupportedScopeType: null,
+        clarificationMessage:
+          "I found multiple barangays with that name. Please specify the exact barangay name.",
+      };
     }
   }
 
@@ -1640,6 +1727,73 @@ function parseLooseScopeName(message: string): string | null {
   if (!raw) return null;
   const stripped = raw.replace(/^(barangay|city|municipality)\s+/i, "").trim();
   return stripped || null;
+}
+
+function hasScopeComparisonCue(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    /\bcompare\b/.test(normalized) ||
+    /\bvs\b/.test(normalized) ||
+    /\bversus\b/.test(normalized) ||
+    /\bhigher\b/.test(normalized) ||
+    /\bwhich\s+barangay\b/.test(normalized)
+  );
+}
+
+function detectSectorExtremumPreference(message: string): "lowest" | "highest" | null {
+  const normalized = message.toLowerCase();
+  const hasSectorTopic = normalized.includes("sector") || normalized.includes("sectors");
+  if (!hasSectorTopic) return null;
+
+  const hasBudgetContext =
+    /\b(allocated|allocation|budget|spending|total|totals)\b/.test(normalized) ||
+    normalized.includes("by sector") ||
+    normalized.includes("per sector");
+  if (!hasBudgetContext) return null;
+
+  if (/\b(lowest|least|min(?:imum)?)\b/.test(normalized)) {
+    return "lowest";
+  }
+  if (/\b(highest|most|max(?:imum)?)\b/.test(normalized)) {
+    return "highest";
+  }
+  return null;
+}
+
+function detectMentionedBarangayTargetsFromKnownNames(
+  message: string,
+  barangays: BarangayRef[]
+): TotalsScopeTarget[] {
+  type MentionedBarangayMatch = { target: TotalsScopeTarget; position: number };
+
+  const normalizedMessage = normalizeBarangayNameForMatch(message);
+  if (!normalizedMessage) return [];
+
+  const matches: MentionedBarangayMatch[] = barangays
+    .map((barangay): MentionedBarangayMatch | null => {
+      const normalizedName = normalizeBarangayNameForMatch(barangay.name);
+      if (!normalizedName) return null;
+      const escapedName = normalizedName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(`\\b${escapedName}\\b`, "i");
+      if (!regex.test(normalizedMessage)) return null;
+      return {
+        target: {
+          scopeType: "barangay" as const,
+          scopeId: barangay.id,
+          scopeName: barangay.name,
+        },
+        position: normalizedMessage.indexOf(normalizedName),
+      };
+    })
+    .filter((match): match is MentionedBarangayMatch => match !== null)
+    .sort((a, b) => a.position - b.position);
+
+  const unique: TotalsScopeTarget[] = [];
+  for (const match of matches) {
+    if (unique.some((target) => target.scopeId === match.target.scopeId)) continue;
+    unique.push(match.target);
+  }
+  return unique;
 }
 
 function parseAmount(value: unknown): number | null {
@@ -1746,6 +1900,9 @@ function detectDocLimitFieldFromQuery(
 function isUnsupportedRequestQuery(queryText: string): boolean {
   const normalized = queryText.toLowerCase();
   return (
+    (/\bdo you think\b/.test(normalized) &&
+      /\b(inflated|overpriced|overprice|suspicious|anomal(y|ies)|too high)\b/.test(normalized) &&
+      /\bbudget(s)?\b/.test(normalized)) ||
     /\bwho stole\b/.test(normalized) ||
     /\bembezzl/.test(normalized) ||
     /\bcorrupt(ion)?\b/.test(normalized) ||
@@ -1770,14 +1927,177 @@ function formatScopeLabel(target: TotalsScopeTarget): string {
   return /\bmunicipality\b/i.test(scopedName) ? scopedName : `Municipality ${scopedName}`;
 }
 
-function normalizeBarangayLabel(name: string): string {
-  const trimmed = name.trim();
+function normalizeBarangayLabel(name: string | null | undefined): string {
+  const trimmed = typeof name === "string" ? name.trim() : "";
   if (!trimmed) return "your barangay";
   return /^barangay\s+/i.test(trimmed) ? trimmed : `Barangay ${trimmed}`;
 }
 
 function isTotalsDebugEnabled(): boolean {
   return process.env.NODE_ENV !== "production" || process.env.CHATBOT_DEBUG_LOGS === "true";
+}
+
+function isChatRouterV2Enabled(): boolean {
+  return process.env.CHAT_ROUTER_V2_ENABLED === "true";
+}
+
+function isChatMixedIntentEnabled(): boolean {
+  return process.env.CHAT_MIXED_INTENT_ENABLED === "true";
+}
+
+function isChatMetadataSqlRouteEnabled(): boolean {
+  return process.env.CHAT_METADATA_SQL_ROUTE_ENABLED !== "false";
+}
+
+function isChatSplitVerifierPolicyEnabled(): boolean {
+  return process.env.CHAT_SPLIT_VERIFIER_POLICY_ENABLED !== "false";
+}
+
+function isChatContextualRewriteEnabled(): boolean {
+  return process.env.CHAT_CONTEXTUAL_REWRITE_ENABLED === "true";
+}
+
+function isChatMixedQueryPlannerEnabled(): boolean {
+  return process.env.CHAT_MIXED_QUERY_PLANNER_ENABLED === "true";
+}
+
+function isChatMixedQueryExecutionEnabled(): boolean {
+  return process.env.CHAT_MIXED_QUERY_EXECUTION_ENABLED === "true";
+}
+
+function isChatSemanticRepeatCacheEnabled(): boolean {
+  return process.env.CHAT_SEMANTIC_REPEAT_CACHE_ENABLED === "true";
+}
+
+function getChatSemanticRepeatCacheTtlSec(): number {
+  const raw = process.env.CHAT_SEMANTIC_REPEAT_CACHE_TTL_SEC;
+  if (!raw) return 600;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) return 600;
+  return Math.max(30, Math.min(parsed, 3600));
+}
+
+function normalizeSemanticStabilityQuery(query: string): string {
+  return query
+    .toLowerCase()
+    .trim()
+    .replace(/[.!?,;:]+$/g, "")
+    .replace(/\s+/g, " ");
+}
+
+function buildSemanticStabilityKey(input: {
+  query: string;
+  scopeResolution: ChatScopeResolution;
+  fiscalYear: number | null;
+}): string {
+  const normalizedQuery = normalizeSemanticStabilityQuery(input.query);
+  const scopeMode = input.scopeResolution.mode;
+  const targets = [...input.scopeResolution.resolvedTargets]
+    .map((target) => `${target.scopeType}:${target.scopeId}`.toLowerCase())
+    .sort((a, b) => a.localeCompare(b))
+    .join("|");
+  const yearPart = input.fiscalYear === null ? "fy:none" : `fy:${input.fiscalYear}`;
+  return `${normalizedQuery}||mode:${scopeMode}||targets:${targets || "none"}||${yearPart}`;
+}
+
+function isSemanticRepeatCacheEligible(meta: ChatRetrievalMeta | null | undefined): boolean {
+  if (!meta) return false;
+  if (meta.status === "clarification" || meta.kind === "clarification") return false;
+  if (meta.status === "refusal" || meta.refused) return false;
+  return meta.responseModeSource === "pipeline_generated" || meta.responseModeSource === "pipeline_partial";
+}
+
+function findSemanticRepeatCacheHit(input: {
+  messages: ChatMessage[];
+  stabilityKey: string;
+  ttlSec: number;
+}): ChatMessage | null {
+  const now = Date.now();
+  for (let index = input.messages.length - 1; index >= 0; index -= 1) {
+    const message = input.messages[index];
+    if (message.role !== "assistant") continue;
+    const meta = message.retrievalMeta ?? null;
+    if (!isSemanticRepeatCacheEligible(meta)) continue;
+    if (meta?.semanticStabilityKey !== input.stabilityKey) continue;
+
+    const createdAt = Date.parse(message.createdAt);
+    if (Number.isFinite(createdAt)) {
+      const ageSec = (now - createdAt) / 1000;
+      if (ageSec > input.ttlSec) continue;
+    }
+    return message;
+  }
+  return null;
+}
+
+function logRewriteDecision(input: {
+  requestId: string;
+  originalQuery: string;
+  result:
+    | { kind: "unchanged"; reason: string; query: string }
+    | { kind: "rewritten"; reason: string; query: string }
+    | { kind: "clarify"; reason: string; prompt: string };
+}): void {
+  if (!isTotalsDebugEnabled()) return;
+  console.info(
+    JSON.stringify({
+      request_id: input.requestId,
+      event: "contextual_query_rewrite",
+      rewrite_triggered: input.result.kind === "rewritten",
+      rewrite_outcome: input.result.kind,
+      rewrite_reason: input.result.reason,
+      original_query_preview: input.originalQuery.slice(0, 220),
+      rewritten_query_preview: input.result.kind === "rewritten" ? input.result.query.slice(0, 220) : null,
+    })
+  );
+}
+
+function logRouteDecision(input: {
+  requestId: string;
+  text: string;
+  routeDecision: RouteDecision;
+  mode: "single" | "compound";
+  partIndex?: number;
+}): void {
+  if (!isTotalsDebugEnabled()) return;
+  console.info(
+    JSON.stringify({
+      request_id: input.requestId,
+      event: "router_decision_v2",
+      mode: input.mode,
+      part_index: input.partIndex ?? null,
+      message_preview: input.text.slice(0, 220),
+      chosen_kind: input.routeDecision.kind,
+      confidence: input.routeDecision.confidence,
+      reasons: input.routeDecision.reasons,
+      missing_slots: input.routeDecision.missingSlots,
+      candidates: input.routeDecision.candidates,
+    })
+  );
+}
+
+function logQueryPlanDecision(input: {
+  requestId: string;
+  effectiveQuery: string;
+  mode: "structured_only" | "semantic_only" | "mixed";
+  structuredTaskCount: number;
+  semanticTaskCount: number;
+  clarificationRequired: boolean;
+  diagnostics: string[];
+}): void {
+  if (!isTotalsDebugEnabled()) return;
+  console.info(
+    JSON.stringify({
+      request_id: input.requestId,
+      event: "query_plan_selected",
+      query_plan_mode: input.mode,
+      query_plan_structured_task_count: input.structuredTaskCount,
+      query_plan_semantic_task_count: input.semanticTaskCount,
+      query_plan_clarification_required: input.clarificationRequired,
+      query_plan_diagnostics: input.diagnostics,
+      effective_query_preview: input.effectiveQuery.slice(0, 220),
+    })
+  );
 }
 
 function logTotalsRouting(payload: TotalsRoutingLogPayload): void {
@@ -1871,6 +2191,43 @@ function chatResponsePayload(input: {
   };
 }
 
+function buildRecentDomainContext(input: {
+  messages: ChatMessage[];
+  currentMessageId: string;
+}): QueryPlanRecentDomainContext {
+  const eligible = input.messages.filter((message) => message.id !== input.currentMessageId);
+  for (let index = eligible.length - 1; index >= 0; index -= 1) {
+    const candidate = eligible[index];
+    if (candidate.role !== "assistant") continue;
+    const meta = candidate.retrievalMeta ?? null;
+    if (!meta || meta.status === "clarification" || meta.kind === "clarification") continue;
+    if (meta.reason === "conversational_shortcut") continue;
+
+    let userQuery: string | null = null;
+    for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+      const userTurn = eligible[cursor];
+      if (userTurn.role === "user") {
+        userQuery = userTurn.content;
+        break;
+      }
+    }
+
+    if (userQuery) {
+      return {
+        lastDomainUserQuery: userQuery,
+        lastDomainAssistantAnswer: candidate.content,
+        source: "last_domain_turn",
+      };
+    }
+  }
+
+  return {
+    lastDomainUserQuery: null,
+    lastDomainAssistantAnswer: null,
+    source: "none",
+  };
+}
+
 function isExplicitScopeDetected(scopeReason: RouteScopeReason): boolean {
   return (
     scopeReason === "explicit_barangay" ||
@@ -1894,14 +2251,85 @@ async function appendAssistantMessage(params: {
   content: string;
   citations: ChatCitation[];
   retrievalMeta: ChatRetrievalMeta;
+  verifierInput?: {
+    mode?: VerifierMode;
+    structuredExpected?: unknown;
+    structuredActual?: unknown;
+  };
 }): Promise<ChatMessage> {
   const normalizedMeta = normalizeRetrievalMetaStatus(params.retrievalMeta);
+  const configSnapshot = getChatStrategyConfigSnapshot();
+  const routeFamily = normalizedMeta.routeFamily ?? inferRouteFamily(normalizedMeta, params.citations);
+  const semanticRetrievalAttempted =
+    normalizedMeta.semanticRetrievalAttempted ??
+    inferSemanticRetrievalAttempted(
+      {
+        ...normalizedMeta,
+        routeFamily,
+      },
+      params.citations
+    );
+  const verifierMode: VerifierMode =
+    params.verifierInput?.mode ??
+    normalizedMeta.verifierMode ??
+    "structured";
+
+  const verifierResult = isChatSplitVerifierPolicyEnabled()
+    ? evaluateVerifierPolicy({
+        mode: verifierMode,
+        citations: params.citations,
+        retrievalMeta: normalizedMeta,
+        structuredExpected: params.verifierInput?.structuredExpected,
+        structuredActual: params.verifierInput?.structuredActual,
+      })
+    : {
+        mode: verifierMode,
+        passed: true,
+        reasonCode:
+          verifierMode === "structured"
+            ? "structured_match"
+            : verifierMode === "retrieval"
+              ? "narrative_grounded"
+              : "mixed_pass",
+      };
+
+  const verifiedMetaBase: ChatRetrievalMeta = {
+    ...normalizedMeta,
+    routeFamily,
+    verifierMode: verifierResult.mode,
+    verifierPolicyPassed: verifierResult.passed,
+    clarificationEmitted:
+      normalizedMeta.status === "clarification" || normalizedMeta.kind === "clarification",
+    refusalEmitted: normalizedMeta.status === "refusal" || normalizedMeta.refused === true,
+    activeChatFlags: normalizedMeta.activeChatFlags ?? configSnapshot.flags,
+    chatStrategyCalibration: normalizedMeta.chatStrategyCalibration ?? configSnapshot.calibration,
+    stageLatencyMs:
+      normalizedMeta.stageLatencyMs ??
+      (typeof normalizedMeta.latencyMs === "number" ? { total: normalizedMeta.latencyMs } : undefined),
+    semanticRetrievalAttempted,
+    rewriteReasonCode:
+      normalizedMeta.rewriteReasonCode ?? mapRewriteReasonCode(normalizedMeta.queryRewriteReason),
+    plannerReasonCode:
+      normalizedMeta.plannerReasonCode ??
+      mapPlannerReasonCode({
+        queryPlanMode: normalizedMeta.queryPlanMode,
+        queryPlanClarificationRequired: normalizedMeta.queryPlanClarificationRequired,
+        queryPlanDiagnostics: normalizedMeta.queryPlanDiagnostics,
+      }),
+    responseModeReasonCode: normalizedMeta.responseModeReasonCode ?? mapResponseModeReasonCode(normalizedMeta),
+    verifierPolicyReasonCode: normalizedMeta.verifierPolicyReasonCode ?? verifierResult.reasonCode,
+  };
+  const verifiedMeta: ChatRetrievalMeta = {
+    ...verifiedMetaBase,
+    verifierPolicyReasonCode:
+      verifiedMetaBase.verifierPolicyReasonCode ?? mapVerifierReasonCode(verifiedMetaBase),
+  };
   const inserted = await insertAssistantChatMessage({
     actor: params.actor ?? null,
     sessionId: params.sessionId,
     content: params.content,
     citations: params.citations as unknown as Json,
-    retrievalMeta: normalizedMeta as unknown as Json,
+    retrievalMeta: verifiedMeta as unknown as Json,
   });
 
   return toChatMessage(inserted as ChatMessageRow);
@@ -2556,12 +2984,24 @@ async function resolveTotalsAssistantPayload(input: {
     };
   }
 
-  const multiBarangayTargets =
+  const requestedMultiBarangayTargets =
     input.scopeResolution.mode === "named_scopes" &&
     input.scopeResolution.resolvedTargets.length > 1 &&
     input.scopeResolution.resolvedTargets.every((target) => target.scopeType === "barangay")
       ? input.scopeResolution.resolvedTargets
       : null;
+
+  const inferredMultiBarangayTargets =
+    requestedMultiBarangayTargets === null && hasScopeComparisonCue(input.message)
+      ? detectMentionedBarangayTargetsFromKnownNames(
+          input.message,
+          await fetchActiveBarangaysForMatching()
+        )
+      : [];
+
+  const multiBarangayTargets =
+    requestedMultiBarangayTargets ??
+    (inferredMultiBarangayTargets.length > 1 ? inferredMultiBarangayTargets : null);
 
   if (multiBarangayTargets) {
     if (requestedFiscalYear === null) {
@@ -2737,6 +3177,83 @@ async function resolveTotalsAssistantPayload(input: {
         aggregation_source: "aip_totals_total_investment_program",
       })
     );
+
+    if (hasScopeComparisonCue(input.message)) {
+      const totalsByAipId = new Map<string, number>();
+      for (const row of totalsRows ?? []) {
+        const typed = row as { aip_id?: unknown; total_investment_program?: unknown };
+        const aipId = typeof typed.aip_id === "string" ? typed.aip_id : null;
+        const amount = parseAmount(typed.total_investment_program);
+        if (aipId && amount !== null) {
+          totalsByAipId.set(aipId, amount);
+        }
+      }
+
+      const byBarangay = multiBarangayTargets.map((target) => {
+        const publishedAip = publishedBarangayAips.find((row) => row.barangay_id === target.scopeId) ?? null;
+        const amount = publishedAip ? totalsByAipId.get(publishedAip.id) ?? null : null;
+        return {
+          barangayId: target.scopeId,
+          barangayName: normalizeBarangayLabel(target.scopeName),
+          aipId: publishedAip?.id ?? null,
+          amount,
+        };
+      });
+
+      const comparable = byBarangay.filter(
+        (row): row is { barangayId: string; barangayName: string; aipId: string; amount: number } =>
+          row.aipId !== null && row.amount !== null
+      );
+
+      const comparisonLines = byBarangay.map((row) => {
+        if (row.aipId === null) return `- ${row.barangayName}: No published AIP`;
+        if (row.amount === null) return `- ${row.barangayName}: Published AIP found, but no extracted Total Investment Program total`;
+        return `- ${row.barangayName}: ${formatPhp(row.amount)}`;
+      });
+
+      let higherLine =
+        "Unable to determine which barangay has a higher total because at least one selected barangay has no comparable extracted total.";
+      if (comparable.length >= 2) {
+        const sortedComparable = [...comparable].sort((a, b) => b.amount - a.amount);
+        const first = sortedComparable[0];
+        const second = sortedComparable[1];
+        const delta = first.amount - second.amount;
+        higherLine =
+          delta === 0
+            ? `Highest total: Tie between ${first.barangayName} and ${second.barangayName} (${formatPhp(first.amount)}).`
+            : `Higher total: ${first.barangayName} by ${formatPhp(delta)} over ${second.barangayName}.`;
+      }
+
+      return {
+        content:
+          `Budget comparison for FY ${requestedFiscalYear} (${combinedScopeLabel}):\n` +
+          `${comparisonLines.join("\n")}\n` +
+          `${higherLine}\n` +
+          `Coverage: ${coveredCount} of ${totalCount} selected barangays have published AIPs.` +
+          (missingNames.length > 0 ? ` Missing: ${missingNames.join(", ")}.` : ""),
+        citations: [
+          makeAggregateCitation(
+            "Computed from aip_totals (Total Investment Program) for the selected barangays.",
+            {
+              aggregate_type: "multi_barangay_total_investment_program_compare",
+              aggregation_source: "aip_totals_total_investment_program",
+              fiscal_year: requestedFiscalYear,
+              barangay_ids: barangayIds,
+              requested_barangays: requestedBarangayNames,
+              covered_barangays: coverageNames,
+              missing_barangays: missingNames,
+              contributing_aip_ids: formatIdSample(uniqueContributingAipIds),
+              contributing_aip_ids_count: uniqueContributingAipIds.length,
+            }
+          ),
+        ],
+        retrievalMeta: {
+          refused: false,
+          reason: "ok",
+          scopeResolution: input.scopeResolution,
+        },
+      };
+    }
 
     return {
       content:
@@ -3072,6 +3589,516 @@ async function resolveTotalsAssistantPayload(input: {
   };
 }
 
+function toMixedTaskCitations(citations: ChatCitation[]): StructuredTaskExecutionResult["citations"] {
+  return citations.map((citation) => ({
+    sourceId: citation.sourceId,
+    snippet: citation.snippet,
+    metadata: citation.metadata,
+  }));
+}
+
+function takeUniqueHints(values: string[], maxHints = 8): string[] {
+  const out: string[] = [];
+  for (const value of values) {
+    const normalized = value.trim();
+    if (!normalized) continue;
+    if (out.includes(normalized)) continue;
+    out.push(normalized);
+    if (out.length >= maxHints) break;
+  }
+  return out;
+}
+
+function mapSemanticReasonToStatus(reason: string | undefined): SemanticTaskExecutionResult["status"] {
+  if (reason === "ok") return "ok";
+  if (reason === "partial_evidence") return "partial";
+  if (reason === "clarification_needed") return "clarify";
+  if (reason === "insufficient_evidence") return "refuse";
+  if (reason === "verifier_failed" || reason === "validation_failed") return "refuse";
+  if (reason === "pipeline_error") return "error";
+  return "error";
+}
+
+async function executeStructuredTaskForMixed(input: {
+  task: QueryPlanStructuredTask;
+  actor: ActorContext;
+  scopeResolution: ChatScopeResolution;
+  userBarangay: BarangayRef | null;
+  requestId: string;
+}): Promise<StructuredTaskExecutionResult> {
+  if (input.task.capabilityHint === "delta_cut_unsupported") {
+    return {
+      taskId: input.task.id,
+      kind: input.task.kind,
+      status: "unsupported",
+      summary: "The current structured routes do not yet support deterministic project-cut delta computation.",
+      citations: [],
+      structuredSnapshot: [],
+      conditioningHints: [],
+      clarificationPrompt:
+        "Please provide an explicit supported comparison query (for example, compare totals between FY 2024 and FY 2025) before asking about projects that were cut.",
+    };
+  }
+
+  if (input.task.capabilityHint === "delta_increase_unsupported") {
+    return {
+      taskId: input.task.id,
+      kind: input.task.kind,
+      status: "unsupported",
+      summary: "The current structured routes do not yet support deterministic sector increase delta computation.",
+      citations: [],
+      structuredSnapshot: [],
+      conditioningHints: [],
+      clarificationPrompt:
+        "Please specify a supported structured comparison frame first (for example, totals by sector for two specific fiscal years).",
+    };
+  }
+
+  if (input.task.routeKind === "SQL_TOTAL") {
+    const totals = await resolveTotalsAssistantPayload({
+      actor: input.actor,
+      message: input.task.subquery,
+      scopeResolution: input.scopeResolution,
+      requestId: input.requestId,
+    });
+    const status: StructuredTaskExecutionResult["status"] =
+      totals.retrievalMeta.status === "clarification"
+        ? "clarify"
+        : totals.retrievalMeta.refused
+          ? "empty"
+          : "ok";
+
+    const amountHints = totals.citations
+      .map((citation) => {
+        const metadata = (citation.metadata ?? {}) as Record<string, unknown>;
+        const fiscalYear = typeof metadata.fiscal_year === "number" ? metadata.fiscal_year : null;
+        if (fiscalYear === null) return null;
+        return `FY ${fiscalYear}`;
+      })
+      .filter((value): value is string => Boolean(value));
+
+    return {
+      taskId: input.task.id,
+      kind: input.task.kind,
+      status,
+      summary: totals.content,
+      citations: toMixedTaskCitations(totals.citations),
+      structuredSnapshot: totals.citations.map((citation) => citation.metadata ?? null),
+      conditioningHints: takeUniqueHints(amountHints),
+      clarificationPrompt:
+        totals.retrievalMeta.status === "clarification"
+          ? totals.content
+          : undefined,
+    };
+  }
+
+  if (input.task.routeKind === "SQL_METADATA") {
+    const metadata = await resolveMetadataSqlPayload({
+      message: input.task.subquery,
+      scopeResolution: input.scopeResolution,
+    });
+    if (!metadata) {
+      return {
+        taskId: input.task.id,
+        kind: input.task.kind,
+        status: "empty",
+        summary: "No structured metadata values were found.",
+        citations: [],
+        structuredSnapshot: [],
+        conditioningHints: [],
+      };
+    }
+
+    const hints = Array.isArray(metadata.structuredValues)
+      ? metadata.structuredValues.map((value) => String(value))
+      : [];
+
+    return {
+      taskId: input.task.id,
+      kind: input.task.kind,
+      status: metadata.structuredValues.length > 0 ? "ok" : "empty",
+      summary: metadata.content,
+      citations: toMixedTaskCitations(metadata.citations),
+      structuredSnapshot: metadata.structuredValues,
+      conditioningHints: takeUniqueHints(hints),
+    };
+  }
+
+  if (input.task.routeKind === "ROW_LOOKUP") {
+    return {
+      taskId: input.task.id,
+      kind: input.task.kind,
+      status: "clarify",
+      summary: "Mixed line-item execution requires a specific reference code or project title.",
+      citations: [],
+      structuredSnapshot: [],
+      conditioningHints: [],
+      clarificationPrompt:
+        "Please specify the exact line-item ref code (for example, Ref 8000-003-002-006) before I run a mixed answer.",
+    };
+  }
+
+  const aggregationIntent = detectAggregationIntent(input.task.subquery);
+  if (aggregationIntent.intent === "none") {
+    return {
+      taskId: input.task.id,
+      kind: input.task.kind,
+      status: "clarify",
+      summary: "I could not determine the aggregation task from the mixed query.",
+      citations: [],
+      structuredSnapshot: [],
+      conditioningHints: [],
+      clarificationPrompt:
+        "Please restate the computed part of the request (for example: compare FY 2024 vs FY 2025, or top 5 projects in FY 2025).",
+    };
+  }
+
+  const aggregationScope = await resolveAggregationScopeDecision({
+    message: input.task.subquery,
+    scopeResolution: input.scopeResolution,
+    userBarangay: input.userBarangay,
+  });
+
+  if (aggregationScope.unsupportedScopeType) {
+    return {
+      taskId: input.task.id,
+      kind: input.task.kind,
+      status: "clarify",
+      summary: "The mixed structured task needs a barangay or global scope.",
+      citations: [],
+      structuredSnapshot: [],
+      conditioningHints: [],
+      clarificationPrompt:
+        "Please use a barangay scope (or remove the city-only scope) for the computed part of this mixed request.",
+    };
+  }
+
+  if (aggregationScope.clarificationMessage) {
+    return {
+      taskId: input.task.id,
+      kind: input.task.kind,
+      status: "clarify",
+      summary: aggregationScope.clarificationMessage,
+      citations: [],
+      structuredSnapshot: [],
+      conditioningHints: [],
+      clarificationPrompt: aggregationScope.clarificationMessage,
+    };
+  }
+
+  const fiscalYearForAggregation =
+    aggregationIntent.intent === "compare_years" ? null : extractFiscalYear(input.task.subquery);
+  const scopeLabel = aggregationScope.barangayName
+    ? normalizeBarangayLabel(aggregationScope.barangayName)
+    : "All barangays";
+  const fiscalLabel =
+    fiscalYearForAggregation === null ? "All fiscal years" : `FY ${fiscalYearForAggregation}`;
+  const client = await supabaseServer();
+
+  if (aggregationIntent.intent === "top_projects") {
+    const limit = aggregationIntent.limit ?? 10;
+    const { data, error } = await client.rpc("get_top_projects", {
+      p_limit: limit,
+      p_fiscal_year: fiscalYearForAggregation,
+      p_barangay_id: aggregationScope.barangayIdUsed,
+    });
+    if (error) throw new Error(error.message);
+    const rows = toTopProjectRows(data);
+    if (rows.length === 0) {
+      return {
+        taskId: input.task.id,
+        kind: input.task.kind,
+        status: "empty",
+        summary: "No published AIP line items matched the selected top-project filters.",
+        citations: [
+          {
+            sourceId: "A0",
+            snippet: "No top projects found from published AIP line items.",
+            metadata: {
+              aggregate_type: "top_projects",
+              fiscal_year_filter: fiscalYearForAggregation,
+              barangay_id_filter: aggregationScope.barangayIdUsed,
+            },
+          },
+        ],
+        structuredSnapshot: [],
+        conditioningHints: [],
+      };
+    }
+
+    const summaryLines = rows.map((row, index) => {
+      const total = formatPhpAmount(toNumberOrNull(row.total));
+      const ref = row.aip_ref_code ? `Ref ${row.aip_ref_code}` : "Ref N/A";
+      return `${index + 1}. ${row.program_project_title} (${total}; ${ref})`;
+    });
+    const hints = rows.flatMap((row) => {
+      const values = [row.program_project_title];
+      if (row.aip_ref_code) values.push(`Ref ${row.aip_ref_code}`);
+      return values;
+    });
+
+    return {
+      taskId: input.task.id,
+      kind: input.task.kind,
+      status: "ok",
+      summary: `Top ${rows.length} projects by total (${scopeLabel}; ${fiscalLabel}):\n${summaryLines.join("\n")}`,
+      citations: [
+        {
+          sourceId: "A1",
+          snippet: "Top projects computed from published AIP line items.",
+          metadata: {
+            aggregate_type: "top_projects",
+            fiscal_year_filter: fiscalYearForAggregation,
+            barangay_id_filter: aggregationScope.barangayIdUsed,
+            limit,
+          },
+        },
+      ],
+      structuredSnapshot: rows.map((row) => ({
+        line_item_id: row.line_item_id,
+        program_project_title: row.program_project_title,
+        aip_ref_code: row.aip_ref_code,
+        fiscal_year: row.fiscal_year,
+        total: toNumberOrNull(row.total),
+      })),
+      conditioningHints: takeUniqueHints(hints),
+    };
+  }
+
+  if (aggregationIntent.intent === "totals_by_sector") {
+    const { data, error } = await client.rpc("get_totals_by_sector", {
+      p_fiscal_year: fiscalYearForAggregation,
+      p_barangay_id: aggregationScope.barangayIdUsed,
+    });
+    if (error) throw new Error(error.message);
+    const rows = toTotalsBySectorRows(data);
+    const lines =
+      rows.length === 0
+        ? ["No sectors matched the selected filters."]
+        : rows.map((row, index) => {
+            const label = [row.sector_code, row.sector_name].filter(Boolean).join(" - ") || "Unspecified sector";
+            return `${index + 1}. ${label}: ${formatPhpAmount(toNumberOrNull(row.sector_total))}`;
+          });
+    const hints = rows
+      .map((row) => (row.sector_name ?? "").trim())
+      .filter((value): value is string => Boolean(value));
+
+    return {
+      taskId: input.task.id,
+      kind: input.task.kind,
+      status: rows.length > 0 ? "ok" : "empty",
+      summary: `Budget totals by sector (${scopeLabel}; ${fiscalLabel}):\n${lines.join("\n")}`,
+      citations: [
+        {
+          sourceId: "A1",
+          snippet: "Sector totals computed from published AIP line items.",
+          metadata: {
+            aggregate_type: "totals_by_sector",
+            fiscal_year_filter: fiscalYearForAggregation,
+            barangay_id_filter: aggregationScope.barangayIdUsed,
+          },
+        },
+      ],
+      structuredSnapshot: rows.map((row) => ({
+        sector_code: row.sector_code,
+        sector_name: row.sector_name,
+        sector_total: toNumberOrNull(row.sector_total),
+        count_items: parseInteger(row.count_items),
+      })),
+      conditioningHints: takeUniqueHints(hints),
+    };
+  }
+
+  if (aggregationIntent.intent === "totals_by_fund_source") {
+    const { data, error } = await client.rpc("get_totals_by_fund_source", {
+      p_fiscal_year: fiscalYearForAggregation,
+      p_barangay_id: aggregationScope.barangayIdUsed,
+    });
+    if (error) throw new Error(error.message);
+    const rows = toTotalsByFundSourceRows(data);
+    const lines =
+      rows.length === 0
+        ? ["No fund sources matched the selected filters."]
+        : rows.map((row, index) => {
+            const label = (row.fund_source ?? "Unspecified").trim() || "Unspecified";
+            return `${index + 1}. ${label}: ${formatPhpAmount(toNumberOrNull(row.fund_total))}`;
+          });
+    const hints = rows
+      .map((row) => (row.fund_source ?? "").trim())
+      .filter((value): value is string => Boolean(value));
+
+    return {
+      taskId: input.task.id,
+      kind: input.task.kind,
+      status: rows.length > 0 ? "ok" : "empty",
+      summary: `Budget totals by fund source (${scopeLabel}; ${fiscalLabel}):\n${lines.join("\n")}`,
+      citations: [
+        {
+          sourceId: "A1",
+          snippet: "Fund source totals computed from published AIP line items.",
+          metadata: {
+            aggregate_type: "totals_by_fund_source",
+            fiscal_year_filter: fiscalYearForAggregation,
+            barangay_id_filter: aggregationScope.barangayIdUsed,
+          },
+        },
+      ],
+      structuredSnapshot: rows.map((row) => ({
+        fund_source: row.fund_source,
+        fund_total: toNumberOrNull(row.fund_total),
+        count_items: parseInteger(row.count_items),
+      })),
+      conditioningHints: takeUniqueHints(hints),
+    };
+  }
+
+  const yearA = aggregationIntent.yearA ?? null;
+  const yearB = aggregationIntent.yearB ?? null;
+  if (yearA === null || yearB === null) {
+    return {
+      taskId: input.task.id,
+      kind: input.task.kind,
+      status: "clarify",
+      summary: "Two fiscal years are required for compare-years structured tasks.",
+      citations: [],
+      structuredSnapshot: [],
+      conditioningHints: [],
+      clarificationPrompt:
+        "Please provide two fiscal years for comparison (for example: FY 2024 vs FY 2025).",
+    };
+  }
+
+  const scopeMode: "global_barangays" | "single_barangay" =
+    aggregationScope.barangayIdUsed === null ? "global_barangays" : "single_barangay";
+  const yearAResult = await fetchTotalInvestmentProgramTotalsByYear({
+    year: yearA,
+    scopeMode,
+    barangayId: aggregationScope.barangayIdUsed,
+    barangayName: aggregationScope.barangayName,
+  });
+  const yearBResult = await fetchTotalInvestmentProgramTotalsByYear({
+    year: yearB,
+    scopeMode,
+    barangayId: aggregationScope.barangayIdUsed,
+    barangayName: aggregationScope.barangayName,
+  });
+  const compareVerbose = buildCompareYearsVerboseAnswer({
+    yearA,
+    yearB,
+    scopeLabel,
+    sourceNote:
+      scopeMode === "single_barangay"
+        ? `Using sum of barangay totals (aip_totals) for ${scopeLabel}.`
+        : "Using sum of barangay totals (aip_totals) across all barangays.",
+    yearAResult,
+    yearBResult,
+  });
+
+  return {
+    taskId: input.task.id,
+    kind: input.task.kind,
+    status: "ok",
+    summary: compareVerbose.content,
+    citations: [
+      {
+        sourceId: "A1",
+        snippet: "Compare-years totals computed from aip_totals.",
+        metadata: {
+          aggregate_type: "compare_years_verbose",
+          year_a: yearA,
+          year_b: yearB,
+          scope_mode: scopeMode,
+          barangay_id_filter: aggregationScope.barangayIdUsed,
+        },
+      },
+    ],
+    structuredSnapshot: {
+      year_a: compareVerbose.overallYearATotal,
+      year_b: compareVerbose.overallYearBTotal,
+      covered_count_year_a: yearAResult.coveredCount,
+      covered_count_year_b: yearBResult.coveredCount,
+    },
+    conditioningHints: takeUniqueHints([`FY ${yearA}`, `FY ${yearB}`, ...compareVerbose.coverageBarangays]),
+  };
+}
+
+async function executeSemanticTaskForMixed(input: {
+  task: QueryPlanSemanticTask;
+  retrievalScope: {
+    mode: "global" | "own_barangay" | "named_scopes";
+    targets: Array<{
+      scope_type: "barangay" | "city" | "municipality";
+      scope_id: string;
+      scope_name: string;
+    }>;
+  } | null;
+  conditioningHints: string[];
+}): Promise<SemanticTaskExecutionResult> {
+  if (!input.retrievalScope) {
+    return {
+      taskId: input.task.id,
+      status: "clarify",
+      answer: "Please clarify the scope before I run the cited narrative portion.",
+      citations: [],
+      retrievalMeta: {
+        reason: "clarification_needed",
+      },
+    };
+  }
+
+  const boundedHints = input.conditioningHints.slice(0, 6);
+  const conditionedQuery =
+    boundedHints.length === 0
+      ? input.task.subquery
+      : `${input.task.subquery}\n\nFocus entities from computed results: ${boundedHints.join("; ")}`;
+
+  try {
+    const pipeline = await requestPipelineChatAnswer({
+      question: conditionedQuery,
+      retrievalScope: input.retrievalScope,
+      topK: 8,
+      minSimilarity: 0.3,
+    });
+
+    const status = mapSemanticReasonToStatus(pipeline.retrieval_meta?.reason);
+    return {
+      taskId: input.task.id,
+      status,
+      answer: pipeline.answer.trim(),
+      citations: normalizePipelineCitations(pipeline.citations).map((citation) => ({
+        sourceId: citation.sourceId,
+        snippet: citation.snippet,
+        metadata: citation.metadata,
+      })),
+      retrievalMeta: {
+        reason: pipeline.retrieval_meta?.reason,
+        multiQueryTriggered: pipeline.retrieval_meta?.multi_query_triggered,
+        multiQueryVariantCount: pipeline.retrieval_meta?.multi_query_variant_count,
+      },
+      conditionedQuery,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Semantic branch failed.";
+    return {
+      taskId: input.task.id,
+      status: "error",
+      answer:
+        "I couldn't complete the narrative evidence branch due to a temporary system issue.",
+      citations: [
+        {
+          sourceId: "S0",
+          snippet: "Semantic branch request failed.",
+          metadata: { error: message },
+        },
+      ],
+      retrievalMeta: {
+        reason: "pipeline_error",
+      },
+      conditionedQuery,
+    };
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const csrf = enforceCsrfProtection(request);
@@ -3112,16 +4139,40 @@ export async function POST(request: Request) {
       sessionId?: string;
       content?: string;
     };
-    const content = normalizeUserMessage(body.content);
+    const originalContent = normalizeUserMessage(body.content);
+    let content = originalContent;
     const requestId = randomUUID();
-    if (!content) {
+    if (!originalContent) {
       return NextResponse.json({ message: "Message cannot be empty." }, { status: 400 });
     }
 
     let frontendIntentClassification: PipelineIntentClassification | null = null;
+
+    const repo = getChatRepo();
+    let sessionId = body.sessionId ?? null;
+
+    if (sessionId) {
+      const existing = await repo.getSession(sessionId);
+      if (!existing || existing.userId !== actor.userId) {
+        return NextResponse.json({ message: "Session not found." }, { status: 404 });
+      }
+    }
+
+    const quota = await consumeQuota(
+      privilegedActor,
+      actor.userId,
+      actor.role === "city_official" ? "city_chat_message" : "barangay_chat_message"
+    );
+    if (!quota.allowed) {
+      return NextResponse.json(
+        { message: "Rate limit exceeded. Please try again shortly.", reason: quota.reason },
+        { status: 429 }
+      );
+    }
+
     try {
       frontendIntentClassification = await requestPipelineIntentClassify({
-        text: content,
+        text: originalContent,
       });
       if (isTotalsDebugEnabled()) {
         console.info(
@@ -3148,28 +4199,6 @@ export async function POST(request: Request) {
       }
     }
 
-    const repo = getChatRepo();
-    let sessionId = body.sessionId ?? null;
-
-    if (sessionId) {
-      const existing = await repo.getSession(sessionId);
-      if (!existing || existing.userId !== actor.userId) {
-        return NextResponse.json({ message: "Session not found." }, { status: 404 });
-      }
-    }
-
-    const quota = await consumeQuota(
-      privilegedActor,
-      actor.userId,
-      actor.role === "city_official" ? "city_chat_message" : "barangay_chat_message"
-    );
-    if (!quota.allowed) {
-      return NextResponse.json(
-        { message: "Rate limit exceeded. Please try again shortly.", reason: quota.reason },
-        { status: 429 }
-      );
-    }
-
     if (!sessionId) {
       const created = await repo.createSession(actor.userId);
       sessionId = created.id;
@@ -3180,14 +4209,98 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "Session not found." }, { status: 404 });
     }
 
-    const userMessage = await repo.appendUserMessage(session.id, content);
+    const userMessage = await repo.appendUserMessage(session.id, originalContent);
     const pendingClarification = await getLatestPendingClarification(session.id);
     const startedAt = Date.now();
+    let sessionMessagesCache: ChatMessage[] | null = null;
+    const getSessionMessages = async (): Promise<ChatMessage[]> => {
+      if (sessionMessagesCache) return sessionMessagesCache;
+      sessionMessagesCache = await repo.listMessages(session.id);
+      return sessionMessagesCache;
+    };
+    let queryRewriteApplied = false;
+    let queryRewriteReason: string | null = null;
+    if (!pendingClarification && isChatContextualRewriteEnabled()) {
+      const messages = await getSessionMessages();
+      const rewrite = maybeRewriteFollowUpQuery({
+        message: originalContent,
+        messages,
+        currentMessageId: userMessage.id,
+      });
+      logRewriteDecision({
+        requestId,
+        originalQuery: originalContent,
+        result:
+          rewrite.kind === "clarify"
+            ? { kind: "clarify", reason: rewrite.reason, prompt: rewrite.prompt }
+            : rewrite,
+      });
+      if (rewrite.kind === "rewritten") {
+        content = rewrite.query;
+        queryRewriteApplied = true;
+        queryRewriteReason = rewrite.reason;
+      } else if (rewrite.kind === "clarify") {
+        const assistantMessage = await appendAssistantMessage({
+          actor: privilegedActor,
+          sessionId: session.id,
+          content: rewrite.prompt,
+          citations: [
+            makeSystemCitation("Contextual follow-up rewrite requested clarification.", {
+              reason: rewrite.reason,
+            }),
+          ],
+          retrievalMeta: {
+            refused: false,
+            reason: "clarification_needed",
+            status: "clarification",
+            scopeResolution: {
+              mode: "global",
+              requestedScopes: [],
+              resolvedTargets: [],
+              unresolvedScopes: [],
+              ambiguousScopes: [],
+            },
+            latencyMs: Date.now() - startedAt,
+            queryRewriteApplied: false,
+            queryRewriteReason: rewrite.reason,
+          },
+        });
+        logNonTotalsRouting({
+          request_id: requestId,
+          intent: "clarification_needed",
+          route: "pipeline_fallback",
+          fiscal_year_parsed: extractFiscalYear(originalContent),
+          scope_reason: "unknown",
+          barangay_id_used: null,
+          match_count_used: null,
+          top_candidate_ids: [],
+          top_candidate_distances: [],
+          answered: false,
+          vector_called: false,
+          status: "clarification",
+        });
+
+        return NextResponse.json(
+          chatResponsePayload({
+            sessionId: session.id,
+            userMessage,
+            assistantMessage,
+          }),
+          { status: 200 }
+        );
+      }
+    }
+
     const frontendIntent = frontendIntentClassification?.intent;
     const confidence = frontendIntentClassification?.confidence ?? null;
     const domainCues = containsDomainCues(content);
 
-    if (!pendingClarification && !domainCues && isConversationalIntent(frontendIntent)) {
+    const shouldShortcutConversational =
+      !pendingClarification &&
+      !domainCues &&
+      (isConversationalIntent(frontendIntent) || isLikelyGeneralKnowledgeQuery(content));
+    if (shouldShortcutConversational) {
+      const shortcutIntent = isConversationalIntent(frontendIntent) ? frontendIntent : "OUT_OF_SCOPE";
       const shortcutScopeResolution: ChatScopeResolution = {
         mode: "global",
         requestedScopes: [],
@@ -3198,11 +4311,11 @@ export async function POST(request: Request) {
       const assistantMessage = await appendAssistantMessage({
         actor: privilegedActor,
         sessionId: session.id,
-        content: conversationalReply(frontendIntent),
+        content: conversationalReply(shortcutIntent),
         citations: [
           makeSystemCitation("Conversational shortcut reply. No AIP retrieval was performed.", {
             reason: "conversational_shortcut",
-            intent: frontendIntent,
+            intent: shortcutIntent,
           }),
         ],
         retrievalMeta: {
@@ -3221,7 +4334,7 @@ export async function POST(request: Request) {
           JSON.stringify({
             request_id: requestId,
             event: "frontend_conversational_shortcut",
-            intent: frontendIntent,
+            intent: shortcutIntent,
             confidence,
             method: frontendIntentClassification?.method ?? null,
           })
@@ -3314,6 +4427,371 @@ export async function POST(request: Request) {
       unresolvedScopes: scope.scopeResolution.unresolvedScopes,
       ambiguousScopes: scope.scopeResolution.ambiguousScopes,
     });
+
+    const routerDecision = isChatRouterV2Enabled()
+      ? decideRoute({
+          text: content,
+          intentClassification: frontendIntentClassification,
+        })
+      : null;
+    if (routerDecision) {
+      logRouteDecision({
+        requestId,
+        text: content,
+        routeDecision: routerDecision,
+        mode: "single",
+      });
+    }
+
+    const plannerEnabled = isChatMixedQueryPlannerEnabled() && !pendingClarification;
+    if (plannerEnabled) {
+      const plannerMessages = await getSessionMessages();
+      const recentDomainContext = buildRecentDomainContext({
+        messages: plannerMessages,
+        currentMessageId: userMessage.id,
+      });
+      const queryPlan = buildQueryPlan({
+        text: content,
+        intentClassification: frontendIntentClassification,
+        recentDomainContext,
+        rewriteContext: {
+          applied: queryRewriteApplied,
+          originalQuery: queryRewriteApplied ? originalContent : null,
+          reason: queryRewriteReason,
+        },
+      });
+      logQueryPlanDecision({
+        requestId,
+        effectiveQuery: queryPlan.effectiveQuery,
+        mode: queryPlan.mode,
+        structuredTaskCount: queryPlan.structuredTasks.length,
+        semanticTaskCount: queryPlan.semanticTasks.length,
+        clarificationRequired: queryPlan.clarificationRequired,
+        diagnostics: queryPlan.diagnostics,
+      });
+
+      if (queryPlan.mode === "mixed") {
+        if (queryPlan.clarificationRequired) {
+          const assistantMessage = await appendAssistantMessage({
+            actor: privilegedActor,
+            sessionId: session.id,
+            content:
+              queryPlan.clarificationPrompt ??
+              "Please clarify missing scope/year details before I run the mixed request.",
+            citations: [
+              makeSystemCitation(
+                "Mixed query plan requires missing slots before execution.",
+                {
+                  query_plan_mode: queryPlan.mode,
+                  diagnostics: queryPlan.diagnostics,
+                }
+              ),
+            ],
+            retrievalMeta: {
+              refused: false,
+              reason: "clarification_needed",
+              status: "clarification",
+              scopeResolution,
+              latencyMs: Date.now() - startedAt,
+              intentClassification: frontendIntentClassification ?? undefined,
+              queryRewriteApplied,
+              queryRewriteReason: queryRewriteReason ?? undefined,
+              queryPlanMode: queryPlan.mode,
+              queryPlanStructuredTaskCount: queryPlan.structuredTasks.length,
+              queryPlanSemanticTaskCount: queryPlan.semanticTasks.length,
+              queryPlanClarificationRequired: true,
+              queryPlanDiagnostics: queryPlan.diagnostics,
+              mixedResponseMode: "clarify",
+              mixedNarrativeIncluded: false,
+              verifierMode: "structured",
+            },
+            verifierInput: {
+              mode: "structured",
+            },
+          });
+
+          logNonTotalsRouting({
+            request_id: requestId,
+            intent: "clarification_needed",
+            route: "pipeline_fallback",
+            fiscal_year_parsed: requestedFiscalYear,
+            scope_reason: "unknown",
+            barangay_id_used: null,
+            match_count_used: null,
+            top_candidate_ids: [],
+            top_candidate_distances: [],
+            answered: false,
+            vector_called: false,
+            status: "clarification",
+          });
+
+          return NextResponse.json(
+            chatResponsePayload({
+              sessionId: session.id,
+              userMessage,
+              assistantMessage,
+            }),
+            { status: 200 }
+          );
+        }
+
+        if (!isChatMixedQueryExecutionEnabled()) {
+          const assistantMessage = await appendAssistantMessage({
+            actor: privilegedActor,
+            sessionId: session.id,
+            content:
+              "This request combines computed comparison and narrative explanation. Please ask one part first, or enable mixed execution to answer both together.",
+            citations: [
+              makeSystemCitation("Mixed query detected but mixed execution is disabled.", {
+                query_plan_mode: queryPlan.mode,
+                reason: "mixed_execution_disabled",
+              }),
+            ],
+            retrievalMeta: {
+              refused: false,
+              reason: "clarification_needed",
+              status: "clarification",
+              scopeResolution,
+              latencyMs: Date.now() - startedAt,
+              intentClassification: frontendIntentClassification ?? undefined,
+              queryRewriteApplied,
+              queryRewriteReason: queryRewriteReason ?? undefined,
+              queryPlanMode: queryPlan.mode,
+              queryPlanStructuredTaskCount: queryPlan.structuredTasks.length,
+              queryPlanSemanticTaskCount: queryPlan.semanticTasks.length,
+              queryPlanClarificationRequired: true,
+              queryPlanDiagnostics: [...queryPlan.diagnostics, "mixed_execution_disabled"],
+              mixedResponseMode: "clarify",
+              mixedNarrativeIncluded: false,
+              verifierMode: "structured",
+            },
+            verifierInput: {
+              mode: "structured",
+            },
+          });
+
+          return NextResponse.json(
+            chatResponsePayload({
+              sessionId: session.id,
+              userMessage,
+              assistantMessage,
+            }),
+            { status: 200 }
+          );
+        }
+
+        if (isChatMixedQueryExecutionEnabled()) {
+          try {
+            const userBarangay = await resolveUserBarangay(actor);
+            const mixedResult = await executeMixedPlan({
+              plan: queryPlan,
+              executeStructuredTask: (task) =>
+                executeStructuredTaskForMixed({
+                  task,
+                  actor,
+                  scopeResolution,
+                  userBarangay,
+                  requestId,
+                }),
+              executeSemanticTask: (task, hints) =>
+                executeSemanticTaskForMixed({
+                  task,
+                  retrievalScope: scope.retrievalScope,
+                  conditioningHints: hints,
+                }),
+            });
+
+            const mixedReason: ChatRetrievalMeta["reason"] =
+              mixedResult.responseMode === "full"
+                ? "ok"
+                : mixedResult.responseMode === "partial"
+                  ? "partial_evidence"
+                  : mixedResult.responseMode === "clarify"
+                    ? "clarification_needed"
+                    : "insufficient_evidence";
+            const mixedStatus: ChatResponseStatus =
+              mixedResult.responseMode === "clarify"
+                ? "clarification"
+                : mixedResult.responseMode === "refuse"
+                  ? "refusal"
+                  : "answer";
+
+            const assistantMessage = await appendAssistantMessage({
+              actor: privilegedActor,
+              sessionId: session.id,
+              content: mixedResult.content,
+              citations: mixedResult.citations,
+              retrievalMeta: {
+                refused: mixedResult.responseMode === "refuse",
+                reason: mixedReason,
+                status: mixedStatus,
+                scopeResolution,
+                latencyMs: Date.now() - startedAt,
+                intentClassification: frontendIntentClassification ?? undefined,
+                queryRewriteApplied,
+                queryRewriteReason: queryRewriteReason ?? undefined,
+                queryPlanMode: queryPlan.mode,
+                queryPlanStructuredTaskCount: queryPlan.structuredTasks.length,
+                queryPlanSemanticTaskCount: queryPlan.semanticTasks.length,
+                queryPlanClarificationRequired: false,
+                queryPlanDiagnostics: [...queryPlan.diagnostics, ...mixedResult.diagnostics],
+                semanticConditioningApplied: mixedResult.semanticConditioningApplied,
+                semanticConditioningHintCount: mixedResult.semanticConditioningHintCount,
+                mixedResponseMode: mixedResult.responseMode,
+                mixedNarrativeIncluded: mixedResult.narrativeIncluded,
+                selectiveMultiQueryTriggered: mixedResult.selectiveMultiQueryTriggered,
+                selectiveMultiQueryVariantCount: mixedResult.selectiveMultiQueryVariantCount,
+                verifierMode: mixedResult.verifierMode,
+              },
+              verifierInput: {
+                mode: mixedResult.verifierMode,
+                structuredExpected:
+                  mixedResult.verifierMode === "retrieval"
+                    ? undefined
+                    : mixedResult.structuredExpectedSnapshot,
+                structuredActual:
+                  mixedResult.verifierMode === "retrieval"
+                    ? undefined
+                    : mixedResult.structuredRenderedSnapshot,
+              },
+            });
+
+            logNonTotalsRouting({
+              request_id: requestId,
+              intent: "pipeline_fallback",
+              route: "pipeline_fallback",
+              fiscal_year_parsed: requestedFiscalYear,
+              scope_reason: "unknown",
+              barangay_id_used: null,
+              match_count_used: null,
+              top_candidate_ids: [],
+              top_candidate_distances: [],
+              answered: mixedResult.responseMode !== "refuse",
+              vector_called: false,
+              status: mixedStatus,
+            });
+
+            return NextResponse.json(
+              chatResponsePayload({
+                sessionId: session.id,
+                userMessage,
+                assistantMessage,
+              }),
+              { status: 200 }
+            );
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : "Mixed query execution failed.";
+            const assistantMessage = await appendAssistantMessage({
+              actor: privilegedActor,
+              sessionId: session.id,
+              content:
+                "I couldn't complete the mixed structured + narrative request due to a temporary system issue.",
+              citations: [makeSystemCitation("Mixed query execution failed.", { error: message })],
+              retrievalMeta: {
+                refused: true,
+                reason: "pipeline_error",
+                status: "refusal",
+                scopeResolution,
+                latencyMs: Date.now() - startedAt,
+                intentClassification: frontendIntentClassification ?? undefined,
+                queryRewriteApplied,
+                queryRewriteReason: queryRewriteReason ?? undefined,
+                queryPlanMode: queryPlan.mode,
+                queryPlanStructuredTaskCount: queryPlan.structuredTasks.length,
+                queryPlanSemanticTaskCount: queryPlan.semanticTasks.length,
+                queryPlanClarificationRequired: false,
+                queryPlanDiagnostics: queryPlan.diagnostics,
+                mixedResponseMode: "refuse",
+                mixedNarrativeIncluded: false,
+                verifierMode: "mixed",
+              },
+            });
+
+            logNonTotalsRouting({
+              request_id: requestId,
+              intent: "pipeline_fallback",
+              route: "pipeline_fallback",
+              fiscal_year_parsed: requestedFiscalYear,
+              scope_reason: "unknown",
+              barangay_id_used: null,
+              match_count_used: null,
+              top_candidate_ids: [],
+              top_candidate_distances: [],
+              answered: false,
+              vector_called: false,
+              status: "refusal",
+            });
+
+            return NextResponse.json(
+              chatResponsePayload({
+                sessionId: session.id,
+                userMessage,
+                assistantMessage,
+              }),
+              { status: 200 }
+            );
+          }
+        }
+      }
+    }
+
+    if (isChatRouterV2Enabled() && isChatMixedIntentEnabled() && !pendingClarification && detectCompoundAsk(content)) {
+      const subAsks = splitIntoSubAsks(content, 2);
+      const subDecisions = subAsks.map((part) =>
+        decideRoute({
+          text: part.text,
+          intentClassification: frontendIntentClassification,
+        })
+      );
+
+      subDecisions.forEach((decision, index) =>
+        logRouteDecision({
+          requestId,
+          text: subAsks[index]?.text ?? content,
+          routeDecision: decision,
+          mode: "compound",
+          partIndex: index + 1,
+        })
+      );
+
+      if (subDecisions.length > 1 && shouldClarifyBeforeExecution(subDecisions)) {
+        const choices = subAsks.map((part) => `${part.index}. ${part.text}`).join("\n");
+        const assistantMessage = await appendAssistantMessage({
+          actor: privilegedActor,
+          sessionId: session.id,
+          content:
+            "I detected multiple requests in one message. Please choose which part to answer first:\n" +
+            `${choices}\n` +
+            "Reply with 1 or 2.",
+          citations: [
+            makeSystemCitation("Mixed-intent query detected; clarification requested before execution.", {
+              reason: "compound_intent_clarification",
+              sub_ask_count: subAsks.length,
+              decision_kinds: subDecisions.map((decision) => decision.kind),
+            }),
+          ],
+          retrievalMeta: {
+            refused: false,
+            reason: "clarification_needed",
+            status: "clarification",
+            scopeResolution,
+            latencyMs: Date.now() - startedAt,
+            intentClassification: frontendIntentClassification ?? undefined,
+          },
+        });
+
+        return NextResponse.json(
+          chatResponsePayload({
+            sessionId: session.id,
+            userMessage,
+            assistantMessage,
+          }),
+          { status: 200 }
+        );
+      }
+    }
+
     const detectedIntent = detectIntent(content).intent;
 
     if (!scope.retrievalScope && detectedIntent !== "total_investment_program") {
@@ -3432,6 +4910,7 @@ export async function POST(request: Request) {
     }
 
     const parsedLineItemQuestion = parseLineItemQuestion(content);
+    const metadataIntentDetected = detectMetadataIntent(content);
     const aggregationIntent = inferAggregationIntentFromPipelineClassification({
       message: content,
       detected: detectAggregationIntent(content),
@@ -3957,7 +5436,19 @@ export async function POST(request: Request) {
               coveredBarangayIds: coveredRows.map((row) => row.barangay_id),
               fiscalLabel,
             });
-            const rows = toTotalsBySectorRows(fallbackData);
+            const sectorPreference = detectSectorExtremumPreference(content);
+            const rows =
+              sectorPreference === "lowest"
+                ? toTotalsBySectorRows(fallbackData).sort(
+                    (a, b) =>
+                      (toNumberOrNull(a.sector_total) ?? Number.POSITIVE_INFINITY) -
+                      (toNumberOrNull(b.sector_total) ?? Number.POSITIVE_INFINITY)
+                  )
+                : toTotalsBySectorRows(fallbackData).sort(
+                    (a, b) =>
+                      (toNumberOrNull(b.sector_total) ?? Number.NEGATIVE_INFINITY) -
+                      (toNumberOrNull(a.sector_total) ?? Number.NEGATIVE_INFINITY)
+                  );
             const contentLines =
               rows.length === 0
                 ? ["No published AIP line items matched the selected filters."]
@@ -3966,11 +5457,24 @@ export async function POST(request: Request) {
                       [row.sector_code, row.sector_name].filter(Boolean).join(" - ") || "Unspecified sector";
                     return `${index + 1}. ${label}: ${formatPhpAmount(toNumberOrNull(row.sector_total))} (${parseInteger(row.count_items) ?? 0} items)`;
                   });
+            const topRow = rows[0] ?? null;
+            const topLabel =
+              topRow === null
+                ? null
+                : [topRow.sector_code, topRow.sector_name].filter(Boolean).join(" - ") || "Unspecified sector";
+            const orderedHeader =
+              sectorPreference === "lowest" ? "lowest to highest" : "highest to lowest";
+            const sectorHeader =
+              sectorPreference !== null && topRow !== null
+                ? `Sector with ${sectorPreference} allocated budget (All barangays in ${cityLabel}; ${fiscalLabel}):\n` +
+                  `1. ${topLabel}: ${formatPhpAmount(toNumberOrNull(topRow.sector_total))} (${parseInteger(topRow.count_items) ?? 0} items)\n\n` +
+                  `Budget totals by sector (All barangays in ${cityLabel}; ${fiscalLabel}) ranked ${orderedHeader}:`
+                : `Budget totals by sector (All barangays in ${cityLabel}; ${fiscalLabel}):`;
             const assistantMessage = await appendAssistantMessage({
         actor: privilegedActor,
               sessionId: session.id,
               content:
-                `Budget totals by sector (All barangays in ${cityLabel}; ${fiscalLabel}):\n` +
+                `${sectorHeader}\n` +
                 `${coverage.line}\n` +
                 "Aggregated from published AIP line items of covered barangays.\n" +
                 contentLines.join("\n"),
@@ -3983,6 +5487,7 @@ export async function POST(request: Request) {
                   }),
                   aggregate_type: "totals_by_sector",
                   fiscal_year_filter: fiscalYearParsed,
+                  sector_rank_order: orderedHeader,
                 }),
               ],
               retrievalMeta: {
@@ -4875,7 +6380,11 @@ export async function POST(request: Request) {
             current.count += 1;
             sectorMap.set(key, current);
           }
-          const rows = Array.from(sectorMap.values()).sort((a, b) => b.total - a.total);
+          const sectorPreference = detectSectorExtremumPreference(content);
+          const rows =
+            sectorPreference === "lowest"
+              ? Array.from(sectorMap.values()).sort((a, b) => a.total - b.total)
+              : Array.from(sectorMap.values()).sort((a, b) => b.total - a.total);
           const contentLines =
             rows.length === 0
               ? ["No published AIP line items matched the selected filters."]
@@ -4883,10 +6392,23 @@ export async function POST(request: Request) {
                   const label = [row.code, row.name].filter(Boolean).join(" - ") || "Unspecified sector";
                   return `${index + 1}. ${label}: ${formatPhpAmount(row.total)} (${row.count} items)`;
                 });
+          const topRow = rows[0] ?? null;
+          const topLabel =
+            topRow === null
+              ? null
+              : [topRow.code, topRow.name].filter(Boolean).join(" - ") || "Unspecified sector";
+          const orderedHeader =
+            sectorPreference === "lowest" ? "lowest to highest" : "highest to lowest";
+          const contentHeader =
+            sectorPreference !== null && topRow !== null
+              ? `Sector with ${sectorPreference} allocated budget (${cityScopeLabel}; ${cityFiscalLabel}):\n` +
+                `1. ${topLabel}: ${formatPhpAmount(topRow.total)} (${topRow.count} items)\n\n` +
+                `Budget totals by sector (${cityScopeLabel}; ${cityFiscalLabel}) ranked ${orderedHeader}:`
+              : `Budget totals by sector (${cityScopeLabel}; ${cityFiscalLabel}):`;
           const assistantMessage = await appendAssistantMessage({
         actor: privilegedActor,
             sessionId: session.id,
-            content: `Budget totals by sector (${cityScopeLabel}; ${cityFiscalLabel}):\n${contentLines.join("\n")}`,
+            content: `${contentHeader}\n${contentLines.join("\n")}`,
             citations: [
               makeAggregateCitation("Aggregated from published AIP line items.", {
                 aggregated: true,
@@ -4894,6 +6416,7 @@ export async function POST(request: Request) {
                 aggregate_type: "totals_by_sector",
                 city_id_filter: explicitCityScope.city.id,
                 city_aip_id: cityAip.aipId,
+                sector_rank_order: orderedHeader,
               }),
             ],
             retrievalMeta: {
@@ -5271,18 +6794,44 @@ export async function POST(request: Request) {
           }
 
           const rows = toTotalsBySectorRows(data);
+          const sectorPreference = detectSectorExtremumPreference(content);
+          const rankedRows =
+            sectorPreference === "lowest"
+              ? [...rows].sort(
+                  (a, b) =>
+                    (toNumberOrNull(a.sector_total) ?? Number.POSITIVE_INFINITY) -
+                    (toNumberOrNull(b.sector_total) ?? Number.POSITIVE_INFINITY)
+                )
+              : [...rows].sort(
+                  (a, b) =>
+                    (toNumberOrNull(b.sector_total) ?? Number.NEGATIVE_INFINITY) -
+                    (toNumberOrNull(a.sector_total) ?? Number.NEGATIVE_INFINITY)
+                );
           const contentLines =
-            rows.length === 0
+            rankedRows.length === 0
               ? ["No published AIP line items matched the selected filters."]
-              : rows.map((row, index) => {
+              : rankedRows.map((row, index) => {
                   const label = [row.sector_code, row.sector_name].filter(Boolean).join(" - ") || "Unspecified sector";
                   return `${index + 1}. ${label}: ${formatPhpAmount(toNumberOrNull(row.sector_total))} (${parseInteger(row.count_items) ?? 0} items)`;
                 });
+          const topRow = rankedRows[0] ?? null;
+          const topLabel =
+            topRow === null
+              ? null
+              : [topRow.sector_code, topRow.sector_name].filter(Boolean).join(" - ") || "Unspecified sector";
+          const orderedHeader =
+            sectorPreference === "lowest" ? "lowest to highest" : "highest to lowest";
+          const contentHeader =
+            sectorPreference !== null && topRow !== null
+              ? `Sector with ${sectorPreference} allocated budget (${scopeLabel}; ${fiscalLabel}):\n` +
+                `1. ${topLabel}: ${formatPhpAmount(toNumberOrNull(topRow.sector_total))} (${parseInteger(topRow.count_items) ?? 0} items)\n\n` +
+                `Budget totals by sector (${scopeLabel}; ${fiscalLabel}) ranked ${orderedHeader}:`
+              : `Budget totals by sector (${scopeLabel}; ${fiscalLabel}):`;
 
           const assistantMessage = await appendAssistantMessage({
         actor: privilegedActor,
             sessionId: session.id,
-            content: `Budget totals by sector (${scopeLabel}; ${fiscalLabel}):\n${contentLines.join("\n")}`,
+            content: `${contentHeader}\n${contentLines.join("\n")}`,
             citations: [
               makeAggregateCitation("Aggregated from published AIP line items.", {
                 aggregated: true,
@@ -5290,6 +6839,7 @@ export async function POST(request: Request) {
                 aggregate_type: "totals_by_sector",
                 fiscal_year_filter: fiscalYearForAggregation,
                 barangay_id_filter: aggregationScope.barangayIdUsed,
+                sector_rank_order: orderedHeader,
               }),
             ],
             retrievalMeta: {
@@ -5555,6 +7105,7 @@ export async function POST(request: Request) {
           refused: refusal.status === "refusal",
           reason: mapRefusalReasonToMetaReason(refusal.status, refusal.reason),
           status: refusal.status,
+          routeFamily: "pipeline_fallback",
           refusalReason: refusal.reason,
           suggestions: refusal.suggestions,
           scopeResolution,
@@ -5587,7 +7138,17 @@ export async function POST(request: Request) {
       );
     }
 
-    if (parsedLineItemQuestion.isFactQuestion) {
+    const hasExplicitLineItemFactCue = /\b(?:how much is allocated for|what is allocated for|how much for|amount for|schedule for|implementing agency for|expected output for)\b/i.test(
+      content
+    );
+    const hasDeterministicLineItemTarget =
+      Boolean(extractAipRefCode(content)) || isLineItemSpecificQuery(content) || hasExplicitLineItemFactCue;
+
+    if (
+      parsedLineItemQuestion.isFactQuestion &&
+      metadataIntentDetected.intent === "none" &&
+      hasDeterministicLineItemTarget
+    ) {
       let vectorRpcCalled = false;
       try {
         const barangayFilterId = lineItemScope.barangayIdUsed;
@@ -5667,11 +7228,92 @@ export async function POST(request: Request) {
               hadVectorSearch: false,
               foundCandidates: 0,
             });
+            let refusalContent = refusal.message;
+            if (refCode) {
+              const { data: diagnosticRows, error: diagnosticError } = await client
+                .from("aip_line_items")
+                .select("id,aip_id,fiscal_year,barangay_id,aip_ref_code,program_project_title")
+                .ilike("aip_ref_code", refCode)
+                .limit(200);
+              if (diagnosticError) {
+                throw new Error(diagnosticError.message);
+              }
+
+              const diagnosticLineItems = toLineItemRows(diagnosticRows);
+              const diagnosticAipIds = diagnosticLineItems
+                .map((row) => row.aip_id)
+                .filter((aipId, index, all) => Boolean(aipId) && all.indexOf(aipId) === index);
+              let publishedDiagnosticRows: LineItemRowRecord[] = [];
+              if (diagnosticAipIds.length > 0) {
+                const { data: publishedDiagnosticAips, error: publishedDiagnosticError } = await supabaseAdmin()
+                  .from("aips")
+                  .select("id")
+                  .in("id", diagnosticAipIds)
+                  .eq("status", "published");
+                if (publishedDiagnosticError) {
+                  throw new Error(publishedDiagnosticError.message);
+                }
+                const publishedDiagnosticAipIds = new Set(
+                  (publishedDiagnosticAips ?? [])
+                    .map((row) => (row as { id?: string }).id ?? null)
+                    .filter((id): id is string => Boolean(id))
+                );
+                publishedDiagnosticRows = diagnosticLineItems.filter((row) =>
+                  publishedDiagnosticAipIds.has(row.aip_id)
+                );
+              }
+
+              if (diagnosticLineItems.length > 0) {
+                if (publishedDiagnosticRows.length === 0) {
+                  refusalContent =
+                    `${refusal.message} I found this Ref in extracted records, ` +
+                    "but not in published AIPs for answering.";
+                } else {
+                  const detailParts: string[] = [];
+                  const availableYears = publishedDiagnosticRows
+                    .map((row) => row.fiscal_year)
+                    .filter((year, index, all) => Number.isInteger(year) && all.indexOf(year) === index)
+                    .sort((a, b) => a - b);
+                  const availableBarangayIds = publishedDiagnosticRows
+                    .map((row) => row.barangay_id)
+                    .filter((id, index, all): id is string => Boolean(id) && all.indexOf(id) === index);
+                  const availableBarangayNameMap = await fetchBarangayNameMap(availableBarangayIds);
+                  const availableBarangays = availableBarangayIds
+                    .map((id) => availableBarangayNameMap.get(id))
+                    .filter((name): name is string => Boolean(name))
+                    .map((name) => normalizeBarangayLabel(name));
+
+                  if (
+                    requestedFiscalYear !== null &&
+                    availableYears.length > 0 &&
+                    !availableYears.includes(requestedFiscalYear)
+                  ) {
+                    detailParts.push(
+                      `available fiscal years for this Ref: ${availableYears.map((year) => `FY ${year}`).join(", ")}`
+                    );
+                  }
+
+                  if (
+                    barangayFilterId !== null &&
+                    availableBarangayIds.length > 0 &&
+                    !availableBarangayIds.includes(barangayFilterId)
+                  ) {
+                    detailParts.push(
+                      `available barangays for this Ref: ${availableBarangays.join(", ")}`
+                    );
+                  }
+
+                  if (detailParts.length > 0) {
+                    refusalContent = `${refusal.message} I found published entries for this Ref, but not for the requested filters: ${detailParts.join("; ")}.`;
+                  }
+                }
+              }
+            }
 
             const assistantMessage = await appendAssistantMessage({
         actor: privilegedActor,
               sessionId: session.id,
-              content: refusal.message,
+              content: refusalContent,
               citations: [
                 makeSystemCitation("No published line item matched the requested Ref code.", {
                   reason: refusal.reason,
@@ -6245,6 +7887,55 @@ export async function POST(request: Request) {
       }
     }
 
+    if (isChatMetadataSqlRouteEnabled() && metadataIntentDetected.intent !== "none") {
+      const metadataPayload = await resolveMetadataSqlPayload({
+        message: content,
+        scopeResolution,
+      });
+
+      if (metadataPayload) {
+        const assistantMessage = await appendAssistantMessage({
+          actor: privilegedActor,
+          sessionId: session.id,
+          content: metadataPayload.content,
+          citations: metadataPayload.citations,
+          retrievalMeta: {
+            ...metadataPayload.retrievalMeta,
+            latencyMs: Date.now() - startedAt,
+            scopeResolution,
+            verifierMode: "structured",
+          },
+          verifierInput: {
+            mode: "structured",
+            structuredExpected: metadataPayload.structuredValues,
+            structuredActual: metadataPayload.structuredValues,
+          },
+        });
+        logNonTotalsRouting({
+          request_id: requestId,
+          intent: "metadata_lookup",
+          route: "metadata_sql",
+          fiscal_year_parsed: requestedFiscalYear,
+          scope_reason: lineItemScope.scopeReason,
+          barangay_id_used: lineItemScope.barangayIdUsed,
+          match_count_used: null,
+          top_candidate_ids: [],
+          top_candidate_distances: [],
+          answered: true,
+          vector_called: false,
+        });
+
+        return NextResponse.json(
+          chatResponsePayload({
+            sessionId: session.id,
+            userMessage,
+            assistantMessage,
+          }),
+          { status: 200 }
+        );
+      }
+    }
+
     if (isUnsupportedRequestQuery(content)) {
       const refusal = buildRefusalMessage({
         intent: "pipeline_fallback",
@@ -6297,45 +7988,153 @@ export async function POST(request: Request) {
 
     let assistantContent = "";
     let assistantCitations: ChatCitation[] = [];
+    const semanticStabilityKey = buildSemanticStabilityKey({
+      query: content,
+      scopeResolution,
+      fiscalYear: requestedFiscalYear,
+    });
+    const semanticRepeatCacheTtlSec = getChatSemanticRepeatCacheTtlSec();
     let assistantMeta: ChatRetrievalMeta = {
       refused: true,
       reason: "unknown",
       scopeResolution,
+      verifierMode: "retrieval",
+      routeFamily: "pipeline_fallback",
+      semanticStabilityKey,
+      responseModeSource: "pipeline_refusal",
+      responseStabilizedFromCache: false,
+      semanticRepeatCacheHit: false,
     };
 
-    try {
-      const pipeline = await requestPipelineChatAnswer({
-        question: content,
-        retrievalScope: scope.retrievalScope,
-        topK: 8,
-        minSimilarity: 0.3,
+    let repeatCacheMessage: ChatMessage | null = null;
+    if (isChatSemanticRepeatCacheEnabled()) {
+      const messages = await getSessionMessages();
+      repeatCacheMessage = findSemanticRepeatCacheHit({
+        messages,
+        stabilityKey: semanticStabilityKey,
+        ttlSec: semanticRepeatCacheTtlSec,
       });
+    }
 
-      assistantContent = pipeline.answer.trim();
-      assistantCitations = normalizePipelineCitations(pipeline.citations);
+    if (repeatCacheMessage) {
+      assistantContent = repeatCacheMessage.content.trim();
+      assistantCitations = repeatCacheMessage.citations ?? [];
+      const cachedMeta = repeatCacheMessage.retrievalMeta ?? null;
       assistantMeta = {
-        refused: Boolean(pipeline.refused),
-        reason: pipeline.retrieval_meta?.reason ?? "unknown",
-        topK: pipeline.retrieval_meta?.top_k,
-        minSimilarity: pipeline.retrieval_meta?.min_similarity,
-        contextCount: pipeline.retrieval_meta?.context_count,
-        verifierPassed: pipeline.retrieval_meta?.verifier_passed,
-        latencyMs: Date.now() - startedAt,
+        ...(cachedMeta ?? assistantMeta),
         scopeResolution,
-        intentClassification: frontendIntentClassification ?? undefined,
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Pipeline chat request failed.";
-      assistantContent =
-        "I couldn't complete the response due to a temporary system issue. Please try again in a few moments.";
-      assistantCitations = [makeSystemCitation("Pipeline request failed.", { error: message })];
-      assistantMeta = {
-        refused: true,
-        reason: "pipeline_error",
-        scopeResolution,
+        verifierMode: "retrieval",
+        routeFamily: "pipeline_fallback",
         latencyMs: Date.now() - startedAt,
         intentClassification: frontendIntentClassification ?? undefined,
+        queryRewriteApplied,
+        queryRewriteReason: queryRewriteReason ?? undefined,
+        semanticStabilityKey,
+        responseModeSource: "website_repeat_cache",
+        responseStabilizedFromCache: true,
+        semanticRepeatCacheHit: true,
       };
+    } else {
+      try {
+        const pipeline = await requestPipelineChatAnswer({
+          question: content,
+          retrievalScope: scope.retrievalScope,
+          topK: 8,
+          minSimilarity: 0.3,
+        });
+
+        assistantContent = pipeline.answer.trim();
+        assistantCitations = normalizePipelineCitations(pipeline.citations);
+        assistantMeta = {
+          refused: Boolean(pipeline.refused),
+          reason: pipeline.retrieval_meta?.reason ?? "unknown",
+          topK: pipeline.retrieval_meta?.top_k,
+          minSimilarity: pipeline.retrieval_meta?.min_similarity,
+          contextCount: pipeline.retrieval_meta?.context_count,
+          verifierPassed: pipeline.retrieval_meta?.verifier_passed,
+          verifierMode: pipeline.retrieval_meta?.verifier_mode ?? "retrieval",
+          verifierPolicyPassed: pipeline.retrieval_meta?.verifier_policy_passed,
+          denseCandidateCount: pipeline.retrieval_meta?.dense_candidate_count,
+          keywordCandidateCount: pipeline.retrieval_meta?.keyword_candidate_count,
+          fusedCandidateCount: pipeline.retrieval_meta?.fused_candidate_count,
+          denseFinalCount: pipeline.retrieval_meta?.dense_final_count,
+          keywordFinalCount: pipeline.retrieval_meta?.keyword_final_count,
+          denseContributedToFinal: pipeline.retrieval_meta?.dense_contributed_to_final,
+          keywordContributedToFinal: pipeline.retrieval_meta?.keyword_contributed_to_final,
+          evidenceGateDecision: pipeline.retrieval_meta?.evidence_gate_decision,
+          evidenceGateReason: pipeline.retrieval_meta?.evidence_gate_reason,
+          evidenceGateReasonCode:
+            pipeline.retrieval_meta?.evidence_gate_reason_code ?? pipeline.retrieval_meta?.evidence_gate_reason,
+          generationSkippedByGate: pipeline.retrieval_meta?.generation_skipped_by_gate,
+          selectiveMultiQueryTriggered: pipeline.retrieval_meta?.multi_query_triggered,
+          selectiveMultiQueryVariantCount: pipeline.retrieval_meta?.multi_query_variant_count,
+          multiQueryReasonCode:
+            pipeline.retrieval_meta?.multi_query_reason_code ?? pipeline.retrieval_meta?.multi_query_reason,
+          activeRagFlags: pipeline.retrieval_meta?.active_rag_flags,
+          ragCalibration: pipeline.retrieval_meta?.rag_calibration,
+          stageLatencyMs: pipeline.retrieval_meta?.stage_latency_ms,
+          borderlineDetected: pipeline.retrieval_meta?.borderline_detected,
+          borderlineReasonCode: pipeline.retrieval_meta?.borderline_reason_code,
+          responseModeSource:
+            (pipeline.retrieval_meta?.response_mode_source as ChatRetrievalMeta["responseModeSource"]) ??
+            (pipeline.refused
+              ? "pipeline_refusal"
+              : pipeline.retrieval_meta?.reason === "partial_evidence"
+                ? "pipeline_partial"
+                : "pipeline_generated"),
+          semanticStabilityKey,
+          responseStabilizedFromCache: false,
+          semanticRepeatCacheHit: false,
+          latencyMs: Date.now() - startedAt,
+          scopeResolution,
+          intentClassification: frontendIntentClassification ?? undefined,
+          queryRewriteApplied,
+          queryRewriteReason: queryRewriteReason ?? undefined,
+          routeFamily: "pipeline_fallback",
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Pipeline chat request failed.";
+        assistantContent =
+          "I couldn't complete the response due to a temporary system issue. Please try again in a few moments.";
+        assistantCitations = [makeSystemCitation("Pipeline request failed.", { error: message })];
+        assistantMeta = {
+          refused: true,
+          reason: "pipeline_error",
+          scopeResolution,
+          latencyMs: Date.now() - startedAt,
+          intentClassification: frontendIntentClassification ?? undefined,
+          verifierMode: "retrieval",
+          queryRewriteApplied,
+          queryRewriteReason: queryRewriteReason ?? undefined,
+          routeFamily: "pipeline_fallback",
+          semanticStabilityKey,
+          responseModeSource: "pipeline_refusal",
+          responseStabilizedFromCache: false,
+          semanticRepeatCacheHit: false,
+        };
+      }
+    }
+
+    if (!repeatCacheMessage && isTotalsDebugEnabled()) {
+      console.info(
+        JSON.stringify({
+          request_id: requestId,
+          event: "semantic_repeat_cache",
+          semantic_repeat_cache_hit: false,
+          semantic_stability_key_preview: semanticStabilityKey.slice(0, 180),
+          semantic_repeat_cache_ttl_sec: semanticRepeatCacheTtlSec,
+        })
+      );
+    } else if (repeatCacheMessage && isTotalsDebugEnabled()) {
+      console.info(
+        JSON.stringify({
+          request_id: requestId,
+          event: "semantic_repeat_cache",
+          semantic_repeat_cache_hit: true,
+          semantic_stability_key_preview: semanticStabilityKey.slice(0, 180),
+          semantic_repeat_cache_ttl_sec: semanticRepeatCacheTtlSec,
+        })
+      );
     }
 
     if (!assistantContent) {
@@ -6348,7 +8147,52 @@ export async function POST(request: Request) {
         ...assistantMeta,
         refused: true,
         reason: assistantMeta.reason === "ok" ? "validation_failed" : assistantMeta.reason,
+        verifierMode: "retrieval",
       };
+    }
+
+    if (isChatSplitVerifierPolicyEnabled() && !assistantMeta.refused) {
+      const preflightVerifier = evaluateVerifierPolicy({
+        mode: "retrieval",
+        citations: assistantCitations,
+        retrievalMeta: assistantMeta,
+      });
+
+      if (!preflightVerifier.passed) {
+        const refusalScopeLabel =
+          lineItemScope.barangayIdUsed !== null
+            ? normalizeBarangayLabel(scopeBarangayName ?? "your barangay")
+            : "All barangays";
+        const refusal = buildRefusalMessage({
+          intent: "pipeline_fallback",
+          queryText: content,
+          fiscalYear: requestedFiscalYear,
+          scopeLabel: refusalScopeLabel,
+          explicitScopeRequested: scopeResolution.requestedScopes.length > 0,
+          scopeResolved: true,
+        });
+
+        assistantContent = refusal.message;
+        assistantCitations = [
+          ...assistantCitations.map((citation) => ({
+            ...citation,
+            insufficient: true,
+          })),
+          makeSystemCitation("Response blocked because retrieval grounding verification failed.", {
+            reason: "verifier_failed",
+            verifier_reason_code: preflightVerifier.reasonCode,
+          }),
+        ];
+        assistantMeta = {
+          ...assistantMeta,
+          refused: true,
+          status: "refusal",
+          reason: "verifier_failed",
+          refusalReason: refusal.reason,
+          suggestions: refusal.suggestions,
+          responseModeSource: "pipeline_refusal",
+        };
+      }
     }
 
     const assistantMessage = await appendAssistantMessage({
@@ -6357,6 +8201,9 @@ export async function POST(request: Request) {
       content: assistantContent,
       citations: assistantCitations,
       retrievalMeta: assistantMeta,
+      verifierInput: {
+        mode: "retrieval",
+      },
     });
     logNonTotalsRouting({
       request_id: requestId,

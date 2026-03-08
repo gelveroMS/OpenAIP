@@ -1,0 +1,185 @@
+{
+  "version": "scope_outcome_seed_v1",
+  "items": [
+    {
+      "id": "SO0001",
+      "question": "What is the total investment program for Barangay Pulo FY 2026?",
+      "expected_outcome": "in_scope_answerable",
+      "notes": "Structured totals query."
+    },
+    {
+      "id": "SO0002",
+      "question": "Compare the total investment program of Pulo and Mamatid for FY 2026.",
+      "expected_outcome": "in_scope_answerable",
+      "notes": "Structured comparison query."
+    },
+    {
+      "id": "SO0003",
+      "question": "Show top 5 projects in Barangay Mamatid FY 2026.",
+      "expected_outcome": "in_scope_answerable",
+      "notes": "Aggregation top-N query."
+    },
+    {
+      "id": "SO0004",
+      "question": "What are the budget totals by sector for Barangay Pulo FY 2026?",
+      "expected_outcome": "in_scope_answerable",
+      "notes": "Aggregation by sector."
+    },
+    {
+      "id": "SO0005",
+      "question": "Across all barangays FY 2026, show budget totals by fund source.",
+      "expected_outcome": "in_scope_answerable",
+      "notes": "Aggregation by fund source."
+    },
+    {
+      "id": "SO0006",
+      "question": "What fund sources are listed for Barangay Pulo?",
+      "expected_outcome": "in_scope_answerable",
+      "notes": "Metadata route."
+    },
+    {
+      "id": "SO0007",
+      "question": "What sectors exist in the AIP?",
+      "expected_outcome": "in_scope_answerable",
+      "notes": "Metadata route."
+    },
+    {
+      "id": "SO0008",
+      "question": "What is the fund source for Ref 8000-003-002-006 in Mamatid FY 2026?",
+      "expected_outcome": "in_scope_answerable",
+      "notes": "Line-item route."
+    },
+    {
+      "id": "SO0009",
+      "question": "Explain the barangay health clinic-related projects in Pulo with citations.",
+      "expected_outcome": "in_scope_answerable",
+      "notes": "Semantic, citation-grounded answer expected."
+    },
+    {
+      "id": "SO0010",
+      "question": "What does the AIP say about women's welfare and GAD projects in Pulo FY 2026?",
+      "expected_outcome": "in_scope_answerable",
+      "notes": "Semantic answer from published chunks."
+    },
+    {
+      "id": "SO0011",
+      "question": "What is the total investment program for Barangay Pulo FY 2024?",
+      "expected_outcome": "in_scope_no_data",
+      "notes": "In-scope but likely missing data."
+    },
+    {
+      "id": "SO0012",
+      "question": "What is the total investment program for Barangay San Isidro FY 2024?",
+      "expected_outcome": "in_scope_no_data",
+      "notes": "In-scope but likely missing data."
+    },
+    {
+      "id": "SO0013",
+      "question": "List top 5 projects in Banay-Banay FY 2024.",
+      "expected_outcome": "in_scope_no_data",
+      "notes": "In-scope aggregation but likely no published data."
+    },
+    {
+      "id": "SO0014",
+      "question": "For Ref 8000-003-002-006 in Pulo FY 2025, what is the total amount?",
+      "expected_outcome": "in_scope_no_data",
+      "notes": "In-scope line-item request with likely no match."
+    },
+    {
+      "id": "SO0015",
+      "question": "Compare the total investment program of Mamatid between FY 2024 and FY 2025.",
+      "expected_outcome": "in_scope_no_data",
+      "notes": "In-scope comparison likely no published totals."
+    },
+    {
+      "id": "SO0016",
+      "question": "What are the budget totals by sector across all barangays for FY 2023?",
+      "expected_outcome": "in_scope_no_data",
+      "notes": "In-scope but likely outside available years."
+    },
+    {
+      "id": "SO0017",
+      "question": "Is there any project in Pulo FY 2025 funded by Trust Fund?",
+      "expected_outcome": "in_scope_no_data",
+      "notes": "In-scope no-data candidate."
+    },
+    {
+      "id": "SO0018",
+      "question": "Which office is the implementing agency for Road Concreting in San Isidro FY 2024?",
+      "expected_outcome": "in_scope_no_data",
+      "notes": "In-scope line-item with likely missing records."
+    },
+    {
+      "id": "SO0019",
+      "question": "What is the total health budget for Barangay Pulo FY 2024?",
+      "expected_outcome": "in_scope_no_data",
+      "notes": "In-scope totals likely unavailable."
+    },
+    {
+      "id": "SO0020",
+      "question": "What does the AIP say about flood control projects in San Isidro FY 2024?",
+      "expected_outcome": "in_scope_no_data",
+      "notes": "Semantic in-scope query with likely no evidence."
+    },
+    {
+      "id": "SO0021",
+      "question": "Who are you?",
+      "expected_outcome": "out_of_scope",
+      "notes": "Non-domain chit-chat."
+    },
+    {
+      "id": "SO0022",
+      "question": "What is eggs?",
+      "expected_outcome": "out_of_scope",
+      "notes": "General knowledge out of domain."
+    },
+    {
+      "id": "SO0023",
+      "question": "Can you approve this AIP even if validation failed?",
+      "expected_outcome": "out_of_scope",
+      "notes": "Unsupported operational action."
+    },
+    {
+      "id": "SO0024",
+      "question": "What is the secret internal memo of City of Cabuyao about budget cuts?",
+      "expected_outcome": "out_of_scope",
+      "notes": "Unavailable external/private source."
+    },
+    {
+      "id": "SO0025",
+      "question": "Predict next year's inflation for Cabuyao.",
+      "expected_outcome": "out_of_scope",
+      "notes": "Forecasting request outside AIP QA scope."
+    },
+    {
+      "id": "SO0026",
+      "question": "What is the best contractor to hire for road concreting in Mamatid?",
+      "expected_outcome": "out_of_scope",
+      "notes": "Recommendation outside supported capability."
+    },
+    {
+      "id": "SO0027",
+      "question": "Top project of that barangay.",
+      "expected_outcome": "in_scope_ambiguous",
+      "notes": "Missing referent; clarification expected."
+    },
+    {
+      "id": "SO0028",
+      "question": "How about 2025?",
+      "expected_outcome": "in_scope_ambiguous",
+      "notes": "Context-dependent follow-up without anchor."
+    },
+    {
+      "id": "SO0029",
+      "question": "What sectors increased and why?",
+      "expected_outcome": "in_scope_ambiguous",
+      "notes": "Missing comparison frame and scope."
+    },
+    {
+      "id": "SO0030",
+      "question": "Compare it with last year.",
+      "expected_outcome": "in_scope_ambiguous",
+      "notes": "Context-dependent follow-up; likely clarification."
+    }
+  ]
+}
