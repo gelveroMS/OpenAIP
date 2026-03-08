@@ -31,6 +31,21 @@ describe("aip display total resolver", () => {
     expect(displayTotalsByAipId.get("aip-2")).toBe(500);
   });
 
+  it("uses project totals when they exceed file totals", () => {
+    const fallbackTotalsByAipId = buildProjectTotalsByAipId([
+      { aip_id: "aip-1", total: 1600 },
+    ]);
+    const fileTotalsByAipId = new Map<string, number>([["aip-1", 1200]]);
+
+    const displayTotalsByAipId = resolveAipDisplayTotalsByAipId({
+      aipIds: ["aip-1"],
+      fileTotalsByAipId,
+      fallbackTotalsByAipId,
+    });
+
+    expect(displayTotalsByAipId.get("aip-1")).toBe(1600);
+  });
+
   it("sums resolved totals for aggregate display", () => {
     const total = sumAipDisplayTotals({
       aipIds: ["aip-1", "aip-2", "aip-3"],

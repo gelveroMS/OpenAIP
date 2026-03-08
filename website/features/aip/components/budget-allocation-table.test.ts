@@ -65,6 +65,21 @@ describe("buildBudgetAllocationWithOptions", () => {
     expect(result.rows.find((row) => row.category === "Social Sector")?.percentage).toBe(40);
   });
 
+  it("uses project-summed denominator when display total is lower", () => {
+    const result = buildBudgetAllocationWithOptions(
+      [
+        makeRow({ id: "p1", sector: "General Sector", amount: 300 }),
+        makeRow({ id: "p2", sector: "Social Sector", amount: 200 }),
+      ],
+      { displayTotalBudget: 400 }
+    );
+
+    expect(result.totalBudget).toBe(500);
+    expect(result.coveredPercentage).toBe(100);
+    expect(result.rows.find((row) => row.category === "General Sector")?.percentage).toBe(60);
+    expect(result.rows.find((row) => row.category === "Social Sector")?.percentage).toBe(40);
+  });
+
   it("keeps explicit zero display total as denominator", () => {
     const result = buildBudgetAllocationWithOptions(
       [

@@ -317,10 +317,13 @@ export function buildDashboardVm(input: {
   });
 
   const projectTotalBudget = selectProjectTotalBudget(projects);
+  const selectedDisplayTotal = input.data.selectedAip?.totalInvestmentProgram;
   const totalBudget =
-    typeof input.data.selectedAip?.totalInvestmentProgram === "number" &&
-    Number.isFinite(input.data.selectedAip.totalInvestmentProgram)
-      ? input.data.selectedAip.totalInvestmentProgram
+    typeof selectedDisplayTotal === "number" &&
+    Number.isFinite(selectedDisplayTotal)
+      ? selectedDisplayTotal <= 0
+        ? selectedDisplayTotal
+        : Math.max(selectedDisplayTotal, projectTotalBudget)
       : projectTotalBudget;
   const budgetBySector = selectBudgetBySector(projects, input.data.sectors, totalBudget);
   const missingTotalCount = selectProjectsMissingTotal(projects);

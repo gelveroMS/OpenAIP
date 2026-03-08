@@ -46,13 +46,21 @@ export function resolveAipDisplayTotal(input: {
   fallbackTotalsByAipId?: ReadonlyMap<string, number>;
 }): number {
   const fileTotal = input.fileTotalsByAipId.get(input.aipId);
-  if (typeof fileTotal === "number" && Number.isFinite(fileTotal)) {
-    return fileTotal;
-  }
   const fallbackTotal = input.fallbackTotalsByAipId?.get(input.aipId);
-  if (typeof fallbackTotal === "number" && Number.isFinite(fallbackTotal)) {
+  const hasFileTotal = typeof fileTotal === "number" && Number.isFinite(fileTotal);
+  const hasFallbackTotal =
+    typeof fallbackTotal === "number" && Number.isFinite(fallbackTotal);
+
+  if (
+    hasFileTotal &&
+    hasFallbackTotal &&
+    fileTotal > 0 &&
+    fallbackTotal > fileTotal
+  ) {
     return fallbackTotal;
   }
+  if (hasFileTotal) return fileTotal;
+  if (hasFallbackTotal) return fallbackTotal;
   return 0;
 }
 

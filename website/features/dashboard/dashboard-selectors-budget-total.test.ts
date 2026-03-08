@@ -91,6 +91,23 @@ describe("buildDashboardVm budget source", () => {
     expect(vm.totalBudget).toBe(1000);
   });
 
+  it("uses summed project totals when file total is lower", () => {
+    const vm = buildDashboardVm({
+      data: buildData({ totalInvestmentProgram: 500 }),
+      query: "",
+      tableQuery: "",
+      tableCategory: "all",
+      tableSector: "all",
+    });
+
+    const general = vm.budgetBySector.find((row) => row.sectorCode === "general");
+    const social = vm.budgetBySector.find((row) => row.sectorCode === "social");
+
+    expect(vm.totalBudget).toBe(1000);
+    expect(general?.percentage).toBe(50);
+    expect(social?.percentage).toBe(50);
+  });
+
   it("computes sector percentages using the resolved display total", () => {
     const vm = buildDashboardVm({
       data: buildData({ totalInvestmentProgram: 2000 }),

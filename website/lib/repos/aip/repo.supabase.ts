@@ -532,17 +532,29 @@ async function getProjectsByAipIds(aipIds: string[]): Promise<Map<string, Projec
   if (!aipIds.length) return map;
 
   const client = await supabaseServer();
-  const { data, error } = await client
-    .from("projects")
-    .select(PROJECT_SELECT_COLUMNS)
-    .in("aip_id", aipIds)
-    .order("aip_ref_code", { ascending: true });
-  if (error) throw new Error(error.message);
+  let from = 0;
 
-  for (const row of (data ?? []) as unknown as ProjectSelectRow[]) {
-    const list = map.get(row.aip_id) ?? [];
-    list.push(row);
-    map.set(row.aip_id, list);
+  while (true) {
+    const to = from + SUPABASE_PAGE_SIZE - 1;
+    const { data, error } = await client
+      .from("projects")
+      .select(PROJECT_SELECT_COLUMNS)
+      .in("aip_id", aipIds)
+      .order("aip_id", { ascending: true })
+      .order("aip_ref_code", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, to);
+    if (error) throw new Error(error.message);
+
+    const batch = (data ?? []) as unknown as ProjectSelectRow[];
+    for (const row of batch) {
+      const list = map.get(row.aip_id) ?? [];
+      list.push(row);
+      map.set(row.aip_id, list);
+    }
+
+    if (batch.length < SUPABASE_PAGE_SIZE) break;
+    from += SUPABASE_PAGE_SIZE;
   }
   return map;
 }
