@@ -11,11 +11,18 @@ from openaip_pipeline.core.clock import now_utc_iso
 from openaip_pipeline.services.line_items.embedding_text import build_line_item_embedding_text
 
 
-ACTIVE_STAGE_ORDER = ["extract", "validate", "summarize", "categorize"]
-STAGE_WEIGHTS: dict[str, int] = {"extract": 40, "validate": 20, "summarize": 15, "categorize": 25}
+ACTIVE_STAGE_ORDER = ["extract", "validate", "scale_amounts", "summarize", "categorize"]
+STAGE_WEIGHTS: dict[str, int] = {
+    "extract": 35,
+    "validate": 20,
+    "scale_amounts": 10,
+    "summarize": 15,
+    "categorize": 20,
+}
 STAGE_START_MESSAGES: dict[str, str] = {
     "extract": "Starting extraction...",
     "validate": "Starting validation...",
+    "scale_amounts": "Scaling city monetary values...",
     "summarize": "Starting summarization...",
     "categorize": "Starting categorization...",
 }

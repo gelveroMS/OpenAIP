@@ -195,6 +195,7 @@ def _patch_pipeline_fns(
     call_counts: dict[str, int],
     extract_payload: dict[str, Any] | None = None,
     validate_payload: dict[str, Any] | None = None,
+    scale_payload: dict[str, Any] | None = None,
     summarize_payload: dict[str, Any] | None = None,
     categorize_payload: dict[str, Any] | None = None,
     validation_batch_sizes: list[int | None] | None = None,
@@ -275,8 +276,20 @@ def _patch_pipeline_fns(
             categorized_json_str=json.dumps(payload, ensure_ascii=False),
         )
 
+    def fake_scale(validated_json_str: str, **kwargs: Any) -> Any:
+        if "scale_amounts" in call_counts:
+            call_counts["scale_amounts"] += 1
+        payload = scale_payload or validate_payload or _validate_payload()
+        return SimpleNamespace(
+            scaled_obj=payload,
+            scaled_json_str=json.dumps(payload, ensure_ascii=False),
+            scope=str(kwargs.get("scope") or ""),
+            scaled=True,
+        )
+
     monkeypatch.setattr(processor_module, "run_city_extraction", fake_extract)
     monkeypatch.setattr(processor_module, "validate_city", fake_validate)
+    monkeypatch.setattr(processor_module, "scale_validated_amounts_json_str", fake_scale)
     monkeypatch.setattr(processor_module, "summarize_aip_overall_json_str", fake_summarize)
     monkeypatch.setattr(processor_module, "categorize_from_summarized_json_str", fake_categorize)
 
@@ -311,7 +324,7 @@ def test_resume_from_validate_skips_extraction(monkeypatch) -> None:
     assert repo.failed == []
     inserted_types = [row[0] for row in repo.inserted_artifacts]
     assert "extract" not in inserted_types
-    assert inserted_types[:3] == ["validate", "summarize", "categorize"]
+    assert inserted_types[:4] == ["validate", "scale_amounts", "summarize", "categorize"]
     assert repo.upsert_totals_calls
     assert validation_batch_sizes == [processor_module.VALIDATION_FIXED_BATCH_SIZE]
 
@@ -355,13 +368,67 @@ def test_validate_stage_writes_intermediate_progress_and_logs(monkeypatch, capsy
     assert "[WORKER][VALIDATE] run=run-new" in captured.out
 
 
+def test_scale_stage_runs_before_summarize_and_passes_scaled_payload(monkeypatch) -> None:
+    calls = {"extract": 0, "validate": 0, "scale_amounts": 0, "summarize": 0, "categorize": 0}
+    scaled_payload = {
+        "projects": [
+            {
+                "aip_ref_code": "P-001",
+                "program_project_description": "Project One",
+                "errors": None,
+            }
+        ],
+        "totals": [],
+        "scaled_marker": True,
+    }
+    _patch_pipeline_fns(
+        monkeypatch,
+        call_counts=calls,
+        scale_payload=scaled_payload,
+    )
+
+    captured_payload: dict[str, Any] = {}
+
+    def fake_summarize(validated_json_str: str, **kwargs: Any) -> Any:
+        calls["summarize"] += 1
+        captured_payload["input"] = json.loads(validated_json_str)
+        payload = _summarize_payload()
+        text = str((payload.get("summary") or {}).get("text") or "Generated summary.")
+        return SimpleNamespace(
+            summary_obj=payload,
+            summary_json_str=json.dumps(payload, ensure_ascii=False),
+            summary_text=text,
+        )
+
+    monkeypatch.setattr(processor_module, "summarize_aip_overall_json_str", fake_summarize)
+
+    repo = _FakeRepo(
+        lineage={"run-new": "run-old"},
+        artifacts={("run-old", "extract"): _extract_payload()},
+        scope="city",
+    )
+    run = {
+        "id": "run-new",
+        "aip_id": "aip-001",
+        "uploaded_file_id": "file-001",
+        "resume_from_stage": "validate",
+        "model_name": "gpt-5.2",
+    }
+
+    processor_module.process_run(repo=repo, settings=_settings(), run=run)
+
+    assert calls["scale_amounts"] == 1
+    assert calls["summarize"] == 1
+    assert captured_payload["input"].get("scaled_marker") is True
+
+
 def test_resume_from_summarize_skips_extract_and_validate(monkeypatch) -> None:
     calls = {"extract": 0, "validate": 0, "summarize": 0, "categorize": 0}
     _patch_pipeline_fns(monkeypatch, call_counts=calls)
 
     repo = _FakeRepo(
         lineage={"run-new": "run-old"},
-        artifacts={("run-old", "validate"): _validate_payload()},
+        artifacts={("run-old", "scale_amounts"): _validate_payload()},
         scope="city",
     )
     run = {

@@ -1325,7 +1325,7 @@ begin;
 
 -- =============================================================================
 -- Phase 5 (COMPLETE + REVISED) — Extraction pipeline + embeddings (3072)
--- - pipeline_stage includes: extract -> validate -> summarize -> categorize -> embed
+-- - pipeline_stage includes: extract -> validate -> scale_amounts -> summarize -> categorize -> embed
 -- - Public transparency:
 --     * anon/authenticated can read extraction_runs for non-draft AIPs
 --     * anon/authenticated can read ONLY summarize/categorize artifacts for non-draft AIPs
@@ -1343,11 +1343,21 @@ begin
     create type public.pipeline_stage as enum (
       'extract',
       'validate',
+      'scale_amounts',
       'summarize',
       'categorize',
       'embed'
     );
   else
+    if not exists (
+      select 1
+      from pg_enum e
+      join pg_type t on t.oid = e.enumtypid
+      where t.typname = 'pipeline_stage'
+        and e.enumlabel = 'scale_amounts'
+    ) then
+      alter type public.pipeline_stage add value 'scale_amounts' before 'summarize';
+    end if;
     if not exists (
       select 1
       from pg_enum e
@@ -1526,7 +1536,7 @@ create table if not exists public.extraction_artifacts (
   run_id uuid not null references public.extraction_runs(id) on delete cascade,
   aip_id uuid not null references public.aips(id) on delete cascade,
 
-  artifact_type public.pipeline_stage not null, -- extract/validate/summarize/categorize/embed
+  artifact_type public.pipeline_stage not null, -- extract/validate/scale_amounts/summarize/categorize/embed
   artifact_json jsonb null,
   artifact_text text null,
 

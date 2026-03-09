@@ -657,7 +657,12 @@ describe("AipDetailView sidebar behavior", () => {
       expect(screen.queryByText("Checking extraction status...")).not.toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Submit & Publish" }));
+    const submitButton = screen.getByRole("button", { name: "Submit & Publish" });
+    await waitFor(() => {
+      expect(submitButton).toBeEnabled();
+    });
+
+    fireEvent.click(submitButton);
     expect(screen.getByText("Publish AIP")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm & Publish" }));
@@ -964,7 +969,7 @@ describe("AipDetailView sidebar behavior", () => {
     expect(screen.getByTestId("breadcrumb-nav")).toBeInTheDocument();
     expect(screen.getByText("Annual Investment Program 2026")).toBeInTheDocument();
     expect(screen.getByText("Completed stages:")).toBeInTheDocument();
-    expect(screen.getByText("Extraction > Validation")).toBeInTheDocument();
+    expect(screen.getByText("Extraction > Validation > Scaling amounts")).toBeInTheDocument();
     expect(screen.getByText("Failed at:")).toBeInTheDocument();
     expect(screen.getByText("Summarization")).toBeInTheDocument();
     expect(

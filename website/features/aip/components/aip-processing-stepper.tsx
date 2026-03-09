@@ -43,11 +43,15 @@ function getConnectorFillRatio(steps: ProcessingStep[]): number {
 export function AipProcessingStepper({ steps, className }: ProcessingStepperProps) {
   const fillRatio = getConnectorFillRatio(steps);
   const fillPercent = `${fillRatio * 100}%`;
+  const columnCount = Math.max(1, steps.length);
+  const railMinWidth = Math.max(720, columnCount * 180);
+  const railMaxWidth = Math.max(900, columnCount * 220);
 
   return (
     <div className={cn("w-full overflow-x-auto", className)} data-testid="processing-stepper">
       <div
-        className="mx-auto w-full min-w-[720px] max-w-[900px]"
+        className="mx-auto w-full"
+        style={{ minWidth: `${railMinWidth}px`, maxWidth: `${railMaxWidth}px` }}
         data-testid="processing-stepper-rail"
       >
         <div className="relative">
@@ -60,7 +64,11 @@ export function AipProcessingStepper({ steps, className }: ProcessingStepperProp
             />
           </div>
 
-          <div className="grid grid-cols-4 items-start" data-testid="processing-stepper-grid">
+          <div
+            className="grid items-start"
+            data-testid="processing-stepper-grid"
+            style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` }}
+          >
             {steps.map((step, index) => {
               const normalizedProgress =
                 typeof step.progressPct === "number" ? clampProgress(step.progressPct) : null;

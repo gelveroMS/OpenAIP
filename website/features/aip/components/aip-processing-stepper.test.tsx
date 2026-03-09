@@ -14,6 +14,7 @@ function buildSteps(overrides?: Partial<Record<string, Partial<ProcessingStep>>>
   const defaults: ProcessingStep[] = [
     { key: "extract", label: "Extraction", status: "upcoming", progressPct: 0 },
     { key: "validate", label: "Validation", status: "upcoming", progressPct: 0 },
+    { key: "scale_amounts", label: "Scaling amounts", status: "upcoming", progressPct: 0 },
     { key: "summarize", label: "Summarization", status: "upcoming", progressPct: 0 },
     { key: "categorize", label: "Categorization", status: "upcoming", progressPct: 0 },
   ];
@@ -35,6 +36,7 @@ describe("AipProcessingStepper", () => {
 
     expect(screen.getByText("Extraction")).toBeInTheDocument();
     expect(screen.getByText("Validation")).toBeInTheDocument();
+    expect(screen.getByText("Scaling amounts")).toBeInTheDocument();
     expect(screen.getByText("Summarization")).toBeInTheDocument();
     expect(screen.getByText("Categorization")).toBeInTheDocument();
 
@@ -43,14 +45,14 @@ describe("AipProcessingStepper", () => {
     const grid = screen.getByTestId("processing-stepper-grid");
     expect(wrapper.className).toContain("w-full");
     expect(wrapper.className).toContain("overflow-x-auto");
-    expect(rail.className).toContain("max-w-[900px]");
-    expect(rail.className).toContain("min-w-[720px]");
-    expect(grid.className).toContain("grid-cols-4");
+    expect(rail.style.minWidth).toBe("900px");
+    expect(rail.style.maxWidth).toBe("1100px");
+    expect(grid.style.gridTemplateColumns).toBe("repeat(5, minmax(0, 1fr))");
     expect(grid.className).toContain("items-start");
 
     const completedBadge = screen.getByTestId("processing-step-badge-extract");
     const activeBadge = screen.getByTestId("processing-step-badge-validate");
-    const upcomingBadge = screen.getByTestId("processing-step-badge-summarize");
+    const upcomingBadge = screen.getByTestId("processing-step-badge-scale_amounts");
     expect(completedBadge.className).toContain("bg-[#0E5D6F]");
     expect(activeBadge.className).toContain("bg-[#0E5D6F]");
     expect(upcomingBadge.className).toContain("border-slate-200");
@@ -59,7 +61,7 @@ describe("AipProcessingStepper", () => {
     expect(within(activeBadge).getByText("2")).toBeInTheDocument();
     expect(within(upcomingBadge).getByText("3")).toBeInTheDocument();
 
-    for (const key of ["extract", "validate", "summarize", "categorize"]) {
+    for (const key of ["extract", "validate", "scale_amounts", "summarize", "categorize"]) {
       const step = screen.getByTestId(`processing-step-${key}`);
       const progress = screen.getByTestId(`processing-step-progress-${key}`);
       expect(step.className).toContain("items-center");
@@ -74,7 +76,7 @@ describe("AipProcessingStepper", () => {
 
     render(<AipProcessingStepper steps={steps} />);
 
-    expect(getConnectorFillPercent()).toBeCloseTo(8.3333, 3);
+    expect(getConnectorFillPercent()).toBeCloseTo(6.25, 2);
   });
 
   it("fills connector based on completed + active segment progress", () => {
@@ -85,13 +87,14 @@ describe("AipProcessingStepper", () => {
 
     render(<AipProcessingStepper steps={steps} />);
 
-    expect(getConnectorFillPercent()).toBeCloseTo(46.6666, 3);
+    expect(getConnectorFillPercent()).toBeCloseTo(35.0, 2);
   });
 
   it("fills connector completely when the last step is active", () => {
     const steps = buildSteps({
       extract: { status: "completed", progressPct: 100 },
       validate: { status: "completed", progressPct: 100 },
+      scale_amounts: { status: "completed", progressPct: 100 },
       summarize: { status: "completed", progressPct: 100 },
       categorize: { status: "active", progressPct: 10 },
     });
@@ -105,6 +108,7 @@ describe("AipProcessingStepper", () => {
     const steps = [
       { key: "extract", label: "Extraction", status: "active" as const },
       { key: "validate", label: "Validation", status: "upcoming" as const },
+      { key: "scale_amounts", label: "Scaling amounts", status: "upcoming" as const },
       { key: "summarize", label: "Summarization", status: "upcoming" as const },
       { key: "categorize", label: "Categorization", status: "upcoming" as const },
     ];

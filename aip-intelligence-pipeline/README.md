@@ -1,6 +1,6 @@
 # OpenAIP Pipeline Service
 
-Production-grade Python service for AIP extraction workflows, including extraction, validation, summarization, categorization, and optional RAG traces.
+Production-grade Python service for AIP extraction workflows, including extraction, validation, amount scaling, summarization, categorization, and optional RAG traces.
 
 ## Setup (first time)
 
@@ -131,7 +131,7 @@ Guardrail behavior (worker + adapters):
 - Embed stage is timeout-bounded.
 - Repeated failures for the same `created_by + uploaded_file_id + aip_id` are blocked to prevent endless retries.
 - Failure reason is persisted to `public.extraction_runs.error_code` for UI/ops visibility.
-- Retry runs may resume from `validate`, `summarize`, or `categorize` using retry lineage fields on `public.extraction_runs` (`retry_of_run_id`, `resume_from_stage`).
+- Retry runs may resume from `validate`, `scale_amounts`, `summarize`, or `categorize` using retry lineage fields on `public.extraction_runs` (`retry_of_run_id`, `resume_from_stage`).
 - If prerequisite artifacts in the retry lineage are missing or invalid, worker falls back to full `extract`.
 
 ## `/v1/runs/*` authentication headers

@@ -67,6 +67,7 @@ function toProcessingStage(value: string | null): NonNullable<AipHeader["process
   if (
     value === "extract" ||
     value === "validate" ||
+    value === "scale_amounts" ||
     value === "summarize" ||
     value === "categorize" ||
     value === "embed"

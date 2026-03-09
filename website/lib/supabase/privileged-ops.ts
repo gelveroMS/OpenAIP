@@ -139,10 +139,11 @@ export type UploadProjectMediaObjectResult = {
   sizeBytes: number;
 };
 
-type RetryResumeStage = "extract" | "validate" | "summarize" | "categorize";
+type RetryResumeStage = "extract" | "validate" | "scale_amounts" | "summarize" | "categorize";
 const RESUME_STAGE_SET = new Set<RetryResumeStage>([
   "extract",
   "validate",
+  "scale_amounts",
   "summarize",
   "categorize",
 ]);

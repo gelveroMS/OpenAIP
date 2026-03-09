@@ -59,7 +59,7 @@ Supabase (Auth + Postgres + Storage)
     v
 Python worker (aip-intelligence-pipeline)
     |-- claims queued extraction_runs
-    |-- extract -> validate -> summarize -> categorize
+    |-- extract -> validate -> scale_amounts -> summarize -> categorize
     |-- writes artifacts and upserts projects
     |-- optional RAG trace
     v

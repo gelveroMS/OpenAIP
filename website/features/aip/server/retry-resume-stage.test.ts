@@ -4,6 +4,7 @@ import { deriveRetryResumeStage } from "./retry-resume-stage";
 describe("deriveRetryResumeStage", () => {
   it("maps stage-specific resume starts", () => {
     expect(deriveRetryResumeStage("validate")).toBe("validate");
+    expect(deriveRetryResumeStage("scale_amounts")).toBe("scale_amounts");
     expect(deriveRetryResumeStage("summarize")).toBe("summarize");
     expect(deriveRetryResumeStage("categorize")).toBe("categorize");
   });

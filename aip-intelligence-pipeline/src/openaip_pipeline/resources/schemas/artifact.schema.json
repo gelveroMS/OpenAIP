@@ -19,7 +19,7 @@
     "generated_at": { "type": "string" },
     "stage": {
       "type": "string",
-      "enum": ["extract", "validate", "summarize", "categorize"]
+      "enum": ["extract", "validate", "scale_amounts", "summarize", "categorize"]
     },
     "aip_id": { "type": "string" },
     "uploaded_file_id": { "type": ["string", "null"] },

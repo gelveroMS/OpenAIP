@@ -126,7 +126,7 @@ type AipRevisionFeedbackMessageByAip = AipRevisionFeedbackMessage & {
 type ExtractionRunSelectRow = {
   id: string;
   aip_id: string;
-  stage: "extract" | "validate" | "summarize" | "categorize" | "embed";
+  stage: "extract" | "validate" | "scale_amounts" | "summarize" | "categorize" | "embed";
   status: "queued" | "running" | "succeeded" | "failed";
   overall_progress_pct: number | null;
   progress_message: string | null;

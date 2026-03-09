@@ -61,6 +61,7 @@ export type ProjectCategory = "health" | "infrastructure" | "other";
 export type PipelineStage =
   | "extract"
   | "validate"
+  | "scale_amounts"
   | "summarize"
   | "categorize"
   | "embed";

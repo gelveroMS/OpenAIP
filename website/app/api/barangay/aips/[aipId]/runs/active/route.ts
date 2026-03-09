@@ -13,7 +13,7 @@ export async function GET(
       .from("extraction_runs")
       .select("id,aip_id,stage,status,error_message,created_at")
       .eq("aip_id", aipId)
-      .in("stage", ["extract", "validate", "summarize", "categorize", "embed"])
+      .in("stage", ["extract", "validate", "scale_amounts", "summarize", "categorize", "embed"])
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();

@@ -87,6 +87,8 @@ function getProcessingStageLabel(processing: NonNullable<AipHeader["processing"]
       return "Extracting";
     case "validate":
       return "Validating";
+    case "scale_amounts":
+      return "Scaling amounts";
     case "summarize":
       return "Summarizing";
     case "categorize":

@@ -17,6 +17,7 @@ export type AipProcessingState = "idle" | "processing" | "complete" | "error";
 const STAGES: { key: Exclude<PipelineStageUi, "embed">; label: string; message: string }[] = [
   { key: "extract", label: "Extraction", message: "Extracting data from document..." },
   { key: "validate", label: "Validation", message: "Validating extracted information..." },
+  { key: "scale_amounts", label: "Scaling amounts", message: "Scaling city monetary values..." },
   { key: "summarize", label: "Summarization", message: "Generating summary and insights..." },
   { key: "categorize", label: "Categorization", message: "Categorizing projects and entries..." },
 ];

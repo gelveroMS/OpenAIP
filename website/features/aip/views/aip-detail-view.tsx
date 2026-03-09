@@ -65,6 +65,7 @@ import { withCsrfHeader } from "@/lib/security/csrf";
 const PIPELINE_STAGES: PipelineStageUi[] = [
   "extract",
   "validate",
+  "scale_amounts",
   "summarize",
   "categorize",
   "embed",
@@ -72,6 +73,7 @@ const PIPELINE_STAGES: PipelineStageUi[] = [
 const PIPELINE_STAGE_ORDER_FOR_FAILURE: PipelineStageUi[] = [
   "extract",
   "validate",
+  "scale_amounts",
   "summarize",
   "categorize",
   "embed",
@@ -79,6 +81,7 @@ const PIPELINE_STAGE_ORDER_FOR_FAILURE: PipelineStageUi[] = [
 const PIPELINE_STAGE_LABELS: Record<PipelineStageUi, string> = {
   extract: "Extraction",
   validate: "Validation",
+  scale_amounts: "Scaling amounts",
   summarize: "Summarization",
   categorize: "Categorization",
   embed: "Embedding",
@@ -226,6 +229,7 @@ function buildProgressByStage(
   const progressByStage: Record<PipelineStageUi, number> = {
     extract: 0,
     validate: 0,
+    scale_amounts: 0,
     summarize: 0,
     categorize: 0,
     embed: 0,

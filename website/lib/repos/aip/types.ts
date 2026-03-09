@@ -26,6 +26,7 @@ export type AipRevisionFeedbackCycle = {
 export type AipProcessingStage =
   | "extract"
   | "validate"
+  | "scale_amounts"
   | "summarize"
   | "categorize"
   | "embed";
