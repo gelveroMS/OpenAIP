@@ -6,6 +6,8 @@ import type {
   PipelineChatAnswer,
   PipelineIntentClassification,
   PipelineIntentType,
+  RetrievalFiltersPayload,
+  RetrievalModePayload,
   RetrievalScopePayload,
 } from "./types";
 
@@ -149,15 +151,21 @@ function parseIntentResponse(payload: unknown): PipelineIntentClassification {
 export async function requestPipelineChatAnswer(input: {
   question: string;
   retrievalScope: RetrievalScopePayload;
+  retrievalMode?: RetrievalModePayload;
+  retrievalFilters?: RetrievalFiltersPayload;
   topK?: number;
   minSimilarity?: number;
   timeoutMs?: number;
 }): Promise<PipelineChatAnswer> {
   const baseUrl = requireEnv("PIPELINE_API_BASE_URL").replace(/\/+$/, "");
+  const retrievalMode = input.retrievalMode ?? "qa";
+  const defaultTopK = retrievalMode === "overview" ? 6 : 4;
   const rawBody = JSON.stringify({
     question: input.question,
     retrieval_scope: input.retrievalScope,
-    top_k: input.topK ?? 8,
+    retrieval_mode: retrievalMode,
+    retrieval_filters: input.retrievalFilters ?? { publication_status: "published" },
+    top_k: input.topK ?? defaultTopK,
     min_similarity: input.minSimilarity ?? 0.3,
   });
   const signedHeaders = buildPipelineSignatureHeaders(rawBody);

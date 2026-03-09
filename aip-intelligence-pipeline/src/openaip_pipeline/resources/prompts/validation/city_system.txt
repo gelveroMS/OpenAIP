@@ -48,6 +48,7 @@ Do NOT flag month-only values like "Jan" or "Dec".
 R003 Date order:
 If both start_date and completion_date are present, non-empty, and valid under R002, then start_date must be earlier than completion_date.
 If start_date is later than completion_date, add an error.
+If start_date and completion_date are the same, do not add an error
 
 R004 Numeric columns must be number or null (not strings like "1,000"):
 - personal_services

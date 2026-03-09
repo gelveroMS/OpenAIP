@@ -1,5 +1,9 @@
 import type { Json, RoleType } from "@/lib/contracts/databasev2";
-import type { RetrievalScopePayload, RetrievalScopeTarget } from "@/lib/chat/types";
+import type {
+  RetrievalFiltersPayload,
+  RetrievalScopePayload,
+  RetrievalScopeTarget,
+} from "@/lib/chat/types";
 import { decideRoute } from "@/lib/chat/router-decision";
 import {
   requestPipelineChatAnswer,
@@ -54,6 +58,9 @@ type ChatQuotaResult = {
 };
 
 const MESSAGE_CONTENT_LIMIT = 12000;
+const RETRIEVAL_FILTER_YEAR_PATTERN = /\b(20\d{2})\b/g;
+const RETRIEVAL_FILTER_MULTI_YEAR_CUE_PATTERN =
+  /\b(compare|comparison|trend|across|between|vs|versus|from\s+20\d{2}\s+to\s+20\d{2})\b/i;
 
 function isCitizenRouterV2Enabled(): boolean {
   return process.env.CITIZEN_ROUTER_V2_ENABLED === "true";
@@ -171,12 +178,62 @@ async function buildRetrievalScope(input: {
   };
 }
 
+function deriveSingleFiscalYearFilter(message: string): number | undefined {
+  const parsedYears = Array.from(message.matchAll(RETRIEVAL_FILTER_YEAR_PATTERN))
+    .map((match) => Number.parseInt(match[1] ?? "", 10))
+    .filter((year) => Number.isInteger(year));
+  const uniqueYears = Array.from(new Set(parsedYears));
+  if (uniqueYears.length !== 1) {
+    return undefined;
+  }
+  if (RETRIEVAL_FILTER_MULTI_YEAR_CUE_PATTERN.test(message)) {
+    return undefined;
+  }
+  return uniqueYears[0];
+}
+
+function detectDocumentTypeFromText(message: string): string | undefined {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("baip")) return "BAIP";
+  if (normalized.includes("aip")) return "AIP";
+  return undefined;
+}
+
+function buildRetrievalFilters(input: {
+  message: string;
+  retrievalScope: RetrievalScopePayload;
+}): RetrievalFiltersPayload {
+  const filters: RetrievalFiltersPayload = {
+    publication_status: "published",
+  };
+
+  const fiscalYear = deriveSingleFiscalYearFilter(input.message);
+  if (typeof fiscalYear === "number") {
+    filters.fiscal_year = fiscalYear;
+  }
+
+  const docType = detectDocumentTypeFromText(input.message);
+  if (docType) {
+    filters.document_type = docType;
+  }
+
+  if (input.retrievalScope.targets.length === 1) {
+    const target = input.retrievalScope.targets[0];
+    filters.scope_type = target.scope_type;
+    filters.scope_name = target.scope_name;
+  }
+
+  return filters;
+}
+
 function toDbCitations(payload: {
   citations: Array<{
     source_id: string;
     snippet: string;
     fiscal_year?: number | null;
     scope_name?: string | null;
+    source_page?: number | null;
+    project_ref_code?: string | null;
     metadata?: unknown;
   }>;
 }): Json {
@@ -200,9 +257,15 @@ function toDbCitations(payload: {
       pageOrSection:
         typeof metadata.page_no === "number"
           ? `Page ${metadata.page_no}`
+          : typeof citation.source_page === "number"
+            ? `Page ${citation.source_page}`
           : typeof metadata.section === "string"
             ? metadata.section
             : null,
+      projectRefCode:
+        typeof metadata.project_ref_code === "string"
+          ? metadata.project_ref_code
+          : citation.project_ref_code ?? null,
     };
   }) as Json;
 }
@@ -440,6 +503,12 @@ export async function POST(request: Request) {
     const pipeline = await requestPipelineChatAnswer({
       question: userMessage,
       retrievalScope,
+      retrievalMode: "qa",
+      retrievalFilters: buildRetrievalFilters({
+        message: userMessage,
+        retrievalScope,
+      }),
+      topK: 4,
     });
 
     const citations = toDbCitations({
@@ -448,6 +517,8 @@ export async function POST(request: Request) {
         snippet: citation.snippet,
         fiscal_year: citation.fiscal_year ?? null,
         scope_name: citation.scope_name ?? null,
+        source_page: citation.source_page ?? null,
+        project_ref_code: citation.project_ref_code ?? null,
         metadata: citation.metadata,
       })),
     });

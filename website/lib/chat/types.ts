@@ -11,6 +11,19 @@ export type RetrievalScopePayload = {
   targets: RetrievalScopeTarget[];
 };
 
+export type RetrievalModePayload = "qa" | "overview";
+
+export type RetrievalFiltersPayload = {
+  fiscal_year?: number;
+  scope_type?: "barangay" | "city" | "municipality";
+  scope_name?: string;
+  document_type?: string;
+  publication_status?: string;
+  office_name?: string;
+  theme_tags?: string[];
+  sector_tags?: string[];
+};
+
 export type ScopeResolutionResult = {
   mode: RetrievalScopeMode | "ambiguous";
   requestedScopes: Array<{
@@ -29,7 +42,11 @@ export type ScopeResolutionResult = {
 export type PipelineChatCitation = {
   source_id: string;
   chunk_id?: string | null;
+  chunk_type?: string | null;
+  document_type?: string | null;
   aip_id?: string | null;
+  project_ref_code?: string | null;
+  source_page?: number | null;
   fiscal_year?: number | null;
   scope_type?: "barangay" | "city" | "municipality" | "unknown" | "system";
   scope_id?: string | null;
@@ -84,6 +101,8 @@ export type PipelineChatAnswer = {
     verifier_passed?: boolean;
     scope_mode?: string;
     scope_targets_count?: number;
+    retrieval_mode?: "qa" | "overview";
+    applied_retrieval_filters?: Record<string, unknown>;
     verifier_mode?: "structured" | "retrieval" | "mixed";
     verifier_policy_passed?: boolean;
     retrieved_count?: number;

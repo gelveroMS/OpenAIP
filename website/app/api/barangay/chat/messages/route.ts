@@ -76,7 +76,11 @@ import type {
   SemanticTaskExecutionResult,
   StructuredTaskExecutionResult,
 } from "@/lib/chat/query-plan-types";
-import type { PipelineChatCitation, PipelineIntentClassification } from "@/lib/chat/types";
+import type {
+  PipelineChatCitation,
+  PipelineIntentClassification,
+  RetrievalFiltersPayload,
+} from "@/lib/chat/types";
 import type { Json } from "@/lib/contracts/databasev2";
 import type { ActorContext } from "@/lib/domain/actor-context";
 import { getActorContext } from "@/lib/domain/get-actor-context";
@@ -4022,16 +4026,70 @@ async function executeStructuredTaskForMixed(input: {
   };
 }
 
+type PipelineRetrievalScope = {
+  mode: "global" | "own_barangay" | "named_scopes";
+  targets: Array<{
+    scope_type: "barangay" | "city" | "municipality";
+    scope_id: string;
+    scope_name: string;
+  }>;
+};
+
+const RETRIEVAL_FILTER_YEAR_PATTERN = /\b(20\d{2})\b/g;
+const RETRIEVAL_FILTER_MULTI_YEAR_CUE_PATTERN =
+  /\b(compare|comparison|trend|across|between|vs|versus|from\s+20\d{2}\s+to\s+20\d{2})\b/i;
+
+function deriveSingleFiscalYearFilter(question: string): number | undefined {
+  const parsedYears = Array.from(question.matchAll(RETRIEVAL_FILTER_YEAR_PATTERN))
+    .map((match) => Number.parseInt(match[1] ?? "", 10))
+    .filter((year) => Number.isInteger(year));
+  const uniqueYears = Array.from(new Set(parsedYears));
+  if (uniqueYears.length !== 1) {
+    return undefined;
+  }
+  if (RETRIEVAL_FILTER_MULTI_YEAR_CUE_PATTERN.test(question)) {
+    return undefined;
+  }
+  return uniqueYears[0];
+}
+
+function detectDocumentTypeFromQuestion(question: string): string | undefined {
+  const normalized = question.toLowerCase();
+  if (normalized.includes("baip")) return "BAIP";
+  if (normalized.includes("aip")) return "AIP";
+  return undefined;
+}
+
+function buildPipelineRetrievalFilters(input: {
+  question: string;
+  retrievalScope: PipelineRetrievalScope | null;
+}): RetrievalFiltersPayload {
+  const filters: RetrievalFiltersPayload = {
+    publication_status: "published",
+  };
+
+  const fiscalYear = deriveSingleFiscalYearFilter(input.question);
+  if (typeof fiscalYear === "number") {
+    filters.fiscal_year = fiscalYear;
+  }
+
+  const documentType = detectDocumentTypeFromQuestion(input.question);
+  if (documentType) {
+    filters.document_type = documentType;
+  }
+
+  if (input.retrievalScope?.targets.length === 1) {
+    const target = input.retrievalScope.targets[0];
+    filters.scope_type = target.scope_type;
+    filters.scope_name = target.scope_name;
+  }
+
+  return filters;
+}
+
 async function executeSemanticTaskForMixed(input: {
   task: QueryPlanSemanticTask;
-  retrievalScope: {
-    mode: "global" | "own_barangay" | "named_scopes";
-    targets: Array<{
-      scope_type: "barangay" | "city" | "municipality";
-      scope_id: string;
-      scope_name: string;
-    }>;
-  } | null;
+  retrievalScope: PipelineRetrievalScope | null;
   conditioningHints: string[];
 }): Promise<SemanticTaskExecutionResult> {
   if (!input.retrievalScope) {
@@ -4056,7 +4114,12 @@ async function executeSemanticTaskForMixed(input: {
     const pipeline = await requestPipelineChatAnswer({
       question: conditionedQuery,
       retrievalScope: input.retrievalScope,
-      topK: 8,
+      retrievalMode: "qa",
+      retrievalFilters: buildPipelineRetrievalFilters({
+        question: conditionedQuery,
+        retrievalScope: input.retrievalScope,
+      }),
+      topK: 4,
       minSimilarity: 0.3,
     });
 
@@ -7141,8 +7204,14 @@ export async function POST(request: Request) {
     const hasExplicitLineItemFactCue = /\b(?:how much is allocated for|what is allocated for|how much for|amount for|schedule for|implementing agency for|expected output for)\b/i.test(
       content
     );
+    const hasMultiFieldLineItemCue =
+      parsedLineItemQuestion.factFields.length >= 2 &&
+      parsedLineItemQuestion.keyTokens.length >= 1;
     const hasDeterministicLineItemTarget =
-      Boolean(extractAipRefCode(content)) || isLineItemSpecificQuery(content) || hasExplicitLineItemFactCue;
+      Boolean(extractAipRefCode(content)) ||
+      isLineItemSpecificQuery(content) ||
+      hasExplicitLineItemFactCue ||
+      hasMultiFieldLineItemCue;
 
     if (
       parsedLineItemQuestion.isFactQuestion &&
@@ -8039,7 +8108,12 @@ export async function POST(request: Request) {
         const pipeline = await requestPipelineChatAnswer({
           question: content,
           retrievalScope: scope.retrievalScope,
-          topK: 8,
+          retrievalMode: "qa",
+          retrievalFilters: buildPipelineRetrievalFilters({
+            question: content,
+            retrievalScope: scope.retrievalScope,
+          }),
+          topK: 4,
           minSimilarity: 0.3,
         });
 

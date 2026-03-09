@@ -2,15 +2,15 @@ import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.9
 
 const EMBEDDING_MODEL = "text-embedding-3-large";
 const EMBEDDING_DIMS = 3072;
-const MIN_TARGET_TOKENS = 200;
-const MAX_TARGET_TOKENS = 800;
-const GROUP_TARGET_TOKENS = 700;
 const EMBED_RUN_ERROR_CODE = "EMBED_CATEGORIZE_FAILED";
 const SKIP_NO_ARTIFACT_MESSAGE = "No categorize artifact; skipping.";
 const MAX_CLOCK_SKEW_SECONDS = 60;
 const DEFAULT_JOB_AUDIENCE = "embed-categorize-dispatcher";
 const DEFAULT_NONCE_TTL_SECONDS = 120;
 const DEFAULT_DEDUPE_TTL_SECONDS = 300;
+const CHUNK_INGESTION_VERSION = 2;
+const DEFAULT_DOCUMENT_TYPE = "AIP";
+const DEFAULT_PUBLICATION_STATUS = "published";
 
 // Process-local cache only. Multi-instance deployments need shared KV (Redis/DB)
 // for strong replay and idempotency guarantees.
@@ -23,6 +23,8 @@ type PublishPayload = {
   request_id?: string | null;
   artifact_id?: string | null;
   published_at?: string | null;
+  document_type?: string | null;
+  publication_status?: string | null;
   fiscal_year?: number | null;
   scope_type?: "barangay" | "city" | "municipality" | string | null;
   scope_id?: string | null;
@@ -36,27 +38,49 @@ type AipContext = {
   scopeType: "barangay" | "city" | "municipality" | "unknown";
   scopeId: string | null;
   scopeLabel: string;
+  documentType: string;
+  publicationStatus: string;
 };
 
 type ChunkPlan = {
   chunkIndex: number;
+  chunkType: "project" | "section_summary" | "category_summary";
   chunkText: string;
   metadata: Record<string, unknown>;
+  ingestionVersion: number;
+  documentType: string;
+  publicationStatus: string;
+  fiscalYear: number | null;
+  scopeType: "barangay" | "city" | "municipality" | "unknown";
+  scopeName: string;
+  officeName: string | null;
+  projectRefCode: string | null;
+  sourcePage: number | null;
+  themeTags: string[];
+  sectorTags: string[];
 };
 
 type PreparedProject = {
   ordinal: number;
   aipRefCode: string;
   description: string;
+  implementingAgency: string;
+  officeName: string;
+  startDate: string;
+  completionDate: string;
+  expectedOutput: string;
   category: "health" | "infrastructure" | "other";
   sectorCode: string;
   sectorLabel: string;
-  fundingSource: string;
+  sourceOfFunds: string;
   ps: string;
   mooe: string;
   fe: string;
   co: string;
   total: string;
+  sourcePage: number | null;
+  themeTags: string[];
+  sectorTags: string[];
 };
 
 type ChunkRow = {
@@ -85,6 +109,33 @@ const FALLBACK_SECTOR_LABELS: Record<string, string> = {
   "9000": "Other Services",
   unknown: "Unknown Sector",
 };
+
+const THEME_TAG_RULES: Array<{ tag: string; keywords: string[] }> = [
+  { tag: "health", keywords: ["health", "medical", "clinic", "nutrition", "wellness"] },
+  { tag: "disaster", keywords: ["disaster", "drrm", "risk reduction", "calamity"] },
+  {
+    tag: "emergency response",
+    keywords: ["emergency", "rescue", "response", "rapid response", "first aid"],
+  },
+  { tag: "peace and order", keywords: ["peace and order", "tanod", "security", "peacekeeping"] },
+  { tag: "senior citizens", keywords: ["senior citizen", "elderly", "older persons"] },
+  { tag: "pwd", keywords: ["pwd", "person with disability", "persons with disability"] },
+  { tag: "gad", keywords: ["gad", "gender and development", "women", "gender"] },
+  {
+    tag: "infrastructure",
+    keywords: ["infrastructure", "road", "bridge", "drainage", "canal", "building", "flood control"],
+  },
+  { tag: "livelihood", keywords: ["livelihood", "employment", "income", "entrepreneurship"] },
+  { tag: "environment", keywords: ["environment", "climate", "tree", "greening", "waste management"] },
+  { tag: "sanitation", keywords: ["sanitation", "hygiene", "toilet", "sanitary"] },
+  { tag: "training", keywords: ["training", "capacity building", "workshop"] },
+  { tag: "seminar", keywords: ["seminar", "orientation"] },
+  { tag: "procurement", keywords: ["procurement", "purchase", "acquisition"] },
+  { tag: "construction", keywords: ["construction", "construct", "rehabilitation", "repair"] },
+  { tag: "assistance", keywords: ["assistance", "aid", "subsidy", "support"] },
+  { tag: "maintenance", keywords: ["maintenance", "upkeep"] },
+  { tag: "operations", keywords: ["operation", "operations", "operating", "administrative"] },
+];
 
 function json(status: number, body: Record<string, unknown>): Response {
   return new Response(JSON.stringify(body), {
@@ -196,6 +247,12 @@ function normalizeString(value: unknown, fallback = "N/A"): string {
   return trimmed || fallback;
 }
 
+function normalizeOptionalString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.replace(/\s+/g, " ").trim();
+  return trimmed || null;
+}
+
 function normalizeCategory(value: unknown): "health" | "infrastructure" | "other" {
   const lowered = normalizeString(value, "other").toLowerCase();
   if (lowered === "health" || lowered === "healthcare") return "health";
@@ -228,8 +285,69 @@ function formatAmount(value: unknown): string {
   return parsed.toFixed(2);
 }
 
-export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
+function toInteger(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && Number.isInteger(value)) {
+    return value;
+  }
+  if (typeof value !== "string") return null;
+  const parsed = Number.parseInt(value.trim(), 10);
+  return Number.isInteger(parsed) ? parsed : null;
+}
+
+function firstNumberOrNull(...values: unknown[]): number | null {
+  for (const value of values) {
+    const parsed = toInteger(value);
+    if (parsed !== null) return parsed;
+  }
+  return null;
+}
+
+function normalizeTag(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function formatTags(tags: string[]): string {
+  if (tags.length === 0) return "none";
+  return tags.join(", ");
+}
+
+function uniqueSortedTags(tags: Iterable<string>): string[] {
+  const out = new Set<string>();
+  for (const tag of tags) {
+    const normalized = normalizeTag(tag);
+    if (!normalized) continue;
+    out.add(normalized);
+  }
+  return [...out].sort((a, b) => a.localeCompare(b));
+}
+
+function generateThemeTags(text: string): string[] {
+  const normalized = normalizeTag(text);
+  if (!normalized) return [];
+  const out: string[] = [];
+  for (const rule of THEME_TAG_RULES) {
+    if (rule.keywords.some((keyword) => normalized.includes(normalizeTag(keyword)))) {
+      out.push(rule.tag);
+    }
+  }
+  return uniqueSortedTags(out);
+}
+
+function normalizeSectorLabelToTag(label: string): string | null {
+  const normalized = normalizeTag(label);
+  if (!normalized || normalized === "unknown sector") return null;
+  return normalized;
+}
+
+function scopeLabelToName(label: string): string {
+  const value = normalizeString(label, "Unknown Scope");
+  const parts = value.split(":");
+  if (parts.length < 2) return value;
+  return normalizeString(parts.slice(1).join(":"), value);
 }
 
 function compareProjects(a: PreparedProject, b: PreparedProject): number {
@@ -245,6 +363,32 @@ function categoryOrder(category: string): number {
   if (category === "infrastructure") return 1;
   if (category === "other") return 2;
   return 3;
+}
+
+function resolveSourcePage(row: Record<string, unknown>): number | null {
+  const provenance =
+    row.provenance && typeof row.provenance === "object"
+      ? (row.provenance as Record<string, unknown>)
+      : {};
+  return firstNumberOrNull(
+    row.source_page,
+    row.page_no,
+    row.page,
+    provenance.source_page,
+    provenance.page_no,
+    provenance.page,
+  );
+}
+
+function buildSectorTags(args: {
+  category: PreparedProject["category"];
+  sectorLabel: string;
+}): string[] {
+  const tags: string[] = [];
+  if (args.category !== "other") tags.push(args.category);
+  const sectorTag = normalizeSectorLabelToTag(args.sectorLabel);
+  if (sectorTag) tags.push(sectorTag);
+  return uniqueSortedTags(tags);
 }
 
 function extractProjects(
@@ -267,21 +411,53 @@ function extractProjects(
 
     const aipRefCode = normalizeString(row.aip_ref_code, `UNSPECIFIED-${index + 1}`);
     const description = normalizeString(row.program_project_description);
+    const implementingAgency = normalizeString(
+      row.implementing_agency ?? row.office,
+    );
+    const officeName = normalizeString(
+      row.office ?? row.implementing_agency,
+      implementingAgency,
+    );
+    const startDate = normalizeString(row.start_date, "N/A");
+    const completionDate = normalizeString(
+      row.completion_date ?? row.end_date,
+      "N/A",
+    );
+    const expectedOutput = normalizeString(row.expected_output, "N/A");
     const category = normalizeCategory(classification.category ?? row.category);
     const sectorCode = normalizeString(
       classification.sector_code,
       inferSectorCode(aipRefCode),
     );
     const sectorLabel = sectorLabels.get(sectorCode) ?? FALLBACK_SECTOR_LABELS[sectorCode] ?? "Unknown Sector";
+    const sourceOfFunds = normalizeString(row.source_of_funds);
+    const sourcePage = resolveSourcePage(row);
+
+    const thematicText = [
+      description,
+      implementingAgency,
+      officeName,
+      expectedOutput,
+      sourceOfFunds,
+      category,
+      sectorLabel,
+    ].join(" ");
+    const themeTags = generateThemeTags(thematicText);
+    const sectorTags = buildSectorTags({ category, sectorLabel });
 
     prepared.push({
       ordinal: index,
       aipRefCode,
       description,
+      implementingAgency,
+      officeName,
+      startDate,
+      completionDate,
+      expectedOutput,
       category,
       sectorCode,
       sectorLabel,
-      fundingSource: normalizeString(row.source_of_funds),
+      sourceOfFunds,
       ps: formatAmount(amounts.personal_services ?? row.personal_services),
       mooe: formatAmount(
         amounts.maintenance_and_other_operating_expenses ??
@@ -290,6 +466,9 @@ function extractProjects(
       fe: formatAmount(amounts.financial_expenses ?? row.financial_expenses),
       co: formatAmount(amounts.capital_outlay ?? row.capital_outlay),
       total: formatAmount(amounts.total ?? row.total),
+      sourcePage,
+      themeTags,
+      sectorTags,
     });
   }
 
@@ -300,124 +479,195 @@ function extractProjects(
 function formatProjectChunkText(
   project: PreparedProject,
   context: AipContext,
+  aipId: string,
   artifactId: string,
 ): string {
   const fy = context.fiscalYear ?? "N/A";
+  const sourceChunkRecordId = `${aipId}:${project.aipRefCode}:${project.ordinal + 1}`;
   return [
-    `AIP Categorization | FY=${fy} | Scope=${context.scopeLabel}`,
-    `Project: ${project.aipRefCode} - ${project.description}`,
-    `Sector: ${project.sectorCode} (${project.sectorLabel})`,
-    `Category: ${project.category}`,
-    `Amounts: PS=${project.ps}, MOOE=${project.mooe}, FE=${project.fe}, CO=${project.co}, Total=${project.total}`,
-    `Funding Source: ${project.fundingSource}`,
-    `Source: categorize artifact ${artifactId}`,
+    "AIP Project",
+    `Document Type: ${context.documentType}`,
+    `Publication Status: ${context.publicationStatus}`,
+    `FY: ${fy}`,
+    `Scope Type: ${context.scopeType}`,
+    `Scope Name: ${scopeLabelToName(context.scopeLabel)}`,
+    `AIP ID: ${aipId}`,
+    `AIP Ref Code: ${project.aipRefCode}`,
+    `Title: ${project.description}`,
+    `Implementing Agency: ${project.implementingAgency}`,
+    `Office: ${project.officeName}`,
+    `Start Date: ${project.startDate}`,
+    `Completion Date: ${project.completionDate}`,
+    `Expected Output: ${project.expectedOutput}`,
+    `Source of Funds: ${project.sourceOfFunds}`,
+    `Personal Services: ${project.ps}`,
+    `MOOE: ${project.mooe}`,
+    `Capital Outlay: ${project.co}`,
+    `Total: ${project.total}`,
+    `Sector Tags: ${formatTags(project.sectorTags)}`,
+    `Theme Tags: ${formatTags(project.themeTags)}`,
+    `Source Page: ${project.sourcePage ?? "N/A"}`,
+    `Source Chunk ID: ${sourceChunkRecordId}`,
+    `Source Artifact: ${artifactId}`,
   ].join("\n");
 }
 
-function formatGroupedProjectLine(project: PreparedProject): string {
+function sumProjectTotals(projects: PreparedProject[]): string {
+  const total = projects.reduce((acc, project) => acc + (toNumber(project.total) ?? 0), 0);
+  return total.toFixed(2);
+}
+
+function topTags(projects: PreparedProject[], maxCount = 8): string[] {
+  const counts = new Map<string, number>();
+  for (const project of projects) {
+    for (const tag of project.themeTags) {
+      counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
+  }
+  return [...counts.entries()]
+    .sort((a, b) => {
+      const countDiff = b[1] - a[1];
+      if (countDiff !== 0) return countDiff;
+      return a[0].localeCompare(b[0]);
+    })
+    .slice(0, maxCount)
+    .map(([tag]) => tag);
+}
+
+function collectGroupPages(projects: PreparedProject[]): number[] {
+  const pages = new Set<number>();
+  for (const project of projects) {
+    if (project.sourcePage !== null) pages.add(project.sourcePage);
+  }
+  return [...pages].sort((a, b) => a - b);
+}
+
+function formatSummaryChunkText(args: {
+  context: AipContext;
+  scopeName: string;
+  sectionType: "office" | "service_category";
+  sectionName: string;
+  projectRefs: string[];
+  topThemes: string[];
+  pages: number[];
+  projectCount: number;
+  totalAmount: string;
+  chunkRecordId: string;
+  artifactId: string;
+}): string {
+  const fy = args.context.fiscalYear ?? "N/A";
+  const sourcePages = args.pages.length > 0 ? args.pages.join(", ") : "N/A";
   return [
-    `- ${project.aipRefCode} | ${project.description}`,
-    `  Sector=${project.sectorCode} (${project.sectorLabel})`,
-    `  Amounts=PS:${project.ps}, MOOE:${project.mooe}, FE:${project.fe}, CO:${project.co}, Total:${project.total}`,
-    `  Funding=${project.fundingSource}`,
+    "AIP Section Summary",
+    `Document Type: ${args.context.documentType}`,
+    `Publication Status: ${args.context.publicationStatus}`,
+    `FY: ${fy}`,
+    `Scope Type: ${args.context.scopeType}`,
+    `Scope Name: ${args.scopeName}`,
+    `Section Type: ${args.sectionType}`,
+    `Section Name: ${args.sectionName}`,
+    `Summary: ${args.projectCount} project(s) with aggregate total ${args.totalAmount} under ${args.sectionName}.`,
+    `Representative Project Refs: ${args.projectRefs.join(", ") || "none"}`,
+    `Top Themes: ${formatTags(args.topThemes)}`,
+    `Source Pages: ${sourcePages}`,
+    `Source Chunk ID: ${args.chunkRecordId}`,
+    `Source Artifact: ${args.artifactId}`,
   ].join("\n");
 }
 
-function formatCategoryChunkText(
-  category: string,
-  part: number,
-  lines: string[],
-  context: AipContext,
-  artifactId: string,
-): string {
-  const fy = context.fiscalYear ?? "N/A";
-  return [
-    `AIP Categorization | FY=${fy} | Scope=${context.scopeLabel}`,
-    `Category Group: ${category} (part ${part})`,
-    "Projects:",
-    ...lines,
-    `Source: categorize artifact ${artifactId}`,
-  ].join("\n");
-}
-
-function buildGroupedChunks(
+function buildSummaryChunks(
   projects: PreparedProject[],
   context: AipContext,
+  aipId: string,
   artifactId: string,
-): Array<{ chunkText: string; category: string }> {
-  const groups = new Map<string, PreparedProject[]>();
+): Array<{
+  chunkType: "section_summary" | "category_summary";
+  chunkText: string;
+  metadata: Record<string, unknown>;
+  officeName: string | null;
+  sourcePage: number | null;
+  themeTags: string[];
+  sectorTags: string[];
+}> {
+  const groups = new Map<string, { sectionType: "office" | "service_category"; projects: PreparedProject[] }>();
   for (const project of projects) {
-    const key = project.category;
-    const current = groups.get(key) ?? [];
-    current.push(project);
+    const hasOffice = normalizeString(project.officeName, "N/A") !== "N/A";
+    const key = hasOffice ? `office:${project.officeName}` : `category:${project.category}`;
+    const sectionType: "office" | "service_category" = hasOffice ? "office" : "service_category";
+    const current = groups.get(key) ?? { sectionType, projects: [] };
+    current.projects.push(project);
     groups.set(key, current);
   }
 
-  const groupedChunks: Array<{ chunkText: string; category: string }> = [];
-  const orderedCategories = [...groups.keys()].sort((a, b) => {
-    const orderDiff = categoryOrder(a) - categoryOrder(b);
+  const orderedGroups = [...groups.entries()].sort((a, b) => {
+    const aType = a[1].sectionType;
+    const bType = b[1].sectionType;
+    if (aType !== bType) return aType.localeCompare(bType);
+    const orderDiff =
+      categoryOrder(a[0].split(":")[1] ?? "other") - categoryOrder(b[0].split(":")[1] ?? "other");
     if (orderDiff !== 0) return orderDiff;
-    return a.localeCompare(b);
+    return a[0].localeCompare(b[0]);
   });
 
-  for (const category of orderedCategories) {
-    const projectsInCategory = [...(groups.get(category) ?? [])].sort(compareProjects);
-    let part = 1;
-    let currentLines: string[] = [];
+  const summaries: Array<{
+    chunkType: "section_summary" | "category_summary";
+    chunkText: string;
+    metadata: Record<string, unknown>;
+    officeName: string | null;
+    sourcePage: number | null;
+    themeTags: string[];
+    sectorTags: string[];
+  }> = [];
 
-    for (const project of projectsInCategory) {
-      const candidateLines = [...currentLines, formatGroupedProjectLine(project)];
-      const candidateText = formatCategoryChunkText(
-        category,
-        part,
-        candidateLines,
-        context,
-        artifactId,
-      );
-      const candidateTokens = estimateTokens(candidateText);
+  for (const [key, group] of orderedGroups) {
+    const projectsInGroup = [...group.projects].sort(compareProjects);
+    const scopeName = scopeLabelToName(context.scopeLabel);
+    const sectionName =
+      group.sectionType === "office"
+        ? normalizeString(projectsInGroup[0]?.officeName, "General")
+        : normalizeString(key.split(":")[1], "General");
+    const pages = collectGroupPages(projectsInGroup);
+    const representativeRefs = projectsInGroup.slice(0, 10).map((project) => project.aipRefCode);
+    const topThemes = topTags(projectsInGroup, 10);
+    const sectorTags = uniqueSortedTags(
+      projectsInGroup.flatMap((project) => project.sectorTags),
+    );
+    const chunkRecordId = `${aipId}:${group.sectionType}:${sectionName}`;
+    const chunkText = formatSummaryChunkText({
+      context,
+      scopeName,
+      sectionType: group.sectionType,
+      sectionName,
+      projectRefs: representativeRefs,
+      topThemes,
+      pages,
+      projectCount: projectsInGroup.length,
+      totalAmount: sumProjectTotals(projectsInGroup),
+      chunkRecordId,
+      artifactId,
+    });
 
-      if (
-        currentLines.length > 0 &&
-        candidateTokens > MAX_TARGET_TOKENS &&
-        estimateTokens(formatCategoryChunkText(category, part, currentLines, context, artifactId)) >=
-          MIN_TARGET_TOKENS
-      ) {
-        groupedChunks.push({
-          chunkText: formatCategoryChunkText(category, part, currentLines, context, artifactId),
-          category,
-        });
-        part += 1;
-        currentLines = [formatGroupedProjectLine(project)];
-        continue;
-      }
-
-      if (
-        currentLines.length > 0 &&
-        candidateTokens > GROUP_TARGET_TOKENS &&
-        estimateTokens(formatCategoryChunkText(category, part, currentLines, context, artifactId)) >=
-          MIN_TARGET_TOKENS
-      ) {
-        groupedChunks.push({
-          chunkText: formatCategoryChunkText(category, part, currentLines, context, artifactId),
-          category,
-        });
-        part += 1;
-        currentLines = [formatGroupedProjectLine(project)];
-        continue;
-      }
-
-      currentLines = candidateLines;
-    }
-
-    if (currentLines.length > 0) {
-      groupedChunks.push({
-        chunkText: formatCategoryChunkText(category, part, currentLines, context, artifactId),
-        category,
-      });
-    }
+    const chunkType: "section_summary" | "category_summary" =
+      group.sectionType === "office" ? "section_summary" : "category_summary";
+    summaries.push({
+      chunkType,
+      chunkText,
+      metadata: {
+        chunk_kind: chunkType,
+        section_type: group.sectionType,
+        section_name: sectionName,
+        representative_refs: representativeRefs,
+        top_themes: topThemes,
+        source_pages: pages,
+      },
+      officeName: group.sectionType === "office" ? sectionName : null,
+      sourcePage: pages.length > 0 ? pages[0] : null,
+      themeTags: topThemes,
+      sectorTags,
+    });
   }
 
-  return groupedChunks;
+  return summaries;
 }
 
 export function buildChunkPlan(args: {
@@ -433,52 +683,108 @@ export function buildChunkPlan(args: {
   const projects = extractProjects(args.projectsRaw, args.sectorLabels);
   if (projects.length === 0) return [];
 
+  const scopeName = scopeLabelToName(args.context.scopeLabel);
   const projectChunks = projects.map((project) => {
-    const chunkText = formatProjectChunkText(project, args.context, args.artifactId);
+    const chunkText = formatProjectChunkText(
+      project,
+      args.context,
+      args.aipId,
+      args.artifactId,
+    );
     return {
+      chunkType: "project" as const,
       project,
       chunkText,
-      tokens: estimateTokens(chunkText),
+      metadata: {
+        chunk_kind: "project",
+        project_ref: project.aipRefCode,
+        title: project.description,
+        implementing_agency: project.implementingAgency,
+        office_name: project.officeName,
+        start_date: project.startDate,
+        completion_date: project.completionDate,
+        expected_output: project.expectedOutput,
+        source_of_funds: project.sourceOfFunds,
+        personal_services: project.ps,
+        maintenance_and_other_operating_expenses: project.mooe,
+        capital_outlay: project.co,
+        total: project.total,
+        source_page: project.sourcePage,
+        sector_code: project.sectorCode,
+        sector_label: project.sectorLabel,
+        category: project.category,
+        theme_tags: project.themeTags,
+        sector_tags: project.sectorTags,
+      },
     };
   });
-
-  const inTarget = projectChunks.filter(
-    (chunk) => chunk.tokens >= MIN_TARGET_TOKENS && chunk.tokens <= MAX_TARGET_TOKENS,
-  ).length;
-  const inTargetRatio = projectChunks.length > 0 ? inTarget / projectChunks.length : 0;
-  const useProjectChunks = projectChunks.length <= 3 || inTargetRatio >= 0.6;
 
   const baseMetadata = {
     source: "categorize_artifact",
     artifact_id: args.artifactId,
     artifact_run_id: args.artifactRunId,
     artifact_type: "categorize",
-    fiscal_year: args.context.fiscalYear,
+    fiscal_year: args.context.fiscalYear ?? null,
     scope_type: args.scopeType,
     scope_id: args.scopeId,
+    scope_name: scopeName,
+    aip_id: args.aipId,
+    document_type: args.context.documentType,
+    publication_status: args.context.publicationStatus,
+    ingestion_version: CHUNK_INGESTION_VERSION,
   };
 
-  if (useProjectChunks) {
-    return projectChunks.map((chunk, idx) => ({
-      chunkIndex: idx,
-      chunkText: chunk.chunkText,
-      metadata: {
-        ...baseMetadata,
-        chunk_kind: "project",
-        project_ref: chunk.project.aipRefCode,
-      },
-    }));
-  }
-
-  const grouped = buildGroupedChunks(projects, args.context, args.artifactId);
-  return grouped.map((groupedChunk, idx) => ({
+  const projectPlans: ChunkPlan[] = projectChunks.map((chunk, idx) => ({
     chunkIndex: idx,
-    chunkText: groupedChunk.chunkText,
+    chunkType: "project",
+    chunkText: chunk.chunkText,
     metadata: {
       ...baseMetadata,
-      chunk_kind: "category_group",
+      ...chunk.metadata,
+      chunk_type: "project",
     },
+    ingestionVersion: CHUNK_INGESTION_VERSION,
+    documentType: args.context.documentType,
+    publicationStatus: args.context.publicationStatus,
+    fiscalYear: args.context.fiscalYear ?? null,
+    scopeType: args.scopeType,
+    scopeName,
+    officeName: normalizeOptionalString(chunk.project.officeName),
+    projectRefCode: chunk.project.aipRefCode,
+    sourcePage: chunk.project.sourcePage,
+    themeTags: chunk.project.themeTags,
+    sectorTags: chunk.project.sectorTags,
   }));
+
+  const summaryChunks = buildSummaryChunks(
+    projects,
+    args.context,
+    args.aipId,
+    args.artifactId,
+  );
+  const summaryPlans: ChunkPlan[] = summaryChunks.map((chunk, index) => ({
+    chunkIndex: projectPlans.length + index,
+    chunkType: chunk.chunkType,
+    chunkText: chunk.chunkText,
+    metadata: {
+      ...baseMetadata,
+      ...chunk.metadata,
+      chunk_type: chunk.chunkType,
+    },
+    ingestionVersion: CHUNK_INGESTION_VERSION,
+    documentType: args.context.documentType,
+    publicationStatus: args.context.publicationStatus,
+    fiscalYear: args.context.fiscalYear ?? null,
+    scopeType: args.scopeType,
+    scopeName,
+    officeName: chunk.officeName,
+    projectRefCode: null,
+    sourcePage: chunk.sourcePage,
+    themeTags: chunk.themeTags,
+    sectorTags: chunk.sectorTags,
+  }));
+
+  return [...projectPlans, ...summaryPlans];
 }
 
 function vectorLiteral(values: number[]): string {
@@ -595,7 +901,7 @@ async function resolveAipContext(
   const { data, error } = await supabase
     .from("aips")
     .select(
-      "id,fiscal_year,barangay_id,city_id,municipality_id,barangay:barangays!aips_barangay_id_fkey(name),city:cities!aips_city_id_fkey(name),municipality:municipalities!aips_municipality_id_fkey(name)",
+      "id,status,fiscal_year,barangay_id,city_id,municipality_id,barangay:barangays!aips_barangay_id_fkey(name),city:cities!aips_city_id_fkey(name),municipality:municipalities!aips_municipality_id_fkey(name)",
     )
     .eq("id", aipId)
     .maybeSingle();
@@ -611,6 +917,11 @@ async function resolveAipContext(
       : typeof payload.fiscal_year === "number"
         ? payload.fiscal_year
         : null;
+  const documentType = normalizeString(payload.document_type, DEFAULT_DOCUMENT_TYPE).toUpperCase();
+  const publicationStatus = normalizeString(
+    row?.status ?? payload.publication_status,
+    DEFAULT_PUBLICATION_STATUS,
+  ).toLowerCase();
 
   const barangayId = normalizeString(row?.barangay_id ?? payload.barangay_id, "");
   const cityId = normalizeString(row?.city_id ?? payload.city_id, "");
@@ -626,6 +937,8 @@ async function resolveAipContext(
       scopeType: "barangay",
       scopeId: barangayId,
       scopeLabel: `Barangay: ${barangayName}`,
+      documentType,
+      publicationStatus,
     };
   }
   if (cityId) {
@@ -635,6 +948,8 @@ async function resolveAipContext(
       scopeType: "city",
       scopeId: cityId,
       scopeLabel: `City: ${cityName}`,
+      documentType,
+      publicationStatus,
     };
   }
   if (municipalityId) {
@@ -647,6 +962,8 @@ async function resolveAipContext(
       scopeType: "municipality",
       scopeId: municipalityId,
       scopeLabel: `Municipality: ${municipalityName}`,
+      documentType,
+      publicationStatus,
     };
   }
 
@@ -655,6 +972,8 @@ async function resolveAipContext(
     scopeType: "unknown",
     scopeId: normalizeString(payload.scope_id, "") || null,
     scopeLabel: "Unknown LGU",
+    documentType,
+    publicationStatus,
   };
 }
 
@@ -769,6 +1088,27 @@ async function loadArtifactChunks(
   return (data ?? [])
     .map((row) => row as ChunkRow)
     .filter((row) => isCategorizeArtifactChunk(row, artifactId));
+}
+
+async function deleteArtifactChunks(
+  supabase: SupabaseClient,
+  aipId: string,
+  runId: string,
+  artifactId: string,
+): Promise<number> {
+  const existing = await loadArtifactChunks(supabase, aipId, runId, artifactId);
+  if (existing.length === 0) return 0;
+
+  const ids = existing.map((row) => row.id);
+  const { error } = await supabase
+    .from("aip_chunks")
+    .delete()
+    .in("id", ids);
+
+  if (error) {
+    throw new Error(`Failed to replace existing artifact chunks: ${error.message}`);
+  }
+  return ids.length;
 }
 
 async function embedTexts(texts: string[]): Promise<number[][]> {
@@ -1194,6 +1534,23 @@ export async function handleRequest(request: Request): Promise<Response> {
       elapsed_ms: elapsedMs(startedAtMs),
     });
 
+    const replacedChunkRows = await deleteArtifactChunks(
+      supabase,
+      aipId,
+      artifactRunId,
+      artifactId,
+    );
+    if (replacedChunkRows > 0) {
+      logWithContext("embed_categorize.chunks.replaced", {
+        aip_id: aipId,
+        embed_run_id: embedRunId,
+        artifact_id: artifactId,
+        artifact_run_id: artifactRunId,
+        rows_replaced: replacedChunkRows,
+        elapsed_ms: elapsedMs(startedAtMs),
+      });
+    }
+
     const rows = chunkPlan.map((chunk) => ({
       aip_id: aipId,
       uploaded_file_id: uploadedFileId,
@@ -1201,6 +1558,18 @@ export async function handleRequest(request: Request): Promise<Response> {
       chunk_index: chunk.chunkIndex,
       chunk_text: chunk.chunkText,
       metadata: chunk.metadata,
+      chunk_type: chunk.chunkType,
+      ingestion_version: chunk.ingestionVersion,
+      document_type: chunk.documentType,
+      publication_status: chunk.publicationStatus,
+      fiscal_year: chunk.fiscalYear,
+      scope_type: chunk.scopeType,
+      scope_name: chunk.scopeName,
+      office_name: chunk.officeName,
+      project_ref_code: chunk.projectRefCode,
+      source_page: chunk.sourcePage,
+      theme_tags: chunk.themeTags,
+      sector_tags: chunk.sectorTags,
     }));
 
     await patchEmbedRun(supabase, embedRunId, {
@@ -1211,7 +1580,7 @@ export async function handleRequest(request: Request): Promise<Response> {
     });
     const { error: chunkUpsertError } = await supabase.from("aip_chunks").upsert(rows, {
       onConflict: "aip_id,run_id,chunk_index",
-      ignoreDuplicates: true,
+      ignoreDuplicates: false,
     });
     if (chunkUpsertError) {
       throw new Error(`Failed to upsert aip chunks: ${chunkUpsertError.message}`);

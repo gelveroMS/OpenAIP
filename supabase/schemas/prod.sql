@@ -91,6 +91,17 @@ CREATE TYPE "public"."aip_status" AS ENUM (
 ALTER TYPE "public"."aip_status" OWNER TO "postgres";
 
 
+CREATE TYPE "public"."aip_chunk_type" AS ENUM (
+    'project',
+    'section_summary',
+    'category_summary',
+    'legacy_category_group'
+);
+
+
+ALTER TYPE "public"."aip_chunk_type" OWNER TO "postgres";
+
+
 CREATE TYPE "public"."feedback_kind" AS ENUM (
     'question',
     'suggestion',
@@ -2311,6 +2322,235 @@ $$;
 ALTER FUNCTION "public"."match_published_aip_chunks"("query_embedding" "extensions"."vector", "match_count" integer, "min_similarity" double precision, "scope_mode" "text", "own_barangay_id" "uuid", "scope_targets" "jsonb") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."match_published_aip_project_chunks_v2"(
+    "query_embedding" "extensions"."vector",
+    "match_count" integer DEFAULT 4,
+    "min_similarity" double precision DEFAULT 0.0,
+    "scope_mode" "text" DEFAULT 'global'::"text",
+    "own_barangay_id" "uuid" DEFAULT NULL::"uuid",
+    "scope_targets" "jsonb" DEFAULT '[]'::"jsonb",
+    "filter_fiscal_year" integer DEFAULT NULL::integer,
+    "filter_scope_type" "text" DEFAULT NULL::"text",
+    "filter_scope_name" "text" DEFAULT NULL::"text",
+    "filter_document_type" "text" DEFAULT NULL::"text",
+    "filter_publication_status" "text" DEFAULT 'published'::"text",
+    "filter_office_name" "text" DEFAULT NULL::"text",
+    "filter_theme_tags" "text"[] DEFAULT NULL::"text"[],
+    "filter_sector_tags" "text"[] DEFAULT NULL::"text"[],
+    "include_summary_chunks" boolean DEFAULT false
+) RETURNS TABLE(
+    "source_id" "text",
+    "chunk_id" "uuid",
+    "content" "text",
+    "similarity" double precision,
+    "aip_id" "uuid",
+    "fiscal_year" integer,
+    "published_at" timestamp with time zone,
+    "scope_type" "text",
+    "scope_id" "uuid",
+    "scope_name" "text",
+    "chunk_type" "text",
+    "document_type" "text",
+    "publication_status" "text",
+    "office_name" "text",
+    "project_ref_code" "text",
+    "source_page" integer,
+    "theme_tags" "text"[],
+    "sector_tags" "text"[],
+    "metadata" "jsonb"
+)
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'pg_catalog', 'public', 'extensions'
+    AS $$
+with params as (
+  select
+    greatest(1, least(coalesce(match_count, 4), 30)) as k,
+    coalesce(min_similarity, 0.0) as sim_floor,
+    lower(coalesce(scope_mode, 'global')) as mode,
+    filter_fiscal_year as filter_fiscal_year,
+    lower(nullif(trim(filter_scope_type), '')) as filter_scope_type,
+    lower(nullif(trim(filter_scope_name), '')) as filter_scope_name,
+    lower(nullif(trim(filter_document_type), '')) as filter_document_type,
+    lower(coalesce(nullif(trim(filter_publication_status), ''), 'published')) as filter_publication_status,
+    lower(nullif(trim(filter_office_name), '')) as filter_office_name,
+    (
+      select array_agg(lower(trim(tag)))
+      from unnest(filter_theme_tags) tag
+      where trim(tag) <> ''
+    ) as filter_theme_tags,
+    (
+      select array_agg(lower(trim(tag)))
+      from unnest(filter_sector_tags) tag
+      where trim(tag) <> ''
+    ) as filter_sector_tags,
+    coalesce(include_summary_chunks, false) as include_summary_chunks
+),
+targets as (
+  select
+    lower(nullif(item ->> 'scope_type', '')) as scope_type,
+    nullif(item ->> 'scope_id', '')::uuid as scope_id
+  from jsonb_array_elements(coalesce(scope_targets, '[]'::jsonb)) item
+  where nullif(item ->> 'scope_id', '') is not null
+),
+rows_scoped as (
+  select
+    c.id as chunk_id,
+    c.chunk_text as content,
+    c.metadata,
+    c.chunk_type::text as chunk_type,
+    c.document_type,
+    c.publication_status,
+    c.office_name,
+    c.project_ref_code,
+    c.source_page,
+    c.theme_tags,
+    c.sector_tags,
+    a.id as aip_id,
+    coalesce(c.fiscal_year, a.fiscal_year) as fiscal_year,
+    a.published_at,
+    coalesce(
+      nullif(c.scope_type, ''),
+      case
+        when a.barangay_id is not null then 'barangay'
+        when a.city_id is not null then 'city'
+        when a.municipality_id is not null then 'municipality'
+        else 'unknown'
+      end
+    ) as scope_type,
+    case
+      when a.barangay_id is not null then a.barangay_id
+      when a.city_id is not null then a.city_id
+      when a.municipality_id is not null then a.municipality_id
+      else null
+    end as scope_id,
+    coalesce(nullif(c.scope_name, ''), b.name, ci.name, m.name, 'Unknown Scope') as scope_name,
+    1 - (e.embedding OPERATOR(extensions.<=>) query_embedding) as similarity
+  from public.aip_chunks c
+  join public.aip_chunk_embeddings e on e.chunk_id = c.id
+  join public.aips a on a.id = c.aip_id
+  left join public.barangays b on b.id = a.barangay_id
+  left join public.cities ci on ci.id = a.city_id
+  left join public.municipalities m on m.id = a.municipality_id
+  cross join params p
+  where
+    lower(coalesce(a.status::text, nullif(c.publication_status, ''), 'published')) = p.filter_publication_status
+    and (
+      c.chunk_type = 'project'::public.aip_chunk_type
+      or (
+        p.include_summary_chunks
+        and c.chunk_type in ('section_summary'::public.aip_chunk_type, 'category_summary'::public.aip_chunk_type)
+      )
+    )
+    and (
+      p.mode = 'global'
+      or (
+        p.mode = 'own_barangay'
+        and own_barangay_id is not null
+        and a.barangay_id = own_barangay_id
+      )
+      or (
+        p.mode = 'named_scopes'
+        and exists (
+          select 1
+          from targets t
+          where
+            (t.scope_type = 'barangay' and a.barangay_id = t.scope_id)
+            or (t.scope_type = 'city' and a.city_id = t.scope_id)
+            or (t.scope_type = 'municipality' and a.municipality_id = t.scope_id)
+        )
+      )
+    )
+    and (
+      p.filter_fiscal_year is null
+      or coalesce(c.fiscal_year, a.fiscal_year) = p.filter_fiscal_year
+    )
+    and (
+      p.filter_scope_type is null
+      or lower(
+        coalesce(
+          nullif(c.scope_type, ''),
+          case
+            when a.barangay_id is not null then 'barangay'
+            when a.city_id is not null then 'city'
+            when a.municipality_id is not null then 'municipality'
+            else 'unknown'
+          end
+        )
+      ) = p.filter_scope_type
+    )
+    and (
+      p.filter_scope_name is null
+      or lower(coalesce(nullif(c.scope_name, ''), b.name, ci.name, m.name, 'Unknown Scope')) = p.filter_scope_name
+    )
+    and (
+      p.filter_document_type is null
+      or lower(coalesce(nullif(c.document_type, ''), 'AIP')) = p.filter_document_type
+    )
+    and (
+      p.filter_office_name is null
+      or lower(coalesce(c.office_name, '')) = p.filter_office_name
+    )
+    and (
+      p.filter_theme_tags is null
+      or cardinality(p.filter_theme_tags) = 0
+      or coalesce(c.theme_tags, '{}'::text[]) && p.filter_theme_tags
+    )
+    and (
+      p.filter_sector_tags is null
+      or cardinality(p.filter_sector_tags) = 0
+      or coalesce(c.sector_tags, '{}'::text[]) && p.filter_sector_tags
+    )
+),
+ranked as (
+  select *
+  from rows_scoped
+  where similarity >= (select sim_floor from params)
+  order by similarity desc, chunk_id
+  limit (select k from params)
+)
+select
+  'S' || row_number() over (order by similarity desc, chunk_id) as source_id,
+  chunk_id,
+  content,
+  similarity,
+  aip_id,
+  fiscal_year,
+  published_at,
+  scope_type,
+  scope_id,
+  scope_name,
+  chunk_type,
+  document_type,
+  publication_status,
+  office_name,
+  project_ref_code,
+  source_page,
+  theme_tags,
+  sector_tags,
+  metadata
+from ranked;
+$$;
+
+
+ALTER FUNCTION "public"."match_published_aip_project_chunks_v2"(
+    "query_embedding" "extensions"."vector",
+    "match_count" integer,
+    "min_similarity" double precision,
+    "scope_mode" "text",
+    "own_barangay_id" "uuid",
+    "scope_targets" "jsonb",
+    "filter_fiscal_year" integer,
+    "filter_scope_type" "text",
+    "filter_scope_name" "text",
+    "filter_document_type" "text",
+    "filter_publication_status" "text",
+    "filter_office_name" "text",
+    "filter_theme_tags" "text"[],
+    "filter_sector_tags" "text"[],
+    "include_summary_chunks" boolean
+) OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."notifications_guard_read_update"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     SET "search_path" TO 'pg_catalog', 'public'
@@ -3156,8 +3396,21 @@ CREATE TABLE IF NOT EXISTS "public"."aip_chunks" (
     "chunk_index" integer NOT NULL,
     "chunk_text" "text" NOT NULL,
     "metadata" "jsonb" DEFAULT '{}'::"jsonb" NOT NULL,
+    "chunk_type" "public"."aip_chunk_type" DEFAULT 'legacy_category_group'::"public"."aip_chunk_type" NOT NULL,
+    "ingestion_version" smallint DEFAULT 1 NOT NULL,
+    "document_type" "text" DEFAULT 'AIP'::"text" NOT NULL,
+    "publication_status" "text" DEFAULT 'published'::"text" NOT NULL,
+    "fiscal_year" integer,
+    "scope_type" "text",
+    "scope_name" "text",
+    "office_name" "text",
+    "project_ref_code" "text",
+    "source_page" integer,
+    "theme_tags" "text"[] DEFAULT '{}'::"text"[] NOT NULL,
+    "sector_tags" "text"[] DEFAULT '{}'::"text"[] NOT NULL,
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
-    CONSTRAINT "aip_chunks_chunk_index_check" CHECK (("chunk_index" >= 0))
+    CONSTRAINT "aip_chunks_chunk_index_check" CHECK (("chunk_index" >= 0)),
+    CONSTRAINT "aip_chunks_ingestion_version_check" CHECK (("ingestion_version" >= 1))
 );
 
 
@@ -4001,6 +4254,30 @@ CREATE INDEX "idx_aip_chunks_aip_id" ON "public"."aip_chunks" USING "btree" ("ai
 
 
 CREATE INDEX "idx_aip_chunks_run_id" ON "public"."aip_chunks" USING "btree" ("run_id");
+
+
+
+CREATE INDEX "idx_aip_chunks_prefilter_v2" ON "public"."aip_chunks" USING "btree" ("chunk_type", "publication_status", "fiscal_year", "scope_type", "scope_name");
+
+
+
+CREATE INDEX "idx_aip_chunks_doc_office_v2" ON "public"."aip_chunks" USING "btree" ("document_type", "office_name");
+
+
+
+CREATE INDEX "idx_aip_chunks_project_ref_code" ON "public"."aip_chunks" USING "btree" ("project_ref_code") WHERE ("project_ref_code" IS NOT NULL);
+
+
+
+CREATE INDEX "idx_aip_chunks_theme_tags" ON "public"."aip_chunks" USING "gin" ("theme_tags");
+
+
+
+CREATE INDEX "idx_aip_chunks_sector_tags" ON "public"."aip_chunks" USING "gin" ("sector_tags");
+
+
+
+CREATE INDEX "idx_aips_published_fiscal_year" ON "public"."aips" USING "btree" ("fiscal_year") WHERE ("status" = 'published'::"public"."aip_status");
 
 
 
@@ -6522,11 +6799,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "anon";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "authenticated";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "service_role";
-
-
-
-
-
 
 
 

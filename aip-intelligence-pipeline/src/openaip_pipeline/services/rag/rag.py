@@ -164,6 +164,24 @@ def _diversity_selection_enabled() -> bool:
     return value in {"1", "true", "yes", "on"}
 
 
+def _legacy_dual_read_enabled() -> bool:
+    return _bool_env("RAG_LEGACY_DUAL_READ_ENABLED", True)
+
+
+def _normalize_retrieval_mode(mode: str | None) -> str:
+    normalized = (mode or "qa").strip().lower()
+    if normalized == "overview":
+        return "overview"
+    return "qa"
+
+
+def _effective_top_k(*, top_k: int, retrieval_mode: str) -> int:
+    mode = _normalize_retrieval_mode(retrieval_mode)
+    if mode == "overview":
+        return max(3, min(top_k, 8))
+    return max(3, min(top_k, 5))
+
+
 def _active_rag_flags() -> dict[str, bool]:
     return {
         "RAG_HYBRID_RETRIEVAL_ENABLED": _hybrid_retrieval_enabled(),
@@ -173,6 +191,7 @@ def _active_rag_flags() -> dict[str, bool]:
         "RAG_BORDERLINE_PARTIAL_ENABLED": _borderline_partial_enabled(),
         "RAG_SELECTIVE_MULTI_QUERY_ENABLED": _selective_multi_query_enabled(),
         "RAG_DIVERSITY_SELECTION_ENABLED": _diversity_selection_enabled(),
+        "RAG_LEGACY_DUAL_READ_ENABLED": _legacy_dual_read_enabled(),
     }
 
 
@@ -282,13 +301,17 @@ def run_hybrid_retrieval(
     embeddings_model: str,
     question: str,
     retrieval_scope: dict[str, Any] | None,
+    retrieval_mode: str,
+    retrieval_filters: dict[str, Any] | None,
     top_k: int,
     min_similarity: float,
 ) -> dict[str, Any]:
+    resolved_mode = _normalize_retrieval_mode(retrieval_mode)
+    effective_top_k = _effective_top_k(top_k=top_k, retrieval_mode=resolved_mode)
     hybrid_enabled = _hybrid_retrieval_enabled()
     keyword_enabled = _keyword_retrieval_enabled()
 
-    dense_k = _hybrid_dense_k() if hybrid_enabled else max(1, min(top_k, 12))
+    dense_k = _hybrid_dense_k() if hybrid_enabled else max(1, min(effective_top_k, 12))
     keyword_k = _hybrid_keyword_k() if hybrid_enabled else 0
     max_candidates = max(1, min(dense_k + max(0, keyword_k), 60))
 
@@ -299,6 +322,9 @@ def run_hybrid_retrieval(
         k=dense_k,
         min_similarity=0.0,
         retrieval_scope=retrieval_scope,
+        retrieval_mode=resolved_mode,
+        retrieval_filters=retrieval_filters,
+        allow_legacy_fallback=_legacy_dual_read_enabled(),
     )
     keyword_docs: list[Any] = []
     fused_docs: list[Any] = dense_docs[:max_candidates]
@@ -310,6 +336,7 @@ def run_hybrid_retrieval(
             k=keyword_k,
             retrieval_scope=retrieval_scope,
             min_rank=0.0,
+            retrieval_filters=retrieval_filters,
         )
         if keyword_docs:
             if _rrf_fusion_enabled():
@@ -345,6 +372,9 @@ def run_hybrid_retrieval(
         "keyword_docs": keyword_docs,
         "fused_docs": fused_docs,
         "strong_docs": strong_docs,
+        "retrieval_mode": resolved_mode,
+        "effective_top_k": effective_top_k,
+        "retrieval_filters": retrieval_filters or {},
     }
 
 
@@ -458,7 +488,11 @@ def _build_citation(index: int, doc: Any, *, insufficient: bool = False) -> dict
     return {
         "source_id": _source_id(index, doc),
         "chunk_id": metadata.get("chunk_id"),
+        "chunk_type": metadata.get("chunk_type"),
+        "document_type": metadata.get("document_type"),
         "aip_id": metadata.get("aip_id"),
+        "project_ref_code": metadata.get("project_ref_code"),
+        "source_page": metadata.get("source_page"),
         "fiscal_year": metadata.get("fiscal_year"),
         "scope_type": metadata.get("scope_type") or "unknown",
         "scope_id": metadata.get("scope_id"),
@@ -644,7 +678,7 @@ def _attach_selection_meta(
     multi_query_reason: str | None = None,
     multi_query_reason_code: str | None = None,
     active_rag_flags: dict[str, bool] | None = None,
-    rag_calibration: dict[str, int | bool] | None = None,
+    rag_calibration: dict[str, int | float | bool] | None = None,
     stage_latency_ms: dict[str, float] | None = None,
     extra_meta: dict[str, Any] | None = None,
     response_mode_source: str | None = None,
@@ -866,7 +900,9 @@ def answer_with_rag(
     chat_model: str,
     question: str,
     retrieval_scope: dict[str, Any] | None = None,
-    top_k: int = 8,
+    retrieval_mode: str = "qa",
+    retrieval_filters: dict[str, Any] | None = None,
+    top_k: int = 4,
     min_similarity: float = 0.3,
     metadata_filter: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -878,6 +914,8 @@ def answer_with_rag(
     active_rag_flags = _active_rag_flags()
     rag_calibration = _rag_calibration_snapshot()
     resolved_scope = retrieval_scope or {"mode": "global", "targets": []}
+    resolved_mode = _normalize_retrieval_mode(retrieval_mode)
+    effective_top_k = _effective_top_k(top_k=top_k, retrieval_mode=resolved_mode)
     supabase = create_client(supabase_url, supabase_service_key)
     retrieval_started_at = time.perf_counter()
     retrieval_bundle = run_hybrid_retrieval(
@@ -885,7 +923,9 @@ def answer_with_rag(
         embeddings_model=embeddings_model,
         question=question,
         retrieval_scope=resolved_scope,
-        top_k=top_k,
+        retrieval_mode=resolved_mode,
+        retrieval_filters=retrieval_filters,
+        top_k=effective_top_k,
         min_similarity=min_similarity,
     )
     stage_latency_ms["retrieval_ms"] = round((time.perf_counter() - retrieval_started_at) * 1000.0, 3)
@@ -894,6 +934,9 @@ def answer_with_rag(
     keyword_docs = list(retrieval_bundle.get("keyword_docs") or [])
     docs = list(retrieval_bundle.get("fused_docs") or [])
     strong_docs = list(retrieval_bundle.get("strong_docs") or [])
+    effective_top_k = int(retrieval_bundle.get("effective_top_k") or effective_top_k)
+    resolved_mode = _normalize_retrieval_mode(str(retrieval_bundle.get("retrieval_mode") or resolved_mode))
+    applied_filters = dict(retrieval_bundle.get("retrieval_filters") or retrieval_filters or {})
     diversity_enabled = _diversity_selection_enabled()
 
     dense_candidate_count = len(dense_docs)
@@ -915,6 +958,10 @@ def answer_with_rag(
     borderline_detected = False
     borderline_reason_code = "not_evaluated"
     response_mode_source = "pipeline_refusal"
+    retrieval_context_meta = {
+        "retrieval_mode": resolved_mode,
+        "applied_retrieval_filters": applied_filters,
+    }
 
     def attach(
         result: dict[str, Any],
@@ -933,6 +980,9 @@ def answer_with_rag(
         keyword_final_count = 0
         if selected_count > 0 and selected_docs:
             dense_final_count, keyword_final_count = _count_channel_contribution(selected_docs)
+        merged_extra_meta = dict(retrieval_context_meta)
+        if isinstance(extra_meta, dict):
+            merged_extra_meta.update(extra_meta)
         return _attach_selection_meta(
             result,
             retrieved_count=len(effective_docs),
@@ -959,7 +1009,7 @@ def answer_with_rag(
             active_rag_flags=active_rag_flags,
             rag_calibration=rag_calibration,
             stage_latency_ms=stage_latency_snapshot,
-            extra_meta=extra_meta,
+            extra_meta=merged_extra_meta,
             response_mode_source=(
                 response_mode_source_override
                 if response_mode_source_override is not None
@@ -987,7 +1037,7 @@ def answer_with_rag(
                     question=question,
                     reason="partial_evidence",
                     docs=docs,
-                    top_k=top_k,
+                    top_k=effective_top_k,
                     min_similarity=min_similarity,
                     retrieval_scope=resolved_scope,
                 ),
@@ -1002,7 +1052,7 @@ def answer_with_rag(
                 question=question,
                 reason="insufficient_evidence",
                 docs=docs,
-                top_k=top_k,
+                top_k=effective_top_k,
                 min_similarity=min_similarity,
                 retrieval_scope=resolved_scope,
                 verifier_passed=False,
@@ -1012,10 +1062,16 @@ def answer_with_rag(
         )
 
     selection_started_at = time.perf_counter()
+    selection_max_docs = 5 if resolved_mode == "qa" else 6
+    selection_min_docs = 3 if resolved_mode == "qa" else 4
     selected_docs = (
-        _select_diverse_docs(effective_strong_docs, max_docs=6, min_docs=4)
+        _select_diverse_docs(
+            effective_strong_docs,
+            max_docs=selection_max_docs,
+            min_docs=selection_min_docs,
+        )
         if diversity_enabled
-        else effective_strong_docs[: min(6, len(effective_strong_docs))]
+        else effective_strong_docs[: min(selection_max_docs, len(effective_strong_docs))]
     )
     stage_latency_ms["selection_ms"] = round((time.perf_counter() - selection_started_at) * 1000.0, 3)
 
@@ -1049,7 +1105,9 @@ def answer_with_rag(
                             embeddings_model=embeddings_model,
                             question=variant,
                             retrieval_scope=resolved_scope,
-                            top_k=top_k,
+                            retrieval_mode=resolved_mode,
+                            retrieval_filters=applied_filters,
+                            top_k=effective_top_k,
                             min_similarity=min_similarity,
                         )
                         variant_strong_docs = list(variant_bundle.get("strong_docs") or [])
@@ -1065,9 +1123,13 @@ def answer_with_rag(
                         )
                         effective_docs = list(effective_strong_docs)
                         selected_docs = (
-                            _select_diverse_docs(effective_strong_docs, max_docs=6, min_docs=4)
+                            _select_diverse_docs(
+                                effective_strong_docs,
+                                max_docs=selection_max_docs,
+                                min_docs=selection_min_docs,
+                            )
                             if diversity_enabled
-                            else effective_strong_docs[: min(6, len(effective_strong_docs))]
+                            else effective_strong_docs[: min(selection_max_docs, len(effective_strong_docs))]
                         )
                         gate = evaluate_evidence_gate(question=question, selected_docs=selected_docs)
                         gate_decision = str(gate.get("decision") or "clarify")
@@ -1090,7 +1152,7 @@ def answer_with_rag(
                         question=question,
                         reason="partial_evidence",
                         docs=selected_docs,
-                        top_k=top_k,
+                        top_k=effective_top_k,
                         min_similarity=min_similarity,
                         retrieval_scope=resolved_scope,
                     ),
@@ -1106,7 +1168,7 @@ def answer_with_rag(
                     question=question,
                     reason="insufficient_evidence",
                     docs=selected_docs,
-                    top_k=top_k,
+                    top_k=effective_top_k,
                     min_similarity=min_similarity,
                     retrieval_scope=resolved_scope,
                     verifier_passed=False,
@@ -1147,7 +1209,7 @@ def answer_with_rag(
                 question=question,
                 reason="validation_failed",
                 docs=selected_docs,
-                top_k=top_k,
+                top_k=effective_top_k,
                 min_similarity=min_similarity,
                 retrieval_scope=resolved_scope,
                 verifier_passed=False,
@@ -1163,7 +1225,7 @@ def answer_with_rag(
                 question=question,
                 reason="validation_failed",
                 docs=selected_docs,
-                top_k=top_k,
+                top_k=effective_top_k,
                 min_similarity=min_similarity,
                 retrieval_scope=resolved_scope,
                 verifier_passed=False,
@@ -1190,7 +1252,7 @@ def answer_with_rag(
                 question=question,
                 reason="validation_failed",
                 docs=selected_docs,
-                top_k=top_k,
+                top_k=effective_top_k,
                 min_similarity=min_similarity,
                 retrieval_scope=resolved_scope,
                 verifier_passed=False,
@@ -1205,7 +1267,7 @@ def answer_with_rag(
                 question=question,
                 reason="verifier_failed",
                 docs=selected_docs,
-                top_k=top_k,
+                top_k=effective_top_k,
                 min_similarity=min_similarity,
                 retrieval_scope=resolved_scope,
                 verifier_passed=False,
@@ -1252,7 +1314,7 @@ def answer_with_rag(
                     question=question,
                     reason="partial_evidence",
                     docs=selected_docs,
-                    top_k=top_k,
+                    top_k=effective_top_k,
                     min_similarity=min_similarity,
                     retrieval_scope=resolved_scope,
                 ),
@@ -1273,7 +1335,7 @@ def answer_with_rag(
                     question=question,
                     reason="partial_evidence",
                     docs=selected_docs,
-                    top_k=top_k,
+                    top_k=effective_top_k,
                     min_similarity=min_similarity,
                     retrieval_scope=resolved_scope,
                 ),
@@ -1289,7 +1351,7 @@ def answer_with_rag(
                 question=question,
                 reason="verifier_failed",
                 docs=selected_docs,
-                top_k=top_k,
+                top_k=effective_top_k,
                 min_similarity=min_similarity,
                 retrieval_scope=resolved_scope,
                 verifier_passed=False,
@@ -1312,7 +1374,7 @@ def answer_with_rag(
                 question=question,
                 reason="validation_failed",
                 docs=selected_docs,
-                top_k=top_k,
+                top_k=effective_top_k,
                 min_similarity=min_similarity,
                 retrieval_scope=resolved_scope,
                 verifier_passed=False,
@@ -1331,7 +1393,7 @@ def answer_with_rag(
             "context_count": len(selected_docs),
             "retrieval_meta": {
                 "reason": "ok",
-                "top_k": top_k,
+                "top_k": effective_top_k,
                 "min_similarity": min_similarity,
                 "context_count": len(selected_docs),
                 "verifier_passed": True,
