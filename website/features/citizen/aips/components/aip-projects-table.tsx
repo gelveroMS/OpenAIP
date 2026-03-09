@@ -122,7 +122,13 @@ export default function AipProjectsTable({ aip }: { aip: AipDetails }) {
               {visibleRows.map((row) => (
                 <TableRow
                   key={row.id}
-                  className={`cursor-pointer ${row.hasLguNote ? "bg-amber-50 hover:bg-amber-100" : ""}`}
+                  className={`cursor-pointer ${
+                    row.hasLguNote
+                      ? "bg-amber-50 hover:bg-amber-100"
+                      : row.hasAiIssues
+                        ? "bg-rose-50 hover:bg-rose-100"
+                        : ""
+                  }`}
                   onClick={() => {
                     router.push(`/aips/${encodeURIComponent(aip.id)}/${encodeURIComponent(row.id)}`);
                   }}
@@ -170,6 +176,10 @@ export default function AipProjectsTable({ aip }: { aip: AipDetails }) {
         </div>
 
         <div className="flex flex-wrap justify-end gap-5 pt-2 text-xs text-slate-600">
+          <div className="inline-flex items-center gap-2">
+            <span className="inline-block h-3.5 w-3.5 rounded-sm bg-rose-500" aria-hidden="true" />
+            AI-flagged with no LGU feedback note
+          </div>
           <div className="inline-flex items-center gap-2">
             <span className="inline-block h-3.5 w-3.5 rounded-sm bg-amber-500" aria-hidden="true" />
             Has LGU feedback note

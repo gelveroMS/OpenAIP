@@ -84,14 +84,21 @@ describe("AipProjectsTable", () => {
     expect(screen.getByText("General Program 1")).toBeInTheDocument();
   });
 
-  it("highlights rows with LGU notes in yellow", () => {
+  it("applies row status styling precedence for LGU notes and AI flags", () => {
     render(<AipProjectsTable aip={buildAipDetails()} />);
 
     const rowWithLguNote = screen.getByText("General Program 1").closest("tr");
-    const rowWithoutLguNote = screen.getByText("General Program 2").closest("tr");
+    const rowWithUnresolvedAiFlag = screen.getByText("General Program 2").closest("tr");
+    const rowWithoutFlags = screen.getByText("General Program 3").closest("tr");
 
     expect(rowWithLguNote).toHaveClass("bg-amber-50");
-    expect(rowWithoutLguNote).not.toHaveClass("bg-amber-50");
+    expect(rowWithLguNote).not.toHaveClass("bg-rose-50");
+
+    expect(rowWithUnresolvedAiFlag).toHaveClass("bg-rose-50");
+    expect(rowWithUnresolvedAiFlag).not.toHaveClass("bg-amber-50");
+
+    expect(rowWithoutFlags).not.toHaveClass("bg-amber-50");
+    expect(rowWithoutFlags).not.toHaveClass("bg-rose-50");
   });
 
   it("shows unresolved AI notice when flagged projects have no LGU note", () => {
