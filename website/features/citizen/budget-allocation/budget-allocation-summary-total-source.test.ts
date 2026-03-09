@@ -187,18 +187,19 @@ describe("GET /api/citizen/budget-allocation/summary total source", () => {
     vi.clearAllMocks();
   });
 
-  it("uses file totals as canonical overall total and falls back per-AIP", async () => {
+  it("uses canonical AIP display total and folds residual to Other Services", async () => {
     mockSupabaseServer.mockResolvedValue(
       createMockClient({
         cityName: "City of Alpha",
         cityId: CITY_ID,
         aips: [
           { id: "aip-1", fiscal_year: 2026, status: "published", city_id: CITY_ID, barangay_id: null },
-          { id: "aip-2", fiscal_year: 2026, status: "published", city_id: CITY_ID, barangay_id: null },
         ],
         projects: [
           { aip_id: "aip-1", sector_code: "1000", total: 300 },
-          { aip_id: "aip-2", sector_code: "3000", total: 200 },
+          { aip_id: "aip-1", sector_code: "3000", total: 200 },
+          { aip_id: "aip-1", sector_code: "7777", total: 50 },
+          { aip_id: "aip-1", sector_code: null, total: 25 },
         ],
         aipTotals: [
           { aip_id: "aip-1", source_label: "total_investment_program", total_investment_program: 1000 },
@@ -215,12 +216,53 @@ describe("GET /api/citizen/budget-allocation/summary total source", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.totals.overall_total).toBe(1200);
+    expect(body.totals.overall_total).toBe(1000);
+    expect(
+      body.totals.by_sector.find((row: { sector_code: string }) => row.sector_code === "1000")?.total
+    ).toBe(300);
+    expect(
+      body.totals.by_sector.find((row: { sector_code: string }) => row.sector_code === "3000")?.total
+    ).toBe(200);
+    expect(
+      body.totals.by_sector.find((row: { sector_code: string }) => row.sector_code === "9000")?.total
+    ).toBe(500);
     expect(
       body.totals.by_sector.find((row: { sector_code: string }) => row.sector_code === "1000")?.pct
-    ).toBeCloseTo(0.25);
+    ).toBeCloseTo(0.3);
     expect(
-      body.totals.by_sector.find((row: { sector_code: string }) => row.sector_code === "3000")?.pct
-    ).toBeCloseTo(1 / 6);
+      body.totals.by_sector.find((row: { sector_code: string }) => row.sector_code === "9000")?.pct
+    ).toBeCloseTo(0.5);
+  });
+
+  it("falls back to project totals when no aip_totals record exists", async () => {
+    mockSupabaseServer.mockResolvedValue(
+      createMockClient({
+        cityName: "City of Alpha",
+        cityId: CITY_ID,
+        aips: [
+          { id: "aip-1", fiscal_year: 2026, status: "published", city_id: CITY_ID, barangay_id: null },
+        ],
+        projects: [
+          { aip_id: "aip-1", sector_code: "1000", total: 300 },
+          { aip_id: "aip-1", sector_code: "3000", total: 100 },
+          { aip_id: "aip-1", sector_code: "7777", total: 200 },
+        ],
+        aipTotals: [],
+      })
+    );
+
+    const { GET } = await import("@/app/api/citizen/budget-allocation/summary/route");
+    const response = await GET(
+      new Request(
+        `http://localhost/api/citizen/budget-allocation/summary?fiscal_year=2026&scope_type=city&scope_id=${CITY_ID}`
+      )
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.totals.overall_total).toBe(600);
+    expect(
+      body.totals.by_sector.find((row: { sector_code: string }) => row.sector_code === "9000")?.total
+    ).toBe(200);
   });
 });
