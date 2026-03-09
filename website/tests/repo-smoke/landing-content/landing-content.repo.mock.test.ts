@@ -62,6 +62,10 @@ export async function runLandingContentRepoMockTests() {
   assert(vm.finalCta.ctaHref === "/aips", "Expected final CTA route");
   assert(!!result.meta.selection.resolvedScopeId, "Expected resolved scope id in metadata");
   assert(Number.isInteger(result.meta.selection.resolvedFiscalYear), "Expected resolved fiscal year metadata");
+  assert(
+    result.meta.selection.resolvedFiscalYear === result.meta.availableFiscalYears[0],
+    "Expected default query to resolve to latest available fiscal year"
+  );
 
   const switched = await repo.getLandingContent({
     scopeType: "barangay",
@@ -89,4 +93,18 @@ export async function runLandingContentRepoMockTests() {
     fiscalYear: 2024,
   });
   assert(noData.meta.hasData === false, "Expected no-data state for unsupported fiscal year");
+
+  const fallbackToLatest = await repo.getLandingContent({
+    scopeType: "barangay",
+    scopeId: "mock-barangay-pulo",
+    fiscalYear: 2030,
+  });
+  assert(
+    fallbackToLatest.meta.selection.resolvedFiscalYear === 2026,
+    "Expected future fiscal year query to fallback to latest available fiscal year"
+  );
+  assert(
+    fallbackToLatest.meta.selection.fallbackApplied === true,
+    "Expected fiscal year fallback to be flagged in metadata"
+  );
 }

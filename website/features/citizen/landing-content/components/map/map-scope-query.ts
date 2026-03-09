@@ -6,6 +6,7 @@ type BuildDashboardScopeHrefInput = {
   scopeType?: LandingScopeType;
   scopeId?: string;
   fiscalYear?: number;
+  preferLatestFiscalYear?: boolean;
 };
 
 function normalizeYear(value: number | string | null | undefined): number | null {
@@ -29,14 +30,22 @@ export function buildDashboardScopeHref(input: BuildDashboardScopeHrefInput): st
   const params = new URLSearchParams(input.searchParams.toString());
   const currentScopeType = params.get("scope_type");
   const currentScopeId = params.get("scope_id");
+  const currentFiscalYear = params.get("fiscal_year");
+  const useLatestFiscalYear = input.preferLatestFiscalYear === true;
 
   const resolvedFiscalYear =
-    normalizeYear(input.fiscalYear) ?? normalizeYear(params.get("fiscal_year"));
+    useLatestFiscalYear
+      ? null
+      : normalizeYear(input.fiscalYear) ?? normalizeYear(params.get("fiscal_year"));
+  const matchesCurrentFiscalYear =
+    resolvedFiscalYear === null
+      ? currentFiscalYear === null
+      : currentFiscalYear === String(resolvedFiscalYear);
 
   if (
     currentScopeType === scopeType &&
     currentScopeId === scopeId &&
-    (resolvedFiscalYear === null || params.get("fiscal_year") === String(resolvedFiscalYear))
+    matchesCurrentFiscalYear
   ) {
     return null;
   }
@@ -45,6 +54,8 @@ export function buildDashboardScopeHref(input: BuildDashboardScopeHrefInput): st
   params.set("scope_id", scopeId);
   if (resolvedFiscalYear !== null) {
     params.set("fiscal_year", String(resolvedFiscalYear));
+  } else {
+    params.delete("fiscal_year");
   }
 
   const query = params.toString();

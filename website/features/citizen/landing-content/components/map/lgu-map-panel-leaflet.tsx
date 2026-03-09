@@ -98,7 +98,7 @@ export default function LguMapPanelLeaflet({
                   searchParams: new URLSearchParams(searchParams.toString()),
                   scopeType: marker.scopeType,
                   scopeId: marker.scopeId,
-                  fiscalYear: map.selectedFiscalYear,
+                  preferLatestFiscalYear: true,
                 });
 
                 if (!href) return;
