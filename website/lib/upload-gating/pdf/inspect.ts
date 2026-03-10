@@ -12,6 +12,12 @@ type PdfLoadingTask = {
   destroy: () => Promise<void> | void;
 };
 
+type CanvasPolyfillModule = {
+  DOMMatrix?: unknown;
+  ImageData?: unknown;
+  Path2D?: unknown;
+};
+
 type PdfJsModule = {
   getDocument: (input: unknown) => PdfLoadingTask;
   GlobalWorkerOptions: {
@@ -40,6 +46,58 @@ const nodeRequire = createRequire(import.meta.url);
 let workerSrcConfigured = false;
 let workerBootstrapPromise: Promise<void> | null = null;
 let pdfJsModulePromise: Promise<PdfJsModule> | null = null;
+let canvasPolyfillPromise: Promise<void> | null = null;
+
+async function ensureCanvasPolyfills(): Promise<void> {
+  if (
+    typeof globalThis.DOMMatrix !== "undefined" &&
+    typeof globalThis.ImageData !== "undefined" &&
+    typeof globalThis.Path2D !== "undefined"
+  ) {
+    return;
+  }
+
+  if (!canvasPolyfillPromise) {
+    canvasPolyfillPromise = (async () => {
+      let canvasModule: CanvasPolyfillModule;
+      try {
+        canvasModule = (await import("@napi-rs/canvas")) as CanvasPolyfillModule;
+      } catch (error) {
+        throw new PdfInspectError(
+          "corrupted",
+          "PDF canvas runtime could not be loaded.",
+          getPdfSourceErrorDiagnostics(error)
+        );
+      }
+
+      const globalWithCanvas = globalThis as Record<string, unknown>;
+
+      if (
+        typeof globalWithCanvas.DOMMatrix === "undefined" &&
+        typeof canvasModule.DOMMatrix !== "undefined"
+      ) {
+        globalWithCanvas.DOMMatrix = canvasModule.DOMMatrix;
+      }
+      if (
+        typeof globalWithCanvas.ImageData === "undefined" &&
+        typeof canvasModule.ImageData !== "undefined"
+      ) {
+        globalWithCanvas.ImageData = canvasModule.ImageData;
+      }
+      if (
+        typeof globalWithCanvas.Path2D === "undefined" &&
+        typeof canvasModule.Path2D !== "undefined"
+      ) {
+        globalWithCanvas.Path2D = canvasModule.Path2D;
+      }
+    })().catch((error) => {
+      canvasPolyfillPromise = null;
+      throw error;
+    });
+  }
+
+  await canvasPolyfillPromise;
+}
 
 async function ensurePdfWorkerHandler(): Promise<void> {
   const globalWithPdfWorker = globalThis as typeof globalThis & {
@@ -89,9 +147,10 @@ export function getPdfSourceErrorDiagnostics(
 
 export async function loadPdfJsModule(): Promise<PdfJsModule> {
   if (!pdfJsModulePromise) {
-    pdfJsModulePromise = import(
-      "pdfjs-dist/legacy/build/pdf.mjs"
-    ) as Promise<PdfJsModule>;
+    pdfJsModulePromise = (async () => {
+      await ensureCanvasPolyfills();
+      return import("pdfjs-dist/legacy/build/pdf.mjs") as Promise<PdfJsModule>;
+    })();
   }
 
   try {

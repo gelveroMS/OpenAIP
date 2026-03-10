@@ -3,6 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   devIndicators: false,
+  serverExternalPackages: ["@napi-rs/canvas"],
   turbopack: {
     // Avoid workspace root mis-detection that can cause
     // "Next.js package not found" panics on dev.
