@@ -73,7 +73,6 @@ const PIPELINE_STAGES: PipelineStageUi[] = [
 const PIPELINE_STAGE_ORDER_FOR_FAILURE: PipelineStageUi[] = [
   "extract",
   "validate",
-  "scale_amounts",
   "summarize",
   "categorize",
   "embed",
@@ -81,7 +80,7 @@ const PIPELINE_STAGE_ORDER_FOR_FAILURE: PipelineStageUi[] = [
 const PIPELINE_STAGE_LABELS: Record<PipelineStageUi, string> = {
   extract: "Extraction",
   validate: "Validation",
-  scale_amounts: "Scaling amounts",
+  scale_amounts: "Validation",
   summarize: "Summarization",
   categorize: "Categorization",
   embed: "Embedding",
@@ -205,12 +204,18 @@ function hasSummaryText(summaryText: string | undefined): boolean {
   return typeof summaryText === "string" && summaryText.trim().length > 0;
 }
 
+function toDisplayPipelineStage(stage: PipelineStageUi): PipelineStageUi {
+  return stage === "scale_amounts" ? "validate" : stage;
+}
+
 function getPipelineStageLabel(stage: PipelineStageUi): string {
-  return PIPELINE_STAGE_LABELS[stage];
+  return PIPELINE_STAGE_LABELS[toDisplayPipelineStage(stage)];
 }
 
 function getCompletedPipelineStageLabels(failedStage: PipelineStageUi): string[] {
-  const failedIndex = PIPELINE_STAGE_ORDER_FOR_FAILURE.indexOf(failedStage);
+  const failedIndex = PIPELINE_STAGE_ORDER_FOR_FAILURE.indexOf(
+    toDisplayPipelineStage(failedStage)
+  );
   if (failedIndex <= 0) return [];
   return PIPELINE_STAGE_ORDER_FOR_FAILURE.slice(0, failedIndex).map(getPipelineStageLabel);
 }
@@ -237,7 +242,7 @@ function buildProgressByStage(
 
   if (!stage || !status) return progressByStage;
 
-  const activeIndex = PIPELINE_STAGES.indexOf(stage);
+  const activeIndex = PIPELINE_STAGES.indexOf(toDisplayPipelineStage(stage));
   if (activeIndex < 0) return progressByStage;
 
   for (let index = 0; index < PIPELINE_STAGES.length; index += 1) {
@@ -423,7 +428,7 @@ export default function AipDetailView({
           setFinalizingNotice(null);
           setFailedRun({
             runId: payload.failedRun.runId,
-            stage: payload.failedRun.stage,
+            stage: toDisplayPipelineStage(payload.failedRun.stage),
             message: payload.failedRun.errorMessage,
           });
           setRetryError(null);
@@ -475,6 +480,7 @@ export default function AipDetailView({
         );
         return;
       }
+      const displayStage = toDisplayPipelineStage(payload.stage);
 
       const shouldShowSyncingMessage =
         (payload.status === "queued" || payload.status === "running") &&
@@ -482,13 +488,13 @@ export default function AipDetailView({
         !payload.progressMessage;
 
       setProcessingRun({
-        stage: payload.stage,
+        stage: displayStage,
         status: payload.status,
         message:
           payload.errorMessage ??
           (shouldShowSyncingMessage ? "Syncing live progress..." : null),
         progressByStage: buildProgressByStage(
-          payload.stage,
+          displayStage,
           payload.status,
           payload.stageProgressPct
         ),
@@ -535,7 +541,7 @@ export default function AipDetailView({
       setActiveRunId(null);
       setFailedRun({
         runId: payload.runId,
-        stage: payload.stage,
+        stage: displayStage,
         message: payload.errorMessage ?? payload.progressMessage ?? null,
       });
       setRetryError(null);

@@ -64,10 +64,10 @@ function normalizeMessage(value: string | null | undefined): string | null {
 }
 
 function toProcessingStage(value: string | null): NonNullable<AipHeader["processing"]>["stage"] {
+  if (value === "scale_amounts") return "validate";
   if (
     value === "extract" ||
     value === "validate" ||
-    value === "scale_amounts" ||
     value === "summarize" ||
     value === "categorize" ||
     value === "embed"

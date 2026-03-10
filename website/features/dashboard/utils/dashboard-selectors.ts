@@ -227,7 +227,7 @@ export function hasProjectErrors(errors: unknown): boolean {
 export function formatStageLabel(stage: PipelineStage): string {
   if (stage === "extract") return "Extract";
   if (stage === "validate") return "Validate";
-  if (stage === "scale_amounts") return "Scale amounts";
+  if (stage === "scale_amounts") return "Validate";
   if (stage === "summarize") return "Summarize";
   if (stage === "categorize") return "Categorize";
   return "Embed";

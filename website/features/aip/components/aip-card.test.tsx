@@ -72,6 +72,30 @@ describe("AipCard processing UI", () => {
     expect(screen.getByText("Extracting pages 13/25...")).toBeInTheDocument();
   });
 
+  it("renders scale_amounts as validating while preserving the scaling progress message", () => {
+    render(
+      <AipCard
+        aip={makeAip({
+          status: "draft",
+          processing: {
+            state: "processing",
+            overallProgressPct: 72,
+            message: "Scaling city monetary fields by 1000...",
+            runId: "run-scale",
+            stage: "scale_amounts",
+            status: "running",
+          },
+        })}
+      />
+    );
+
+    expect(screen.getByText("Validating")).toBeInTheDocument();
+    expect(
+      screen.getByText("Scaling city monetary fields by 1000...")
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Scaling amounts")).not.toBeInTheDocument();
+  });
+
   it("shows queued fallback label and message when run is queued", () => {
     render(
       <AipCard

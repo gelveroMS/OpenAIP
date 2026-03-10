@@ -106,6 +106,27 @@ describe("use-extraction-runs-realtime helpers", () => {
       stage: "validate",
       status: "running",
     });
+
+    expect(
+      mapRunToAipCardProcessing({
+        id: "run-007",
+        aip_id: "aip-001",
+        stage: "scale_amounts",
+        status: "running",
+        error_message: null,
+        overall_progress_pct: 72,
+        stage_progress_pct: 50,
+        progress_message: "Scaling city monetary fields by 1000...",
+        progress_updated_at: null,
+      })
+    ).toEqual({
+      state: "processing",
+      overallProgressPct: 72,
+      message: "Scaling city monetary fields by 1000...",
+      runId: "run-007",
+      stage: "validate",
+      status: "running",
+    });
   });
 
   it("does not map terminal statuses to card processing state", () => {

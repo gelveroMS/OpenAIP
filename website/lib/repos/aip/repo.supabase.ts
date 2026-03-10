@@ -403,6 +403,10 @@ function toProgressMessage(value: string | null | undefined): string | null {
   return message ? message : null;
 }
 
+function toUiProcessingStage(stage: ExtractionRunSelectRow["stage"]): ExtractionRunSelectRow["stage"] {
+  return stage === "scale_amounts" ? "validate" : stage;
+}
+
 function buildAipProcessing(input: {
   run: ExtractionRunSelectRow | undefined;
   summary: string | undefined;
@@ -417,7 +421,7 @@ function buildAipProcessing(input: {
       overallProgressPct: clampProgress(run.overall_progress_pct, 0),
       message: toProgressMessage(run.progress_message),
       runId: run.id,
-      stage: run.stage,
+      stage: toUiProcessingStage(run.stage),
       status: run.status,
     };
   }
