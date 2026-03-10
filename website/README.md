@@ -106,6 +106,15 @@ npx tsc --noEmit
 node scripts/repo-smoke/run.js
 ```
 
+## City AIP 500 Diagnostics
+
+- Run API-backed schema probes:
+  - `npm run diagnose:city-aips-500`
+- Run SQL Editor probes (read-only):
+  - `docs/sql/2026-03-10_city_aips_500_schema_probe.sql`
+- Full recovery runbook:
+  - `docs/city-aips-500-recovery.md`
+
 ## Admin Auth Regression Checklist
 
 1. Fresh admin sign-up/confirm (if applicable in your environment):

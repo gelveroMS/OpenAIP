@@ -11,6 +11,11 @@
       "sourceType": "github",
       "computedHash": "37226d4220d844377e6b2a386c51a011df4cd130855ff0b80bcc22f9c28abd57"
     },
+    "playwright-best-practices": {
+      "source": "currents-dev/playwright-best-practices-skill",
+      "sourceType": "github",
+      "computedHash": "650ef2a7fb562fbc8f1a8149e9bd0fae08bc24f75b126dbee3a44065e793ca16"
+    },
     "python-design-patterns": {
       "source": "wshobson/agents",
       "sourceType": "github",

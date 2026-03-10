@@ -7,6 +7,7 @@
         "build": "npm run db:assert-hardening && next build",
         "start": "next start",
         "db:assert-hardening": "node --experimental-strip-types --env-file-if-exists=.env.local scripts/assert-db-hardening.ts",
+        "diagnose:city-aips-500": "node --experimental-strip-types --env-file-if-exists=.env.local scripts/diagnose-city-aips-500.ts",
         "lint": "eslint",
         "test:ui": "vitest run",
         "test:ui:watch": "vitest"
