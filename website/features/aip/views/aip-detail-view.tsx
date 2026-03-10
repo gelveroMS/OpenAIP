@@ -94,6 +94,8 @@ const FINALIZE_PROGRESS_MESSAGE =
   "Saving processed data to the database. You will be redirected shortly.";
 const LIVE_STATUS_UNAVAILABLE_NOTICE =
   "Live extraction updates are unavailable right now. Refresh this page to check the latest status.";
+const STALE_RUN_TRACKING_NOTICE =
+  "This run link is no longer active. Showing the latest AIP details.";
 
 function getChatbotStatusToneClass(tone: AipChatbotReadinessTone): string {
   switch (tone) {
@@ -449,7 +451,9 @@ export default function AipDetailView({
 
     let cancelled = false;
     setIsCheckingRun(true);
-    setRunNotice(null);
+    setRunNotice((current) =>
+      current === STALE_RUN_TRACKING_NOTICE ? current : null
+    );
 
     async function lookupActiveRun() {
       try {
@@ -480,6 +484,7 @@ export default function AipDetailView({
             setFailedRun(null);
             setRetryError(null);
             setFinalizingNotice(null);
+            setRunNotice(null);
           } else {
             setActiveRunId(payload.run.runId);
             setProcessingState("processing");
@@ -487,6 +492,7 @@ export default function AipDetailView({
             setFailedRun(null);
             setRetryError(null);
             setFinalizingNotice(null);
+            setRunNotice(null);
           }
         } else if (payload.failedRun?.runId) {
           if (isEmbedStage(payload.failedRun.stage)) {
@@ -505,6 +511,7 @@ export default function AipDetailView({
             setFinalizingNotice(null);
             setFailedRun(null);
             setRetryError(null);
+            setRunNotice(null);
           } else {
             setActiveRunId(null);
             setProcessingState("idle");
@@ -516,6 +523,7 @@ export default function AipDetailView({
               message: payload.failedRun.errorMessage,
             });
             setRetryError(null);
+            setRunNotice(null);
           }
         } else {
           setActiveRunId(null);
@@ -682,7 +690,20 @@ export default function AipDetailView({
       const res = await fetch(
         `/api/${runApiScope}/aips/runs/${encodeURIComponent(activeRunId)}`
       );
-      if (!res.ok) return;
+      if (!res.ok) {
+        if (res.status === 404 && runIdFromQuery === activeRunId) {
+          setActiveRunId(null);
+          setProcessingRun(null);
+          setProcessingState("idle");
+          setIsFinalizingAfterSuccess(false);
+          setFailedRun(null);
+          setRetryError(null);
+          setFinalizingNotice(null);
+          setRunNotice(STALE_RUN_TRACKING_NOTICE);
+          clearRunQuery();
+        }
+        return;
+      }
       const payload = (await res.json()) as RunSnapshotPayload;
       if (!payload || payload.runId !== activeRunId) return;
       applyRunStatusPayload({
@@ -698,7 +719,14 @@ export default function AipDetailView({
     } catch {
       // best-effort sync; realtime remains primary transport
     }
-  }, [activeRunId, applyRunStatusPayload, isCityScope, shouldTrackRunStatus]);
+  }, [
+    activeRunId,
+    applyRunStatusPayload,
+    clearRunQuery,
+    isCityScope,
+    runIdFromQuery,
+    shouldTrackRunStatus,
+  ]);
 
   const hydrateEmbedSnapshot = useCallback(async (mode: "initial" | "resync" = "initial") => {
     if (!shouldTrackRunStatus || aip.status !== "published") return;
@@ -819,6 +847,11 @@ export default function AipDetailView({
   useEffect(() => {
     if (!isFinalizingAfterSuccess) return;
 
+    if (runIdFromQuery) {
+      clearRunQuery();
+      return;
+    }
+
     if (hasSummaryText(aip.summaryText)) {
       setIsFinalizingAfterSuccess(false);
       setProcessingRun(null);
@@ -855,7 +888,7 @@ export default function AipDetailView({
     return () => {
       cancelled = true;
     };
-  }, [aip.summaryText, isFinalizingAfterSuccess, router]);
+  }, [aip.summaryText, clearRunQuery, isFinalizingAfterSuccess, router, runIdFromQuery]);
 
   useEffect(() => {
     if (!finalizingNotice) return;

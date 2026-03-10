@@ -1,6 +1,13 @@
 import { assert, assertEquals } from "jsr:@std/assert@1";
 
-import { buildChunkPlan, handleRequest } from "./index.ts";
+import {
+  buildChunkPlan,
+  computeEmbeddingWindowSize,
+  computeEmbedStageProgressPct,
+  handleRequest,
+  isEmbedRunStale,
+  shouldQueueEmbedContinuation,
+} from "./index.ts";
 
 async function signJob(args: {
   secret: string;
@@ -21,7 +28,9 @@ async function signJob(args: {
   const signature = new Uint8Array(
     await crypto.subtle.sign("HMAC", key, encoder.encode(payload)),
   );
-  return [...signature].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return [...signature]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 async function buildSignedRequest(args: {
@@ -59,127 +68,139 @@ async function buildSignedRequest(args: {
   });
 }
 
-Deno.test("buildChunkPlan is deterministic for identical categorize input", () => {
-  const args = {
-    projectsRaw: [
-      {
-        aip_ref_code: "1000-2026-001",
-        program_project_description: "Primary care expansion",
-        source_of_funds: "General Fund",
-        amounts: {
-          personal_services: 100000,
-          maintenance_and_other_operating_expenses: 200000,
-          financial_expenses: 0,
-          capital_outlay: 300000,
-          total: 600000,
+Deno.test(
+  "buildChunkPlan is deterministic for identical categorize input",
+  () => {
+    const args = {
+      projectsRaw: [
+        {
+          aip_ref_code: "1000-2026-001",
+          program_project_description: "Primary care expansion",
+          source_of_funds: "General Fund",
+          amounts: {
+            personal_services: 100000,
+            maintenance_and_other_operating_expenses: 200000,
+            financial_expenses: 0,
+            capital_outlay: 300000,
+            total: 600000,
+          },
+          classification: {
+            sector_code: "1000",
+            category: "health",
+          },
         },
-        classification: {
-          sector_code: "1000",
-          category: "health",
+        {
+          aip_ref_code: "3000-2026-010",
+          program_project_description: "Road rehabilitation and drainage works",
+          source_of_funds: "Local Development Fund",
+          amounts: {
+            personal_services: 0,
+            maintenance_and_other_operating_expenses: 100000,
+            financial_expenses: 0,
+            capital_outlay: 900000,
+            total: 1000000,
+          },
+          classification: {
+            sector_code: "3000",
+            category: "infrastructure",
+          },
         },
+      ],
+      context: {
+        fiscalYear: 2026,
+        scopeType: "barangay" as const,
+        scopeId: "scope-id",
+        scopeLabel: "Barangay: Mamatid",
+        documentType: "AIP",
+        publicationStatus: "published",
       },
-      {
-        aip_ref_code: "3000-2026-010",
-        program_project_description: "Road rehabilitation and drainage works",
-        source_of_funds: "Local Development Fund",
-        amounts: {
-          personal_services: 0,
-          maintenance_and_other_operating_expenses: 100000,
-          financial_expenses: 0,
-          capital_outlay: 900000,
-          total: 1000000,
-        },
-        classification: {
-          sector_code: "3000",
-          category: "infrastructure",
-        },
-      },
-    ],
-    context: {
-      fiscalYear: 2026,
+      artifactId: "artifact-id-123",
+      artifactRunId: "run-id-123",
+      aipId: "aip-id-123",
       scopeType: "barangay" as const,
       scopeId: "scope-id",
-      scopeLabel: "Barangay: Mamatid",
-      documentType: "AIP",
-      publicationStatus: "published",
-    },
-    artifactId: "artifact-id-123",
-    artifactRunId: "run-id-123",
-    aipId: "aip-id-123",
-    scopeType: "barangay" as const,
-    scopeId: "scope-id",
-    sectorLabels: new Map<string, string>([
-      ["1000", "General Services"],
-      ["3000", "Social Services"],
-      ["unknown", "Unknown Sector"],
-    ]),
-  };
+      sectorLabels: new Map<string, string>([
+        ["1000", "General Services"],
+        ["3000", "Social Services"],
+        ["unknown", "Unknown Sector"],
+      ]),
+    };
 
-  const first = buildChunkPlan(args);
-  const second = buildChunkPlan(args);
+    const first = buildChunkPlan(args);
+    const second = buildChunkPlan(args);
 
-  assertEquals(first, second);
-  assertEquals(first.length, 4);
-  assertEquals(first[0]?.chunkIndex, 0);
-  assertEquals(first[1]?.chunkIndex, 1);
-  assertEquals(first[2]?.chunkIndex, 2);
-  assertEquals(first[3]?.chunkIndex, 3);
-  assertEquals(first[0]?.chunkType, "project");
-  assertEquals(first[1]?.chunkType, "project");
-  assertEquals(first[2]?.chunkType, "category_summary");
-  assertEquals(first[3]?.chunkType, "category_summary");
-  assertEquals(first[0]?.metadata.chunk_kind, "project");
-  assertEquals(first[1]?.metadata.chunk_kind, "project");
-});
+    assertEquals(first, second);
+    assertEquals(first.length, 4);
+    assertEquals(first[0]?.chunkIndex, 0);
+    assertEquals(first[1]?.chunkIndex, 1);
+    assertEquals(first[2]?.chunkIndex, 2);
+    assertEquals(first[3]?.chunkIndex, 3);
+    assertEquals(first[0]?.chunkType, "project");
+    assertEquals(first[1]?.chunkType, "project");
+    assertEquals(first[2]?.chunkType, "category_summary");
+    assertEquals(first[3]?.chunkType, "category_summary");
+    assertEquals(first[0]?.metadata.chunk_kind, "project");
+    assertEquals(first[1]?.metadata.chunk_kind, "project");
+  },
+);
 
-Deno.test("buildChunkPlan keeps project chunks as primary even for short project rows", () => {
-  const projectsRaw = Array.from({ length: 8 }).map((_, idx) => ({
-    aip_ref_code: `${idx % 2 === 0 ? "1000" : "3000"}-2026-00${idx + 1}`,
-    program_project_description: `Short desc ${idx + 1}`,
-    source_of_funds: "General Fund",
-    amounts: {
-      personal_services: 1,
-      maintenance_and_other_operating_expenses: 2,
-      financial_expenses: 3,
-      capital_outlay: 4,
-      total: 10,
-    },
-    classification: {
-      sector_code: idx % 2 === 0 ? "1000" : "3000",
-      category: idx % 2 === 0 ? "health" : "infrastructure",
-    },
-  }));
+Deno.test(
+  "buildChunkPlan keeps project chunks as primary even for short project rows",
+  () => {
+    const projectsRaw = Array.from({ length: 8 }).map((_, idx) => ({
+      aip_ref_code: `${idx % 2 === 0 ? "1000" : "3000"}-2026-00${idx + 1}`,
+      program_project_description: `Short desc ${idx + 1}`,
+      source_of_funds: "General Fund",
+      amounts: {
+        personal_services: 1,
+        maintenance_and_other_operating_expenses: 2,
+        financial_expenses: 3,
+        capital_outlay: 4,
+        total: 10,
+      },
+      classification: {
+        sector_code: idx % 2 === 0 ? "1000" : "3000",
+        category: idx % 2 === 0 ? "health" : "infrastructure",
+      },
+    }));
 
-  const chunks = buildChunkPlan({
-    projectsRaw,
-    context: {
-      fiscalYear: 2026,
+    const chunks = buildChunkPlan({
+      projectsRaw,
+      context: {
+        fiscalYear: 2026,
+        scopeType: "city" as const,
+        scopeId: "scope-id",
+        scopeLabel: "City: Sample",
+        documentType: "AIP",
+        publicationStatus: "published",
+      },
+      artifactId: "artifact-id-456",
+      artifactRunId: "run-id-456",
+      aipId: "aip-id-456",
       scopeType: "city" as const,
       scopeId: "scope-id",
-      scopeLabel: "City: Sample",
-      documentType: "AIP",
-      publicationStatus: "published",
-    },
-    artifactId: "artifact-id-456",
-    artifactRunId: "run-id-456",
-    aipId: "aip-id-456",
-    scopeType: "city" as const,
-    scopeId: "scope-id",
-    sectorLabels: new Map<string, string>([
-      ["1000", "General Services"],
-      ["3000", "Social Services"],
-      ["unknown", "Unknown Sector"],
-    ]),
-  });
+      sectorLabels: new Map<string, string>([
+        ["1000", "General Services"],
+        ["3000", "Social Services"],
+        ["unknown", "Unknown Sector"],
+      ]),
+    });
 
-  assert(chunks.length > 0);
-  const projectChunks = chunks.filter((chunk) => chunk.chunkType === "project");
-  const summaryChunks = chunks.filter((chunk) => chunk.chunkType !== "project");
+    assert(chunks.length > 0);
+    const projectChunks = chunks.filter(
+      (chunk) => chunk.chunkType === "project",
+    );
+    const summaryChunks = chunks.filter(
+      (chunk) => chunk.chunkType !== "project",
+    );
 
-  assertEquals(projectChunks.length, projectsRaw.length);
-  assert(summaryChunks.length > 0);
-  assert(projectChunks.every((chunk) => chunk.metadata.chunk_kind === "project"));
-});
+    assertEquals(projectChunks.length, projectsRaw.length);
+    assert(summaryChunks.length > 0);
+    assert(
+      projectChunks.every((chunk) => chunk.metadata.chunk_kind === "project"),
+    );
+  },
+);
 
 Deno.test("handleRequest rejects unsigned requests", async () => {
   Deno.env.set("EMBED_CATEGORIZE_JOB_SECRET", "expected-secret");
@@ -255,4 +276,77 @@ Deno.test("handleRequest requires request_id or artifact_id", async () => {
 
   const res = await handleRequest(req);
   assertEquals(res.status, 400);
+});
+
+Deno.test("isEmbedRunStale detects stale and fresh runs", () => {
+  const nowMs = Date.parse("2026-03-10T18:00:00.000Z");
+  assertEquals(
+    isEmbedRunStale(
+      {
+        progress_updated_at: "2026-03-10T17:40:00.000Z",
+      },
+      nowMs,
+      300,
+    ),
+    true,
+  );
+  assertEquals(
+    isEmbedRunStale(
+      {
+        progress_updated_at: "2026-03-10T17:58:00.000Z",
+      },
+      nowMs,
+      300,
+    ),
+    false,
+  );
+  assertEquals(
+    isEmbedRunStale(
+      {
+        progress_updated_at: null,
+        started_at: "2026-03-10T17:59:30.000Z",
+      },
+      nowMs,
+      300,
+    ),
+    false,
+  );
+  assertEquals(
+    isEmbedRunStale(
+      {
+        progress_updated_at: null,
+        started_at: null,
+        created_at: null,
+      },
+      nowMs,
+      300,
+    ),
+    true,
+  );
+});
+
+Deno.test(
+  "computeEmbeddingWindowSize respects batch and max-batches limits",
+  () => {
+    assertEquals(computeEmbeddingWindowSize(0, 16, 4), 0);
+    assertEquals(computeEmbeddingWindowSize(3, 16, 4), 3);
+    assertEquals(computeEmbeddingWindowSize(64, 16, 4), 64);
+    assertEquals(computeEmbeddingWindowSize(200, 16, 4), 64);
+    assertEquals(computeEmbeddingWindowSize(10, 0, 0), 10);
+  },
+);
+
+Deno.test("computeEmbedStageProgressPct stays in embed heartbeat range", () => {
+  assertEquals(computeEmbedStageProgressPct(0, 100), 85);
+  assertEquals(computeEmbedStageProgressPct(50, 100), 92);
+  assertEquals(computeEmbedStageProgressPct(100, 100), 99);
+  assertEquals(computeEmbedStageProgressPct(1000, 100), 99);
+  assertEquals(computeEmbedStageProgressPct(0, 0), 99);
+});
+
+Deno.test("shouldQueueEmbedContinuation reflects remaining embeddings", () => {
+  assertEquals(shouldQueueEmbedContinuation(10), true);
+  assertEquals(shouldQueueEmbedContinuation(1), true);
+  assertEquals(shouldQueueEmbedContinuation(0), false);
+  assertEquals(shouldQueueEmbedContinuation(-1), false);
 });

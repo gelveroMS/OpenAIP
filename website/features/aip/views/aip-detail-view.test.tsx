@@ -14,6 +14,7 @@ import type {
 const mockReplace = vi.fn();
 const mockRefresh = vi.fn();
 const mockPush = vi.fn();
+let mockPathname = "/barangay/aips/aip-001";
 let lastDetailsTableProps: {
   scope: "city" | "barangay";
   enablePagination?: boolean;
@@ -34,7 +35,7 @@ let latestRealtimeArgs: UseExtractionRunsRealtimeInput | null = null;
 let realtimeArgsHistory: UseExtractionRunsRealtimeInput[] = [];
 
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/barangay/aips/aip-001",
+  usePathname: () => mockPathname,
   useRouter: () => ({
     replace: mockReplace,
     refresh: mockRefresh,
@@ -206,9 +207,13 @@ function findLatestRealtimeArgs(
 describe("AipDetailView sidebar behavior", () => {
   beforeEach(() => {
     lastDetailsTableProps = null;
+    mockPathname = "/barangay/aips/aip-001";
     mockSearchParams = new URLSearchParams();
     latestRealtimeArgs = null;
     realtimeArgsHistory = [];
+    mockReplace.mockReset();
+    mockRefresh.mockReset();
+    mockPush.mockReset();
     mockProjectsState = {
       rows: [],
       loading: false,
@@ -1264,6 +1269,193 @@ describe("AipDetailView sidebar behavior", () => {
         scroll: false,
       });
     });
+  });
+
+  it("clears run query after city realtime success using city pathname", async () => {
+    mockPathname = "/city/aips/aip-001";
+    mockSearchParams = new URLSearchParams("run=run-001");
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/city/aips/runs/run-001")) {
+          return new Response(
+            JSON.stringify({
+              runId: "run-001",
+              aipId: "aip-001",
+              stage: "extract",
+              status: "running",
+              errorMessage: null,
+              overallProgressPct: 10,
+              stageProgressPct: 25,
+              progressMessage: "Extracting city snapshot...",
+              progressUpdatedAt: "2026-02-21T00:00:30.000Z",
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }
+          );
+        }
+        return new Response(JSON.stringify({ run: null }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      })
+    );
+
+    render(
+      <AipDetailView
+        aip={baseAip("draft", {
+          scope: "city",
+          summaryText: "Summary already available.",
+        })}
+        scope="city"
+      />
+    );
+
+    await waitFor(() => {
+      expect(latestRealtimeArgs?.enabled).toBe(true);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("aip-processing-inline-status")).toBeInTheDocument();
+    });
+
+    act(() => {
+      latestRealtimeArgs?.onRunEvent?.({
+        eventType: "UPDATE",
+        run: {
+          id: "run-001",
+          aip_id: "aip-001",
+          stage: "categorize",
+          status: "succeeded",
+          error_message: null,
+          overall_progress_pct: 100,
+          stage_progress_pct: 100,
+          progress_message: null,
+          progress_updated_at: "2026-02-21T00:03:00.000Z",
+        },
+      } as ExtractionRunRealtimeEvent);
+    });
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith("/city/aips/aip-001", {
+        scroll: false,
+      });
+    });
+  });
+
+  it("does not refresh while run query is still present during finalization", async () => {
+    mockSearchParams = new URLSearchParams("run=run-001");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/barangay/aips/runs/run-001")) {
+          return new Response(
+            JSON.stringify({
+              runId: "run-001",
+              aipId: "aip-001",
+              stage: "extract",
+              status: "running",
+              errorMessage: null,
+              overallProgressPct: 10,
+              stageProgressPct: 25,
+              progressMessage: "Extracting from snapshot...",
+              progressUpdatedAt: "2026-02-21T00:00:30.000Z",
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }
+          );
+        }
+        return new Response(JSON.stringify({ run: null }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      })
+    );
+
+    render(<AipDetailView aip={baseAip("draft")} scope="barangay" />);
+
+    await waitFor(() => {
+      expect(latestRealtimeArgs?.enabled).toBe(true);
+    });
+
+    act(() => {
+      latestRealtimeArgs?.onRunEvent?.({
+        eventType: "UPDATE",
+        run: {
+          id: "run-001",
+          aip_id: "aip-001",
+          stage: "categorize",
+          status: "succeeded",
+          error_message: null,
+          overall_progress_pct: 100,
+          stage_progress_pct: 100,
+          progress_message: null,
+          progress_updated_at: "2026-02-21T00:03:00.000Z",
+        },
+      } as ExtractionRunRealtimeEvent);
+    });
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith("/barangay/aips/aip-001", {
+        scroll: false,
+      });
+    });
+    expect(mockRefresh).not.toHaveBeenCalled();
+  });
+
+  it("auto-cleans stale run query on 404 and shows latest AIP details notice", async () => {
+    mockSearchParams = new URLSearchParams("run=run-stale-001");
+    mockReplace.mockImplementation((nextUrl: string) => {
+      const rawQuery = nextUrl.includes("?") ? nextUrl.split("?")[1] : "";
+      mockSearchParams = new URLSearchParams(rawQuery);
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/barangay/aips/runs/run-stale-001")) {
+          return new Response(JSON.stringify({ message: "Run not found." }), {
+            status: 404,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (url.includes("/api/barangay/aips/aip-001/runs/active")) {
+          return new Response(JSON.stringify({ run: null, failedRun: null }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify({ run: null }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      })
+    );
+
+    render(<AipDetailView aip={baseAip("draft")} scope="barangay" />);
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith("/barangay/aips/aip-001", {
+        scroll: false,
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("aip-processing-inline-status")).not.toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByText("This run link is no longer active. Showing the latest AIP details.")
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("aip-pdf-container")).toBeInTheDocument();
   });
 
   it("shows failed-run focused layout with stage context and dual retry actions", async () => {
