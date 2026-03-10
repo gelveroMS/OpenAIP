@@ -155,6 +155,46 @@ describe("notification display templates", () => {
     expect(failed.context).toContain("Barangay Uno");
   });
 
+  it("renders embed success and failure notifications for published AIP indexing flows", () => {
+    const success = buildDisplay(
+      {
+        event_type: "AIP_EMBED_SUCCEEDED",
+        metadata: {
+          entity_type: "aip",
+          fiscal_year: 2026,
+          lgu_name: "Barangay Uno",
+          stage: "embed",
+          run_id: "run-embed-1",
+        },
+      },
+      "dropdown"
+    );
+
+    const failed = buildDisplay(
+      {
+        event_type: "AIP_EMBED_FAILED",
+        metadata: {
+          entity_type: "aip",
+          fiscal_year: 2026,
+          lgu_name: "Barangay Uno",
+          stage: "embed",
+          error_message: "Embedding provider timeout\nTrace details...",
+        },
+      },
+      "page"
+    );
+
+    expect(success.title).toBe("Search indexing completed for your published AIP.");
+    expect(success.iconKey).toBe("clipboard-check");
+    expect(success.context).toContain("AIP FY 2026");
+
+    expect(failed.title).toBe("AIP embedding failed");
+    expect(failed.iconKey).toBe("x-circle");
+    expect(failed.pill).toBe("Alert");
+    expect(failed.excerpt).toBe("Embedding provider timeout");
+    expect(failed.context).toContain("Barangay Uno");
+  });
+
   it("sanitizes and truncates excerpts safely", () => {
     const value = safeTruncate("<script>alert(1)</script>" + "x".repeat(200), 40);
     expect(value).not.toContain("<script>");

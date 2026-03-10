@@ -405,6 +405,7 @@ Recommended workflow:
    - `website/docs/sql/2026-03-03_notifications_outbox_tables_rls.sql`
    - `website/docs/sql/2026-03-03_notifications_admin_pipeline_outbox_alerts.sql`
    - `website/docs/sql/2026-03-06_aip_upload_validation_gating.sql`
+   - `website/docs/sql/2026-03-10_notifications_aip_embed_terminal_status.sql`
    - Note: `2026-02-26_projects_status_proposed_rename.sql` renames existing `projects.status` values from `planning` to `proposed`.
 3. Create Supabase storage buckets manually:
    - `aip-pdfs` (uploaded source PDFs)
@@ -710,7 +711,7 @@ Common hosting options for this codebase:
 | `POST /v1/runs/*` returns 401 | Missing/invalid `aud`/`ts`/`nonce`/`sig`, stale `ts`, replayed nonce, or audience not allowlisted | Set `PIPELINE_RUNS_HMAC_SECRET` and `PIPELINE_RUNS_ALLOWED_AUDIENCES`; sign request body/path/method correctly and keep clock skew within ±60s |
 | `POST /v1/chat/*` returns 401 | Missing/invalid `x-pipeline-aud`/`x-pipeline-ts`/`x-pipeline-nonce`/`x-pipeline-sig`, stale `ts`, invalid `aud`, bad signature, or replayed `(aud,nonce,ts,body)` | Set matching `PIPELINE_HMAC_SECRET` on website + pipeline; sign `aud|ts|nonce|rawBody`, keep clock skew within ±60s, and send unique nonce per request |
 | `Invalid schema: app` from chatbot/admin settings APIs | Supabase Data API does not expose `app` schema, or `app.settings` is missing/inaccessible | Expose `app` in Supabase Data API schemas and run `website/docs/sql/2026-02-26_app_settings_schema_and_grants.sql` |
-| Notifications inbox is empty for events that should notify | Notifications tables/triggers are missing from DB baseline | Apply `website/docs/sql/2026-03-03_notifications_outbox_tables_rls.sql` and `website/docs/sql/2026-03-03_notifications_admin_pipeline_outbox_alerts.sql` (or full `database-v2.sql`) |
+| Notifications inbox is empty for events that should notify | Notifications tables/triggers are missing from DB baseline | Apply `website/docs/sql/2026-03-03_notifications_outbox_tables_rls.sql`, `website/docs/sql/2026-03-03_notifications_admin_pipeline_outbox_alerts.sql`, and `website/docs/sql/2026-03-10_notifications_aip_embed_terminal_status.sql` (or full `database-v2.sql`) |
 | Clicking "Open related page" does not mark rows as read | `GET /api/notifications/open` route not reached (or unsafe `next` path) | Ensure links are built via tracked-open helper and `next` is an internal path beginning with `/` |
 | `send-email-outbox` returns 401/500 | Missing service-role bearer auth or missing outbox env values | Invoke with service-role JWT and set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, `FROM_EMAIL`, `APP_BASE_URL` |
 | Citizen about-us/dashboard content does not load seeded values | `app.settings` seeds not applied or `about-us-docs` bucket missing | Apply March 1 content seed SQL files and create/verify `about-us-docs` bucket objects |
