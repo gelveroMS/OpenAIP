@@ -693,6 +693,7 @@ Common hosting options for this codebase:
 |---|---|---|
 | `Missing NEXT_PUBLIC_SUPABASE_URL...` at runtime | Supabase public env vars not set in `website/.env.local` | Set `NEXT_PUBLIC_SUPABASE_URL` and one of `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`/`NEXT_PUBLIC_SUPABASE_ANON_KEY`, then restart `npm run dev` |
 | `BASE_URL environment variable is not configured` on auth pages | `BASE_URL` missing | Set `BASE_URL=http://localhost:3000` for local dev |
+| Hydration warning points to `app/layout.tsx` `<body>` (with unexpected extra attrs) | Browser extension mutated `html/body` before React hydration (for example grammar/spell-check extensions on editable pages) | Re-test in incognito or a clean browser profile with extensions disabled. Do not add global `suppressHydrationWarning`; keep warnings visible for real mismatches. |
 | Upload endpoint returns `Unauthorized` or `You cannot upload for this AIP right now.` | Role/scope mismatch or DB function/policies not applied | Ensure user profile role/scope is correct and SQL from `website/docs/sql/database-v2.sql` is applied |
 | Upload fails with `Invalid PDF file header. Expected %PDF- magic bytes.` | Uploaded file is not a real PDF payload | Re-export/upload a valid PDF file; do not rely on extension only |
 | Upload fails with `File too large...` | File exceeded `AIP_UPLOAD_MAX_BYTES` | Increase `AIP_UPLOAD_MAX_BYTES` carefully or upload a smaller PDF |
