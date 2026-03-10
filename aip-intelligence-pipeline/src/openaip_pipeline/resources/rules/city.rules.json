@@ -15,7 +15,7 @@
     {
       "id": "R003",
       "title": "Date order",
-      "description": "If both start_date and completion_date are present, non-empty, and valid under R002, then start_date must be earlier than completion_date. If start_date is the same as or later than completion_date, add an error."
+      "description": "If both start_date and completion_date are present, non-empty, and valid under R002, then start_date must be earlier than completion_date. If start_date is the same as completion_date, do not add an error."
     },
     {
       "id": "R004",
