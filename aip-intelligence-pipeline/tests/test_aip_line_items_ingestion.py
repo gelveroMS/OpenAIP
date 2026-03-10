@@ -120,10 +120,46 @@ def test_upsert_aip_line_items_uses_source_of_truth_context_and_updates_existing
     assert update_call["patch"]["page_no"] == 1
     assert update_call["patch"]["row_no"] == 3
     assert update_call["patch"]["table_no"] == 0
+    assert update_call["patch"]["sector_code"] == "1000"
 
     assert len(upserted) == 1
     assert upserted[0]["id"] == "line-001"
     assert "Schedule=2026-01-01..2026-12-31" in upserted[0]["embedding_text"]
+
+
+def test_upsert_aip_line_items_null_or_invalid_ref_yields_null_sector() -> None:
+    fake_client = _FakeClient()
+    repo = PipelineRepository(fake_client)  # type: ignore[arg-type]
+
+    repo.upsert_aip_line_items(
+        aip_id="aip-123",
+        projects=[
+            {
+                "aip_ref_code": "A101-01",
+                "sector_code": "1000",
+                "sector_name": "General Sector",
+                "program_project_description": "Invalid ref sector should clear",
+                "source_refs": [{"page": 2, "row_index": 5, "table_index": 0}],
+            },
+            {
+                "aip_ref_code": None,
+                "sector_code": "3000",
+                "sector_name": "Social Sector",
+                "program_project_description": "Null ref sector should clear",
+                "source_refs": [{"page": 3, "row_index": 7, "table_index": 1}],
+            },
+        ],
+    )
+
+    line_item_inserts = [
+        call
+        for call in fake_client.insert_calls
+        if call["table"] == "aip_line_items"
+    ]
+    assert len(line_item_inserts) == 2
+    for call in line_item_inserts:
+        assert call["row"]["sector_code"] is None
+        assert call["row"]["sector_name"] is None
 
 
 def test_upsert_aip_line_item_embeddings_uses_conflict_key() -> None:

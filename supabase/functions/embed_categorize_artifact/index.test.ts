@@ -100,6 +100,8 @@ Deno.test("buildChunkPlan is deterministic for identical categorize input", () =
       scopeType: "barangay" as const,
       scopeId: "scope-id",
       scopeLabel: "Barangay: Mamatid",
+      documentType: "AIP",
+      publicationStatus: "published",
     },
     artifactId: "artifact-id-123",
     artifactRunId: "run-id-123",
@@ -117,14 +119,20 @@ Deno.test("buildChunkPlan is deterministic for identical categorize input", () =
   const second = buildChunkPlan(args);
 
   assertEquals(first, second);
-  assertEquals(first.length, 2);
+  assertEquals(first.length, 4);
   assertEquals(first[0]?.chunkIndex, 0);
   assertEquals(first[1]?.chunkIndex, 1);
+  assertEquals(first[2]?.chunkIndex, 2);
+  assertEquals(first[3]?.chunkIndex, 3);
+  assertEquals(first[0]?.chunkType, "project");
+  assertEquals(first[1]?.chunkType, "project");
+  assertEquals(first[2]?.chunkType, "category_summary");
+  assertEquals(first[3]?.chunkType, "category_summary");
   assertEquals(first[0]?.metadata.chunk_kind, "project");
   assertEquals(first[1]?.metadata.chunk_kind, "project");
 });
 
-Deno.test("buildChunkPlan groups by category when per-project chunks are too short", () => {
+Deno.test("buildChunkPlan keeps project chunks as primary even for short project rows", () => {
   const projectsRaw = Array.from({ length: 8 }).map((_, idx) => ({
     aip_ref_code: `${idx % 2 === 0 ? "1000" : "3000"}-2026-00${idx + 1}`,
     program_project_description: `Short desc ${idx + 1}`,
@@ -149,6 +157,8 @@ Deno.test("buildChunkPlan groups by category when per-project chunks are too sho
       scopeType: "city" as const,
       scopeId: "scope-id",
       scopeLabel: "City: Sample",
+      documentType: "AIP",
+      publicationStatus: "published",
     },
     artifactId: "artifact-id-456",
     artifactRunId: "run-id-456",
@@ -163,7 +173,12 @@ Deno.test("buildChunkPlan groups by category when per-project chunks are too sho
   });
 
   assert(chunks.length > 0);
-  assertEquals(chunks[0]?.metadata.chunk_kind, "category_group");
+  const projectChunks = chunks.filter((chunk) => chunk.chunkType === "project");
+  const summaryChunks = chunks.filter((chunk) => chunk.chunkType !== "project");
+
+  assertEquals(projectChunks.length, projectsRaw.length);
+  assert(summaryChunks.length > 0);
+  assert(projectChunks.every((chunk) => chunk.metadata.chunk_kind === "project"));
 });
 
 Deno.test("handleRequest rejects unsigned requests", async () => {

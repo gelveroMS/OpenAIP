@@ -4,32 +4,40 @@
   "rules": [
     {
       "id": "R001",
-      "title": "Required fields",
-      "description": "aip_ref_code, program_project_description, implementing_agency, start_date, completion_date, expected_output, source_of_funds, and total must exist and not be an empty string."
+      "title": "AIP reference code prefix",
+      "description": "aip_ref_code may be null or empty. If present and non-empty, it must start with one of: 1000, 3000, 8000, 9000."
     },
     {
       "id": "R002",
       "title": "Date validity",
-      "description": "start_date and completion_date must be valid dates in month-name form (full or 3-letter) or numeric form (M/D/YYYY or MM/DD/YYYY)."
+      "description": "start_date and completion_date must be valid dates in month-name form (full or 3-letter, case-insensitive) or numeric form (M/D/YYYY or MM/DD/YYYY)."
     },
     {
       "id": "R003",
+      "title": "Date order",
+      "description": "If both start_date and completion_date are present, non-empty, and valid under R002, then start_date must be earlier than completion_date. If start_date is the same as or later than completion_date, add an error."
+    },
+    {
+      "id": "R004",
       "title": "Numeric fields",
       "description": "personal_services, maintenance_and_other_operating_expenses, financial_expenses, capital_outlay, and total must be number or null."
     },
     {
-      "id": "R004",
+      "id": "R005",
       "title": "Total arithmetic",
       "description": "total must equal personal_services + maintenance_and_other_operating_expenses + financial_expenses + capital_outlay, treating null as 0, with tolerance of 1.00 peso."
     },
     {
-      "id": "R005",
+      "id": "R006",
       "title": "Non-negative money",
-      "description": "All numeric budget fields (PS/MOOE/FE/CO/total) must be >= 0 when not null."
+      "description": "All numeric budget fields (PS/MOOE/FE/CO/total) must be greater than or equal to 0 when not null."
     }
   ],
   "notes": [
     "Barangay-specific: do not require cc_topology_code, climate_change_adaptation, or climate_change_mitigation.",
-    "If those climate/topology fields exist, ignore them unless explicitly requested otherwise."
+    "If those climate/topology fields exist, ignore them unless explicitly requested otherwise.",
+    "Only check R003 if both dates are valid under R002.",
+    "For R005 and R006, only evaluate fields that are valid numbers or null.",
+    "Treat null as allowed unless another rule explicitly forbids it."
   ]
 }

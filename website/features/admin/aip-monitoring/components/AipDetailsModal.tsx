@@ -27,7 +27,7 @@ function toAipHeader(row: AipMonitoringRow): AipHeader {
     title: `${row.lguName} - Annual Investment Plan (AIP) ${row.year}`,
     description: `Annual Investment Plan for Fiscal Year ${row.year}.`,
     year: row.year,
-    budget: 0,
+    budget: row.budgetTotal,
     uploadedAt: row.submittedDate,
     publishedAt: undefined,
     status: row.aipStatus,
@@ -40,7 +40,7 @@ function toAipHeader(row: AipMonitoringRow): AipHeader {
       name: row.claimedBy ?? "LGU Official",
       role: "LGU Official",
       uploadDate: row.submittedDate,
-      budgetAllocated: 0,
+      budgetAllocated: row.budgetTotal,
     },
     feedback: undefined,
   };

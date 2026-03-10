@@ -51,9 +51,13 @@ describe("CitizenAipRepo mock adapter", () => {
     expect(
       detail?.projectRows.every((row) => typeof row.hasLguNote === "boolean")
     ).toBe(true);
+    expect(
+      detail?.projectRows.every((row) => typeof row.hasAiIssues === "boolean")
+    ).toBe(true);
 
     expect(projectDetail).not.toBeNull();
     expect(Array.isArray(projectDetail?.aiIssues)).toBe(true);
+    expect(typeof projectDetail?.hasLguNote).toBe("boolean");
   });
 
   it("includes city/barangay scope metadata for filter hierarchy", async () => {

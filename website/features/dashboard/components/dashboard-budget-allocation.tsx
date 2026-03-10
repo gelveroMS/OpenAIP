@@ -10,16 +10,12 @@ export function BudgetBreakdownSection({
   totalBudget,
   items,
   detailsHref,
-  scope,
 }: {
   totalBudget: string;
   items: Array<{ sectorCode: string; label: string; amount: number; percentage: number }>;
   detailsHref?: string;
-  scope?: "city" | "barangay";
 }) {
   const dotClassByIndex = ["bg-chart-1", "bg-chart-2", "bg-chart-3", "bg-chart-4", "bg-chart-5"];
-  const scopePrefix = scope ? `/${scope}` : detailsHref?.startsWith("/city/") ? "/city" : detailsHref?.startsWith("/barangay/") ? "/barangay" : "";
-  const projectsHref = scopePrefix ? `${scopePrefix}/projects` : "/projects";
   const chartData = items.map((item, index) => ({
     name: item.label,
     value: item.amount > 0 ? item.amount : Math.max(item.percentage, 0),
@@ -76,13 +72,6 @@ export function BudgetBreakdownSection({
               View AIP Details
             </Button>
           )}
-          <Button
-            asChild
-            variant="outline"
-            className="rounded-lg border-border bg-card text-foreground hover:bg-accent"
-          >
-            <Link href={projectsHref}>View All Projects</Link>
-          </Button>
         </div>
       </CardContent>
     </Card>

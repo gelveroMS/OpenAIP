@@ -1,5 +1,10 @@
 import "server-only";
 
+import {
+  collectInChunks,
+  collectPaged,
+  dedupeNonEmptyStrings,
+} from "@/lib/repos/_shared/supabase-batching";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { AuditRepo } from "./repo";
 import type {
@@ -143,26 +148,19 @@ function escapeIlikeTerm(input: string): string {
 }
 
 type FilterableQuery = {
-  eq: (...args: unknown[]) => unknown;
-  in: (...args: unknown[]) => unknown;
-  gte: (...args: unknown[]) => unknown;
-  lt: (...args: unknown[]) => unknown;
-  or: (...args: unknown[]) => unknown;
-};
-
-type ActivityRowsQueryResult = PromiseLike<{
-  data: unknown[] | null;
-  error: { message: string } | null;
-}>;
-
-type ActivityRowsCountQuery = {
+  eq: (...args: unknown[]) => FilterableQuery;
+  in: (...args: unknown[]) => FilterableQuery;
+  gte: (...args: unknown[]) => FilterableQuery;
+  lt: (...args: unknown[]) => FilterableQuery;
+  or: (...args: unknown[]) => FilterableQuery;
+  order: (...args: unknown[]) => FilterableQuery;
   range: (
     start: number,
     end: number
   ) => Promise<{
     data: unknown[] | null;
     error: { message: string } | null;
-    count: number | null;
+    count?: number | null;
   }>;
 };
 
@@ -231,12 +229,10 @@ function applyActivityLogFilters(
 async function buildProfileMap(
   rows: ActivityLogSelectRow[]
 ): Promise<Map<string, ProfileSelectRow>> {
-  const actorIds = Array.from(
-    new Set(
-      rows
-        .map((row) => row.actor_id)
-        .filter((id): id is string => typeof id === "string" && id.length > 0)
-    )
+  const actorIds = dedupeNonEmptyStrings(
+    rows
+      .map((row) => row.actor_id)
+      .filter((id): id is string => typeof id === "string")
   );
 
   const profileById = new Map<string, ProfileSelectRow>();
@@ -244,16 +240,19 @@ async function buildProfileMap(
     return profileById;
   }
 
-  const { data: profiles, error: profilesError } = await supabaseAdmin()
-    .from("profiles")
-    .select("id,full_name,email")
-    .in("id", actorIds);
+  const profileRows = await collectInChunks(actorIds, async (actorIdChunk) => {
+    const { data, error } = await supabaseAdmin()
+      .from("profiles")
+      .select("id,full_name,email")
+      .in("id", actorIdChunk);
 
-  if (profilesError) {
-    throw new Error(profilesError.message);
-  }
+    if (error) {
+      throw new Error(error.message);
+    }
+    return (data ?? []) as unknown[];
+  });
 
-  ((profiles ?? []) as unknown[]).forEach((row) => {
+  profileRows.forEach((row) => {
     const profile = row as ProfileSelectRow;
     profileById.set(profile.id, profile);
   });
@@ -265,22 +264,20 @@ async function listActivityRows(
   filters: ActivityLogFilters = {}
 ): Promise<ActivityLogRow[]> {
   const admin = supabaseAdmin();
-  const query = admin
-    .from("activity_log")
-    .select(SELECT_COLUMNS)
-    .order("created_at", { ascending: false });
   const filteredQuery = applyActivityLogFilters(
-    query as unknown as FilterableQuery,
+    admin.from("activity_log").select(SELECT_COLUMNS) as unknown as FilterableQuery,
     filters
-  ) as unknown as ActivityRowsQueryResult;
-  const { data, error } = await filteredQuery;
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  const rows = ((data ?? []) as unknown[]).map(
-    (row) => row as ActivityLogSelectRow
   );
+  const rows = await collectPaged(async (from, to) => {
+    const { data, error } = await filteredQuery
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(from, to);
+    if (error) {
+      throw new Error(error.message);
+    }
+    return ((data ?? []) as unknown[]).map((row) => row as ActivityLogSelectRow);
+  });
   const profileById = await buildProfileMap(rows);
 
   return rows.map((row) => mapActivityRow(row, profileById));
@@ -300,7 +297,7 @@ async function listActivityPage(input: AuditListInput): Promise<AuditListResult>
     year: input.year,
     event: input.event,
     q: input.q,
-  }) as unknown as ActivityRowsCountQuery;
+  });
 
   const { data, error, count } = await filteredQuery.range(start, end);
   if (error) {

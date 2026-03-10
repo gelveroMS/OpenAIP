@@ -1,6 +1,12 @@
 import "server-only";
 
 import { getAipRepo } from "@/lib/repos/aip/repo.server";
+import {
+  collectInChunks,
+  collectInChunksPaged,
+  collectPaged,
+  dedupeNonEmptyStrings,
+} from "@/lib/repos/_shared/supabase-batching";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { supabaseServer } from "@/lib/supabase/server";
 import type { AipSubmissionsReviewRepo } from "./repo";
@@ -121,31 +127,43 @@ async function loadAipStatusRow(aipId: string): Promise<AipStatusRow | null> {
 }
 
 async function loadBarangayRows(ids: string[]): Promise<BarangayNameRow[]> {
-  if (!ids.length) return [];
+  const normalizedIds = dedupeNonEmptyStrings(ids);
+  if (!normalizedIds.length) return [];
   const client = await supabaseServer();
-  const { data, error } = await client
-    .from("barangays")
-    .select("id,city_id,name")
-    .in("id", ids);
-  if (error) throw new Error(error.message);
-  return (data ?? []) as BarangayNameRow[];
+  return collectInChunks(normalizedIds, async (idChunk) => {
+    const { data, error } = await client
+      .from("barangays")
+      .select("id,city_id,name")
+      .in("id", idChunk);
+    if (error) throw new Error(error.message);
+    return (data ?? []) as BarangayNameRow[];
+  });
 }
 
 async function loadLatestReviewsForAips(
   aipIds: string[]
 ): Promise<Map<string, ReviewSelectRow>> {
   const latestByAip = new Map<string, ReviewSelectRow>();
-  if (!aipIds.length) return latestByAip;
+  const normalizedAipIds = dedupeNonEmptyStrings(aipIds);
+  if (!normalizedAipIds.length) return latestByAip;
 
   const client = await supabaseServer();
-  const { data, error } = await client
-    .from("aip_reviews")
-    .select("aip_id,reviewer_id,action,note,created_at")
-    .in("aip_id", aipIds)
-    .order("created_at", { ascending: false });
-  if (error) throw new Error(error.message);
+  const rows = await collectInChunksPaged(
+    normalizedAipIds,
+    async (aipIdChunk, from, to) => {
+      const { data, error } = await client
+        .from("aip_reviews")
+        .select("id,aip_id,reviewer_id,action,note,created_at")
+        .in("aip_id", aipIdChunk)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .range(from, to);
+      if (error) throw new Error(error.message);
+      return (data ?? []) as ReviewSelectRow[];
+    }
+  );
 
-  for (const row of (data ?? []) as ReviewSelectRow[]) {
+  for (const row of rows) {
     if (!latestByAip.has(row.aip_id)) {
       latestByAip.set(row.aip_id, row);
     }
@@ -155,27 +173,34 @@ async function loadLatestReviewsForAips(
 
 async function loadProfileNames(ids: string[]): Promise<Map<string, ProfileNameRow>> {
   const profileById = new Map<string, ProfileNameRow>();
-  if (!ids.length) return profileById;
+  const normalizedIds = dedupeNonEmptyStrings(ids);
+  if (!normalizedIds.length) return profileById;
 
   try {
     const admin = supabaseAdmin();
-    const { data, error } = await admin
-      .from("profiles")
-      .select("id,full_name")
-      .in("id", ids);
-    if (error) throw new Error(error.message);
-    for (const row of (data ?? []) as ProfileNameRow[]) {
+    const rows = await collectInChunks(normalizedIds, async (idChunk) => {
+      const { data, error } = await admin
+        .from("profiles")
+        .select("id,full_name")
+        .in("id", idChunk);
+      if (error) throw new Error(error.message);
+      return (data ?? []) as ProfileNameRow[];
+    });
+    for (const row of rows) {
       profileById.set(row.id, row);
     }
     return profileById;
   } catch {
     const client = await supabaseServer();
-    const { data, error } = await client
-      .from("profiles")
-      .select("id,full_name")
-      .in("id", ids);
-    if (error) throw new Error(error.message);
-    for (const row of (data ?? []) as ProfileNameRow[]) {
+    const rows = await collectInChunks(normalizedIds, async (idChunk) => {
+      const { data, error } = await client
+        .from("profiles")
+        .select("id,full_name")
+        .in("id", idChunk);
+      if (error) throw new Error(error.message);
+      return (data ?? []) as ProfileNameRow[];
+    });
+    for (const row of rows) {
       profileById.set(row.id, row);
     }
   }
@@ -289,16 +314,19 @@ export function createSupabaseAipSubmissionsReviewRepo(): AipSubmissionsReviewRe
       assertCityScope(actor, cityId);
 
       const client = await supabaseServer();
-      const { data, error } = await client
-        .from("aips")
-        .select("id,fiscal_year,status,barangay_id,submitted_at,created_at")
-        .not("barangay_id", "is", null)
-        .neq("status", "draft")
-        .order("submitted_at", { ascending: false, nullsFirst: false })
-        .order("created_at", { ascending: false });
-      if (error) throw new Error(error.message);
-
-      const aipRows = (data ?? []) as AipStatusRow[];
+      const aipRows = await collectPaged(async (from, to) => {
+        const { data, error } = await client
+          .from("aips")
+          .select("id,fiscal_year,status,barangay_id,submitted_at,created_at")
+          .not("barangay_id", "is", null)
+          .neq("status", "draft")
+          .order("submitted_at", { ascending: false, nullsFirst: false })
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: true })
+          .range(from, to);
+        if (error) throw new Error(error.message);
+        return (data ?? []) as AipStatusRow[];
+      });
       const barangayIds = Array.from(
         new Set(
           aipRows

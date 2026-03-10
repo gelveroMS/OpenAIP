@@ -66,6 +66,68 @@ describe("notification display templates", () => {
     expect(reply.iconKey).toBe("corner-down-right");
   });
 
+  it("renders AIP published titles with correct citizen scope labels", () => {
+    const cityFromScopeType = buildDisplay(
+      {
+        event_type: "AIP_PUBLISHED",
+        recipient_role: "citizen",
+        metadata: {
+          entity_type: "aip",
+          fiscal_year: 2026,
+          scope_type: "city",
+          lgu_name: "Cabuyao City",
+        },
+      },
+      "dropdown"
+    );
+
+    const barangayFromScopeLabel = buildDisplay(
+      {
+        event_type: "AIP_PUBLISHED",
+        recipient_role: "citizen",
+        metadata: {
+          entity_type: "aip",
+          fiscal_year: 2026,
+          scope_label: "Barangay",
+          lgu_name: "Mamatid",
+        },
+      },
+      "dropdown"
+    );
+
+    const unknownScope = buildDisplay(
+      {
+        event_type: "AIP_PUBLISHED",
+        recipient_role: "citizen",
+        metadata: {
+          entity_type: "aip",
+          fiscal_year: 2026,
+          lgu_name: "Unknown LGU",
+        },
+      },
+      "dropdown"
+    );
+
+    const nonCitizenRecipient = buildDisplay(
+      {
+        event_type: "AIP_PUBLISHED",
+        recipient_role: "barangay_official",
+        metadata: {
+          entity_type: "aip",
+          fiscal_year: 2026,
+          scope_type: "city",
+          lgu_name: "Cabuyao City",
+        },
+      },
+      "dropdown"
+    );
+
+    expect(cityFromScopeType.title).toBe("New city AIP published.");
+    expect(barangayFromScopeLabel.title).toBe("New barangay AIP published.");
+    expect(unknownScope.title).toBe("New AIP published.");
+    expect(nonCitizenRecipient.title).toBe("Your AIP has been published.");
+  });
+
   it("never shows transition tokens for project update status in display copy", () => {
     const posted = buildDisplay(
       {
@@ -152,6 +214,46 @@ describe("notification display templates", () => {
     expect(failed.iconKey).toBe("x-circle");
     expect(failed.pill).toBe("Alert");
     expect(failed.excerpt).toBe("Validation timeout");
+    expect(failed.context).toContain("Barangay Uno");
+  });
+
+  it("renders embed success and failure notifications for published AIP indexing flows", () => {
+    const success = buildDisplay(
+      {
+        event_type: "AIP_EMBED_SUCCEEDED",
+        metadata: {
+          entity_type: "aip",
+          fiscal_year: 2026,
+          lgu_name: "Barangay Uno",
+          stage: "embed",
+          run_id: "run-embed-1",
+        },
+      },
+      "dropdown"
+    );
+
+    const failed = buildDisplay(
+      {
+        event_type: "AIP_EMBED_FAILED",
+        metadata: {
+          entity_type: "aip",
+          fiscal_year: 2026,
+          lgu_name: "Barangay Uno",
+          stage: "embed",
+          error_message: "Embedding provider timeout\nTrace details...",
+        },
+      },
+      "page"
+    );
+
+    expect(success.title).toBe("Search indexing completed for your published AIP.");
+    expect(success.iconKey).toBe("clipboard-check");
+    expect(success.context).toContain("AIP FY 2026");
+
+    expect(failed.title).toBe("AIP embedding failed");
+    expect(failed.iconKey).toBe("x-circle");
+    expect(failed.pill).toBe("Alert");
+    expect(failed.excerpt).toBe("Embedding provider timeout");
     expect(failed.context).toContain("Barangay Uno");
   });
 

@@ -33,13 +33,19 @@ type AipScopeRow = {
 type ProjectLookupRow = {
   id: string;
   aip_id: string;
-  aip_ref_code: string;
+  aip_ref_code: string | null;
   category: "health" | "infrastructure" | "other";
   created_at: string;
 };
 
 const FEEDBACK_SELECT_COLUMNS =
   "id,target_type,project_id,parent_feedback_id,kind,body,author_id,is_public,created_at";
+const UNSPECIFIED_REF_CODE = "Unspecified";
+
+function toDisplayRefCode(value: string | null | undefined): string {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized.length > 0 ? normalized : UNSPECIFIED_REF_CODE;
+}
 
 function assertScopedActor(
   input: Awaited<ReturnType<typeof getActorContext>>,
@@ -144,7 +150,7 @@ async function resolveScopedProject(input: {
   return {
     id: row.id,
     aipId: row.aip_id,
-    aipRefCode: row.aip_ref_code,
+    aipRefCode: toDisplayRefCode(row.aip_ref_code),
     aipStatus,
   };
 }

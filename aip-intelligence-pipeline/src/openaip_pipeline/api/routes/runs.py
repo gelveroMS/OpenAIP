@@ -25,6 +25,7 @@ from openaip_pipeline.services.categorization.categorize import (
 )
 from openaip_pipeline.services.extraction.barangay import run_extraction as run_barangay_extraction
 from openaip_pipeline.services.extraction.city import run_extraction as run_city_extraction
+from openaip_pipeline.services.scaling.scale_amounts import scale_validated_amounts_json_str
 from openaip_pipeline.services.summarization.summarize import (
     summarize_aip_overall_json_str,
 )
@@ -436,7 +437,8 @@ def run_local(req: LocalRunRequest) -> LocalRunResponse:
             validation_res = validate_barangay(extraction_res.json_str, model=req.model)
         usage["extraction"] = extraction_res.usage
         usage["validation"] = validation_res.usage
-        summary_res = summarize_aip_overall_json_str(validation_res.validated_json_str, model=req.model)
+        scale_res = scale_validated_amounts_json_str(validation_res.validated_json_str, scope=req.scope)
+        summary_res = summarize_aip_overall_json_str(scale_res.scaled_json_str, model=req.model)
         usage["summarization"] = summary_res.usage
         categorized_res = categorize_from_summarized_json_str(
             summary_res.summary_json_str,

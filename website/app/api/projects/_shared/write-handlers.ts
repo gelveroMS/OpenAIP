@@ -35,7 +35,7 @@ type AipScopeRow = {
 type ProjectLookupRow = {
   id: string;
   aip_id: string;
-  aip_ref_code: string;
+  aip_ref_code: string | null;
   category: "health" | "infrastructure" | "other";
 };
 
@@ -78,12 +78,18 @@ class ApiError extends Error {
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_UPDATE_PHOTOS = 5;
+const UNSPECIFIED_REF_CODE = "Unspecified";
 const PROJECT_STATUS_VALUES: readonly ProjectStatus[] = [
   "proposed",
   "ongoing",
   "completed",
   "on_hold",
 ];
+
+function toDisplayRefCode(value: string | null | undefined): string {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized.length > 0 ? normalized : UNSPECIFIED_REF_CODE;
+}
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -359,7 +365,7 @@ async function resolveScopedProject(params: {
     project: {
       id: row.id,
       aipId: row.aip_id,
-      aipRefCode: row.aip_ref_code,
+      aipRefCode: toDisplayRefCode(row.aip_ref_code),
       category: row.category,
       aipStatus: aip.status,
       barangayId: aip.barangay_id,

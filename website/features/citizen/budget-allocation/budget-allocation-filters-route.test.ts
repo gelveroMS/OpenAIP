@@ -6,11 +6,13 @@ type MockAipRow = {
   fiscal_year: number;
   city_id: string | null;
   barangay_id: string | null;
+  created_at: string | null;
 };
 
 type MockScopeRow = {
   id: string;
   name: string | null;
+  psgc_code?: string | null;
 };
 
 const mockSupabaseServer = vi.fn();
@@ -35,7 +37,16 @@ function createAipQueryBuilder(rows: MockAipRow[]) {
       return builder;
     },
     then: (
-      resolve: (value: { data: Array<{ fiscal_year: number; city_id: string | null; barangay_id: string | null }>; error: null }) => void,
+      resolve: (value: {
+        data: Array<{
+          id: string;
+          fiscal_year: number;
+          city_id: string | null;
+          barangay_id: string | null;
+          created_at: string | null;
+        }>;
+        error: null;
+      }) => void,
       reject?: (reason?: unknown) => void
     ) => {
       let filtered = [...rows];
@@ -46,9 +57,11 @@ function createAipQueryBuilder(rows: MockAipRow[]) {
         filtered = filtered.filter((row) => row.city_id !== null || row.barangay_id !== null);
       }
       const projected = filtered.map((row) => ({
+        id: row.id,
         fiscal_year: row.fiscal_year,
         city_id: row.city_id,
         barangay_id: row.barangay_id,
+        created_at: row.created_at,
       }));
       return Promise.resolve({ data: projected, error: null as null }).then(resolve, reject);
     },
@@ -103,6 +116,8 @@ const BRGY_A = "33333333-3333-4333-8333-333333333333";
 const BRGY_B = "44444444-4444-4444-8444-444444444444";
 const CITY_C = "55555555-5555-4555-8555-555555555555";
 const BRGY_C = "66666666-6666-4666-8666-666666666666";
+const CABUYAO_PSGC = "043404";
+const OTHER_CITY_PSGC = "043405";
 
 describe("GET /api/citizen/budget-allocation/filters", () => {
   beforeEach(() => {
@@ -114,13 +129,34 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
     mockSupabaseServer.mockResolvedValue(
       createMockClient({
         aips: [
-          { id: "aip-city-2026", status: "published", fiscal_year: 2026, city_id: CITY_A, barangay_id: null },
-          { id: "aip-brgy-2025", status: "published", fiscal_year: 2025, city_id: null, barangay_id: BRGY_A },
-          { id: "aip-draft", status: "draft", fiscal_year: 2027, city_id: CITY_B, barangay_id: null },
+          {
+            id: "aip-city-2026",
+            status: "published",
+            fiscal_year: 2026,
+            city_id: CITY_A,
+            barangay_id: null,
+            created_at: "2026-01-15T00:00:00.000Z",
+          },
+          {
+            id: "aip-brgy-2025",
+            status: "published",
+            fiscal_year: 2025,
+            city_id: null,
+            barangay_id: BRGY_A,
+            created_at: "2025-01-15T00:00:00.000Z",
+          },
+          {
+            id: "aip-draft",
+            status: "draft",
+            fiscal_year: 2027,
+            city_id: CITY_B,
+            barangay_id: null,
+            created_at: "2027-01-15T00:00:00.000Z",
+          },
         ],
         cities: [
-          { id: CITY_A, name: "City of Alpha" },
-          { id: CITY_B, name: "City of Beta" },
+          { id: CITY_A, name: "City of Alpha", psgc_code: CABUYAO_PSGC },
+          { id: CITY_B, name: "City of Beta", psgc_code: OTHER_CITY_PSGC },
         ],
         barangays: [{ id: BRGY_A, name: "Brgy. One" }],
       })
@@ -141,6 +177,114 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
     });
   });
 
+  it("defaults to Cabuyao city AIP by highest fiscal year even when other LGUs have newer years", async () => {
+    mockSupabaseServer.mockResolvedValue(
+      createMockClient({
+        aips: [
+          {
+            id: "aip-cabuyao-2025",
+            status: "published",
+            fiscal_year: 2025,
+            city_id: CITY_A,
+            barangay_id: null,
+            created_at: "2025-02-01T00:00:00.000Z",
+          },
+          {
+            id: "aip-cabuyao-2026",
+            status: "published",
+            fiscal_year: 2026,
+            city_id: CITY_A,
+            barangay_id: null,
+            created_at: "2024-12-01T00:00:00.000Z",
+          },
+          {
+            id: "aip-other-city-2030",
+            status: "published",
+            fiscal_year: 2030,
+            city_id: CITY_B,
+            barangay_id: null,
+            created_at: "2030-01-01T00:00:00.000Z",
+          },
+          {
+            id: "aip-brgy-2031",
+            status: "published",
+            fiscal_year: 2031,
+            city_id: null,
+            barangay_id: BRGY_A,
+            created_at: "2031-01-01T00:00:00.000Z",
+          },
+        ],
+        cities: [
+          { id: CITY_A, name: "City of Cabuyao", psgc_code: CABUYAO_PSGC },
+          { id: CITY_B, name: "City of Beta", psgc_code: OTHER_CITY_PSGC },
+        ],
+        barangays: [{ id: BRGY_A, name: "Brgy. One" }],
+      })
+    );
+
+    const { GET } = await import("@/app/api/citizen/budget-allocation/filters/route");
+    const response = await GET(new Request("http://localhost/api/citizen/budget-allocation/filters"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.selected).toEqual({
+      fiscal_year: 2026,
+      scope_type: "city",
+      scope_id: CITY_A,
+    });
+    expect(body.years).toEqual([2026, 2025]);
+  });
+
+  it("defaults to the most recently uploaded barangay AIP when Cabuyao city has no published AIP", async () => {
+    mockSupabaseServer.mockResolvedValue(
+      createMockClient({
+        aips: [
+          {
+            id: "aip-other-city-2030",
+            status: "published",
+            fiscal_year: 2030,
+            city_id: CITY_B,
+            barangay_id: null,
+            created_at: "2030-01-01T00:00:00.000Z",
+          },
+          {
+            id: "aip-brgy-a-2027",
+            status: "published",
+            fiscal_year: 2027,
+            city_id: null,
+            barangay_id: BRGY_A,
+            created_at: "2024-01-01T00:00:00.000Z",
+          },
+          {
+            id: "aip-brgy-b-2025",
+            status: "published",
+            fiscal_year: 2025,
+            city_id: null,
+            barangay_id: BRGY_B,
+            created_at: "2025-12-31T00:00:00.000Z",
+          },
+        ],
+        cities: [{ id: CITY_B, name: "City of Beta", psgc_code: OTHER_CITY_PSGC }],
+        barangays: [
+          { id: BRGY_A, name: "Brgy. One" },
+          { id: BRGY_B, name: "Brgy. Two" },
+        ],
+      })
+    );
+
+    const { GET } = await import("@/app/api/citizen/budget-allocation/filters/route");
+    const response = await GET(new Request("http://localhost/api/citizen/budget-allocation/filters"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.selected).toEqual({
+      fiscal_year: 2025,
+      scope_type: "barangay",
+      scope_id: BRGY_B,
+    });
+    expect(body.years).toEqual([2025]);
+  });
+
   it("returns 400 for invalid scope params", async () => {
     const { GET } = await import("@/app/api/citizen/budget-allocation/filters/route");
     const response = await GET(
@@ -157,11 +301,32 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
     mockSupabaseServer.mockResolvedValue(
       createMockClient({
         aips: [
-          { id: "aip-city-2026", status: "published", fiscal_year: 2026, city_id: CITY_A, barangay_id: null },
-          { id: "aip-brgy-2026", status: "published", fiscal_year: 2026, city_id: null, barangay_id: BRGY_A },
-          { id: "aip-brgy-2025", status: "published", fiscal_year: 2025, city_id: null, barangay_id: BRGY_B },
+          {
+            id: "aip-city-2026",
+            status: "published",
+            fiscal_year: 2026,
+            city_id: CITY_A,
+            barangay_id: null,
+            created_at: "2026-03-01T00:00:00.000Z",
+          },
+          {
+            id: "aip-brgy-2026",
+            status: "published",
+            fiscal_year: 2026,
+            city_id: null,
+            barangay_id: BRGY_A,
+            created_at: "2026-02-01T00:00:00.000Z",
+          },
+          {
+            id: "aip-brgy-2025",
+            status: "published",
+            fiscal_year: 2025,
+            city_id: null,
+            barangay_id: BRGY_B,
+            created_at: "2025-02-01T00:00:00.000Z",
+          },
         ],
-        cities: [{ id: CITY_A, name: "City of Alpha" }],
+        cities: [{ id: CITY_A, name: "City of Alpha", psgc_code: CABUYAO_PSGC }],
         barangays: [
           { id: BRGY_A, name: "Brgy. One" },
           { id: BRGY_B, name: "Brgy. Two" },
@@ -193,10 +358,24 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
     mockSupabaseServer.mockResolvedValue(
       createMockClient({
         aips: [
-          { id: "aip-city-2026", status: "published", fiscal_year: 2026, city_id: CITY_A, barangay_id: null },
-          { id: "aip-brgy-2025", status: "published", fiscal_year: 2025, city_id: null, barangay_id: BRGY_B },
+          {
+            id: "aip-city-2026",
+            status: "published",
+            fiscal_year: 2026,
+            city_id: CITY_A,
+            barangay_id: null,
+            created_at: "2026-01-10T00:00:00.000Z",
+          },
+          {
+            id: "aip-brgy-2025",
+            status: "published",
+            fiscal_year: 2025,
+            city_id: null,
+            barangay_id: BRGY_B,
+            created_at: "2025-01-10T00:00:00.000Z",
+          },
         ],
-        cities: [{ id: CITY_A, name: "City of Alpha" }],
+        cities: [{ id: CITY_A, name: "City of Alpha", psgc_code: CABUYAO_PSGC }],
         barangays: [{ id: BRGY_B, name: "Brgy. Two" }],
       })
     );
@@ -244,15 +423,50 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
     mockSupabaseServer.mockResolvedValue(
       createMockClient({
         aips: [
-          { id: "aip-city-raw", status: "published", fiscal_year: 2026, city_id: CITY_A, barangay_id: null },
-          { id: "aip-city-typed", status: "published", fiscal_year: 2026, city_id: CITY_C, barangay_id: null },
-          { id: "aip-brgy-raw", status: "published", fiscal_year: 2026, city_id: null, barangay_id: BRGY_A },
-          { id: "aip-brgy-brgy", status: "published", fiscal_year: 2026, city_id: null, barangay_id: BRGY_B },
-          { id: "aip-brgy-barangay", status: "published", fiscal_year: 2026, city_id: null, barangay_id: BRGY_C },
+          {
+            id: "aip-city-raw",
+            status: "published",
+            fiscal_year: 2026,
+            city_id: CITY_A,
+            barangay_id: null,
+            created_at: "2026-04-01T00:00:00.000Z",
+          },
+          {
+            id: "aip-city-typed",
+            status: "published",
+            fiscal_year: 2026,
+            city_id: CITY_C,
+            barangay_id: null,
+            created_at: "2026-04-02T00:00:00.000Z",
+          },
+          {
+            id: "aip-brgy-raw",
+            status: "published",
+            fiscal_year: 2026,
+            city_id: null,
+            barangay_id: BRGY_A,
+            created_at: "2026-04-03T00:00:00.000Z",
+          },
+          {
+            id: "aip-brgy-brgy",
+            status: "published",
+            fiscal_year: 2026,
+            city_id: null,
+            barangay_id: BRGY_B,
+            created_at: "2026-04-04T00:00:00.000Z",
+          },
+          {
+            id: "aip-brgy-barangay",
+            status: "published",
+            fiscal_year: 2026,
+            city_id: null,
+            barangay_id: BRGY_C,
+            created_at: "2026-04-05T00:00:00.000Z",
+          },
         ],
         cities: [
-          { id: CITY_A, name: "Cabuyao" },
-          { id: CITY_C, name: "City of Cabuyao" },
+          { id: CITY_A, name: "Cabuyao", psgc_code: CABUYAO_PSGC },
+          { id: CITY_C, name: "City of Cabuyao", psgc_code: OTHER_CITY_PSGC },
         ],
         barangays: [
           { id: BRGY_A, name: "Mamatid" },

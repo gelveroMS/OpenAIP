@@ -28,6 +28,7 @@ export async function runProjectMapperTests() {
   const projectRow = {
     id: "PROJ-H-TEST",
     aip_id: "aip-1",
+    project_key: "PROJ-H-TEST",
     extraction_artifact_id: null,
     aip_ref_code: "PROJ-H-TEST",
     program_project_description: "Health Project",
@@ -206,4 +207,34 @@ export async function runProjectMapperTests() {
   assert(mappedInfra.title === "Infra Project", "infra title should map");
   assert(mappedInfra.description === "Output", "infra description should map");
   assert(mappedInfra.contractCost === 9000, "infra cost should map");
+
+  const uuidIdentityRow = {
+    ...projectRow,
+    id: "00000000-0000-4000-8000-000000000101",
+    project_key: "PK-UUID-101",
+    aip_ref_code: "3000-XYZ",
+    category: "other",
+  } satisfies ProjectRow;
+
+  const mappedUuidIdentity = mapProjectRowToUiModel(uuidIdentityRow, null, null);
+  assert(mappedUuidIdentity.id === uuidIdentityRow.id, "project id should preserve UUID identity");
+  assert(mappedUuidIdentity.kind === "other", "uuid identity row should map as other");
+  assert(
+    mappedUuidIdentity.projectRefCode === "3000-XYZ",
+    "other project should retain ref code display value"
+  );
+
+  const nullRefRow = {
+    ...uuidIdentityRow,
+    id: "00000000-0000-4000-8000-000000000102",
+    project_key: "PK-NULL-102",
+    aip_ref_code: null,
+  } satisfies ProjectRow;
+  const mappedNullRef = mapProjectRowToUiModel(nullRefRow, null, null);
+  assert(mappedNullRef.kind === "other", "null-ref row should map as other");
+  assert(mappedNullRef.id === nullRefRow.id, "null-ref row should keep UUID identity");
+  assert(
+    mappedNullRef.projectRefCode === "Unspecified",
+    "null-ref row should use Unspecified display fallback"
+  );
 }

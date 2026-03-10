@@ -59,7 +59,7 @@ Supabase (Auth + Postgres + Storage)
     v
 Python worker (aip-intelligence-pipeline)
     |-- claims queued extraction_runs
-    |-- extract -> validate -> summarize -> categorize
+    |-- extract -> validate -> scale_amounts -> summarize -> categorize
     |-- writes artifacts and upserts projects
     |-- optional RAG trace
     v
@@ -404,6 +404,10 @@ Recommended workflow:
    - `website/docs/sql/2026-03-03_embed_categorize_signed_dispatch.sql`
    - `website/docs/sql/2026-03-03_notifications_outbox_tables_rls.sql`
    - `website/docs/sql/2026-03-03_notifications_admin_pipeline_outbox_alerts.sql`
+   - `website/docs/sql/2026-03-06_aip_upload_validation_gating.sql`
+   - `website/docs/sql/2026-03-10_notifications_aip_embed_terminal_status.sql`
+   - `website/docs/sql/2026-03-10_notifications_aip_embed_action_url_scoped.sql`
+   - `website/docs/sql/2026-03-10_realtime_publication_extraction_notifications.sql`
    - Note: `2026-02-26_projects_status_proposed_rename.sql` renames existing `projects.status` values from `planning` to `proposed`.
 3. Create Supabase storage buckets manually:
    - `aip-pdfs` (uploaded source PDFs)
@@ -691,6 +695,7 @@ Common hosting options for this codebase:
 |---|---|---|
 | `Missing NEXT_PUBLIC_SUPABASE_URL...` at runtime | Supabase public env vars not set in `website/.env.local` | Set `NEXT_PUBLIC_SUPABASE_URL` and one of `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`/`NEXT_PUBLIC_SUPABASE_ANON_KEY`, then restart `npm run dev` |
 | `BASE_URL environment variable is not configured` on auth pages | `BASE_URL` missing | Set `BASE_URL=http://localhost:3000` for local dev |
+| Hydration warning points to `app/layout.tsx` `<body>` (with unexpected extra attrs) | Browser extension mutated `html/body` before React hydration (for example grammar/spell-check extensions on editable pages) | Re-test in incognito or a clean browser profile with extensions disabled. Do not add global `suppressHydrationWarning`; keep warnings visible for real mismatches. |
 | Upload endpoint returns `Unauthorized` or `You cannot upload for this AIP right now.` | Role/scope mismatch or DB function/policies not applied | Ensure user profile role/scope is correct and SQL from `website/docs/sql/database-v2.sql` is applied |
 | Upload fails with `Invalid PDF file header. Expected %PDF- magic bytes.` | Uploaded file is not a real PDF payload | Re-export/upload a valid PDF file; do not rely on extension only |
 | Upload fails with `File too large...` | File exceeded `AIP_UPLOAD_MAX_BYTES` | Increase `AIP_UPLOAD_MAX_BYTES` carefully or upload a smaller PDF |
@@ -709,7 +714,7 @@ Common hosting options for this codebase:
 | `POST /v1/runs/*` returns 401 | Missing/invalid `aud`/`ts`/`nonce`/`sig`, stale `ts`, replayed nonce, or audience not allowlisted | Set `PIPELINE_RUNS_HMAC_SECRET` and `PIPELINE_RUNS_ALLOWED_AUDIENCES`; sign request body/path/method correctly and keep clock skew within ±60s |
 | `POST /v1/chat/*` returns 401 | Missing/invalid `x-pipeline-aud`/`x-pipeline-ts`/`x-pipeline-nonce`/`x-pipeline-sig`, stale `ts`, invalid `aud`, bad signature, or replayed `(aud,nonce,ts,body)` | Set matching `PIPELINE_HMAC_SECRET` on website + pipeline; sign `aud|ts|nonce|rawBody`, keep clock skew within ±60s, and send unique nonce per request |
 | `Invalid schema: app` from chatbot/admin settings APIs | Supabase Data API does not expose `app` schema, or `app.settings` is missing/inaccessible | Expose `app` in Supabase Data API schemas and run `website/docs/sql/2026-02-26_app_settings_schema_and_grants.sql` |
-| Notifications inbox is empty for events that should notify | Notifications tables/triggers are missing from DB baseline | Apply `website/docs/sql/2026-03-03_notifications_outbox_tables_rls.sql` and `website/docs/sql/2026-03-03_notifications_admin_pipeline_outbox_alerts.sql` (or full `database-v2.sql`) |
+| Notifications inbox is empty for events that should notify | Notifications tables/triggers or realtime publication membership are missing from DB baseline | Apply `website/docs/sql/2026-03-03_notifications_outbox_tables_rls.sql`, `website/docs/sql/2026-03-03_notifications_admin_pipeline_outbox_alerts.sql`, `website/docs/sql/2026-03-10_notifications_aip_embed_terminal_status.sql`, `website/docs/sql/2026-03-10_notifications_aip_embed_action_url_scoped.sql`, and `website/docs/sql/2026-03-10_realtime_publication_extraction_notifications.sql` (or full `database-v2.sql`) |
 | Clicking "Open related page" does not mark rows as read | `GET /api/notifications/open` route not reached (or unsafe `next` path) | Ensure links are built via tracked-open helper and `next` is an internal path beginning with `/` |
 | `send-email-outbox` returns 401/500 | Missing service-role bearer auth or missing outbox env values | Invoke with service-role JWT and set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, `FROM_EMAIL`, `APP_BASE_URL` |
 | Citizen about-us/dashboard content does not load seeded values | `app.settings` seeds not applied or `about-us-docs` bucket missing | Apply March 1 content seed SQL files and create/verify `about-us-docs` bucket objects |

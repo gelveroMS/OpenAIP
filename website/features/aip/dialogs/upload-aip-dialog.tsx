@@ -41,7 +41,12 @@ type Props = {
   scope?: "city" | "barangay";
 };
 
-const MAX_BYTES = 10 * 1024 * 1024;
+const MAX_BYTES = 25 * 1024 * 1024;
+
+function bytesToMbLabel(bytes: number): string {
+  const mb = (bytes / (1024 * 1024)).toFixed(1);
+  return mb.endsWith(".0") ? mb.slice(0, -2) : mb;
+}
 
 export function buildUploadAipYears(currentYear = new Date().getFullYear()) {
   return Array.from({ length: 6 }, (_, i) => currentYear + 1 - i);
@@ -77,7 +82,9 @@ export default function UploadAipDialog({
     if (f.type !== "application/pdf" && !f.name.toLowerCase().endsWith(".pdf")) {
       return "PDF only. Please upload a .pdf file.";
     }
-    if (f.size > MAX_BYTES) return "File too large. Maximum file size is 10MB.";
+    if (f.size > MAX_BYTES) {
+      return `File too large. Maximum file size is ${bytesToMbLabel(MAX_BYTES)}MB.`;
+    }
     if (!y) return "Please select the AIP year.";
     return "";
   }
@@ -195,7 +202,9 @@ export default function UploadAipDialog({
                 ) : (
                   <>
                     <div className="text-xl font-medium text-slate-700">Click to upload PDF file</div>
-                    <div className="text-base text-slate-400">Maximum file size: 10MB</div>
+                    <div className="text-base text-slate-400">
+                      Maximum file size: {bytesToMbLabel(MAX_BYTES)}MB
+                    </div>
                   </>
                 )}
               </div>

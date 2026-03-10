@@ -318,12 +318,11 @@ describe("Dashboard links and actions", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders both budget breakdown actions when an AIP is available", () => {
+  it("renders budget breakdown primary action when an AIP is available", () => {
     render(
       <BudgetBreakdownSection
         totalBudget="PHP 1,000,000"
         detailsHref="/barangay/aips/aip-1"
-        scope="barangay"
         items={[
           {
             sectorCode: "3000",
@@ -339,17 +338,13 @@ describe("Dashboard links and actions", () => {
       "href",
       "/barangay/aips/aip-1"
     );
-    expect(screen.getByRole("link", { name: "View All Projects" })).toHaveAttribute(
-      "href",
-      "/barangay/projects"
-    );
+    expect(screen.queryByRole("link", { name: "View All Projects" })).toBeNull();
   });
 
   it("disables the primary budget breakdown action when no AIP details route exists", () => {
     render(
       <BudgetBreakdownSection
         totalBudget="PHP 0"
-        scope="city"
         items={[
           {
             sectorCode: "general",
@@ -362,10 +357,7 @@ describe("Dashboard links and actions", () => {
     );
 
     expect(screen.getByRole("button", { name: "View AIP Details" })).toBeDisabled();
-    expect(screen.getByRole("link", { name: "View All Projects" })).toHaveAttribute(
-      "href",
-      "/city/projects"
-    );
+    expect(screen.queryByRole("link", { name: "View All Projects" })).toBeNull();
   });
 
   it("renders a scope-aware missing AIP action with fiscal year payload", () => {

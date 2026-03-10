@@ -11,11 +11,11 @@ type MockAipRow = {
 type MockProjectRow = {
   id: string;
   aip_id: string;
-  aip_ref_code: string;
+  aip_ref_code: string | null;
   program_project_description: string;
   source_of_funds: string | null;
   total: number | null;
-  sector_code: string;
+  sector_code: string | null;
 };
 
 const mockSupabaseServer = vi.fn();
@@ -197,5 +197,115 @@ describe("GET /api/citizen/budget-allocation/projects", () => {
     expect(body.totalPages).toBe(3);
     expect(body.items).toHaveLength(10);
     expect(body.items[0].aip_ref_code).toBe("REF-11");
+  });
+
+  it("uses Unspecified fallback when aip_ref_code is null", async () => {
+    const aipId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    mockSupabaseServer.mockResolvedValue(
+      createMockClient({
+        aips: [
+          {
+            id: aipId,
+            status: "published",
+            fiscal_year: 2026,
+            city_id: CITY_ID,
+            barangay_id: null,
+          },
+        ],
+        projects: [
+          {
+            id: "proj-null-ref",
+            aip_id: aipId,
+            aip_ref_code: null,
+            program_project_description: "Null ref project",
+            source_of_funds: "General Fund",
+            total: 1200,
+            sector_code: null,
+          },
+        ],
+      })
+    );
+
+    const { GET } = await import("@/app/api/citizen/budget-allocation/projects/route");
+    const response = await GET(
+      new Request(
+        `http://localhost/api/citizen/budget-allocation/projects?fiscal_year=2026&scope_type=city&scope_id=${CITY_ID}&page=1&pageSize=10`
+      )
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0].aip_ref_code).toBe("Unspecified");
+  });
+
+  it("includes explicit and uncategorized rows for sector_code=9000", async () => {
+    const aipId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    mockSupabaseServer.mockResolvedValue(
+      createMockClient({
+        aips: [
+          {
+            id: aipId,
+            status: "published",
+            fiscal_year: 2026,
+            city_id: CITY_ID,
+            barangay_id: null,
+          },
+        ],
+        projects: [
+          {
+            id: "proj-other",
+            aip_id: aipId,
+            aip_ref_code: "REF-OTHER",
+            program_project_description: "Other project",
+            source_of_funds: "General Fund",
+            total: 400,
+            sector_code: "9000",
+          },
+          {
+            id: "proj-unknown",
+            aip_id: aipId,
+            aip_ref_code: "REF-UNKNOWN",
+            program_project_description: "Unknown code project",
+            source_of_funds: "General Fund",
+            total: 300,
+            sector_code: "7777",
+          },
+          {
+            id: "proj-null",
+            aip_id: aipId,
+            aip_ref_code: "REF-NULL",
+            program_project_description: "Null code project",
+            source_of_funds: "General Fund",
+            total: 350,
+            sector_code: null,
+          },
+          {
+            id: "proj-general",
+            aip_id: aipId,
+            aip_ref_code: "REF-GENERAL",
+            program_project_description: "General project",
+            source_of_funds: "General Fund",
+            total: 250,
+            sector_code: "1000",
+          },
+        ],
+      })
+    );
+
+    const { GET } = await import("@/app/api/citizen/budget-allocation/projects/route");
+    const response = await GET(
+      new Request(
+        `http://localhost/api/citizen/budget-allocation/projects?fiscal_year=2026&scope_type=city&scope_id=${CITY_ID}&sector_code=9000&page=1&pageSize=10`
+      )
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    const projectIds = body.items.map((item: { project_id: string }) => item.project_id);
+    expect(projectIds).toContain("proj-other");
+    expect(projectIds).toContain("proj-unknown");
+    expect(projectIds).toContain("proj-null");
+    expect(projectIds).not.toContain("proj-general");
   });
 });

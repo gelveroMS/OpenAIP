@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { DBV2_SECTOR_CODES, getSectorLabel, type DashboardSectorCode } from "@/lib/constants/dashboard";
+import {
+  buildProjectTotalsByAipId,
+  fetchAipFileTotalsByAipIds,
+  resolveAipDisplayTotal,
+} from "@/lib/repos/_shared/aip-totals";
 import { supabaseServer } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +15,16 @@ const UUID_PATTERN =
 type ScopeType = "city" | "barangay";
 
 type SummaryErrorCode = "BAD_REQUEST" | "NOT_FOUND" | "INTERNAL_ERROR";
+type PublishedAipRow = {
+  id: string;
+  fiscal_year: number;
+};
+
+type ProjectRow = {
+  aip_id: string;
+  sector_code: string | null;
+  total: number | null;
+};
 
 function errorResponse(status: number, code: SummaryErrorCode, message: string) {
   return NextResponse.json({ error: { code, message } }, { status });
@@ -36,8 +51,16 @@ function parseScope(searchParams: URLSearchParams): {
   };
 }
 
-function toAmount(value: number | null): number {
+function toAmount(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function toDashboardSectorCodeOrOther(value: string | null | undefined): DashboardSectorCode {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (normalized.startsWith("1000")) return "1000";
+  if (normalized.startsWith("3000")) return "3000";
+  if (normalized.startsWith("8000")) return "8000";
+  return "9000";
 }
 
 export async function GET(request: Request) {
@@ -56,7 +79,11 @@ export async function GET(request: Request) {
   try {
     const client = await supabaseServer();
 
-    const [{ data: scopeRow, error: scopeError }, { data: publishedAips, error: aipsError }] = await Promise.all([
+    const [
+      { data: scopeRow, error: scopeError },
+      { data: publishedAips, error: aipsError },
+      { data: selectedYearAips, error: selectedYearAipsError },
+    ] = await Promise.all([
       client.from(scopeTable).select("name").eq("id", parsed.scopeId).maybeSingle(),
       client
         .from("aips")
@@ -65,7 +92,18 @@ export async function GET(request: Request) {
         .eq(scopeColumn, parsed.scopeId)
         .lte("fiscal_year", parsed.fiscalYear)
         .order("fiscal_year", { ascending: false })
-        .limit(5),
+        .order("published_at", { ascending: false, nullsFirst: false })
+        .order("updated_at", { ascending: false })
+        .limit(100),
+      client
+        .from("aips")
+        .select("id,fiscal_year")
+        .eq("status", "published")
+        .eq("fiscal_year", parsed.fiscalYear)
+        .eq(scopeColumn, parsed.scopeId)
+        .order("published_at", { ascending: false, nullsFirst: false })
+        .order("updated_at", { ascending: false })
+        .limit(1),
     ]);
 
     if (scopeError) {
@@ -74,9 +112,12 @@ export async function GET(request: Request) {
     if (aipsError) {
       return errorResponse(500, "INTERNAL_ERROR", "Failed to load published budget allocation data.");
     }
+    if (selectedYearAipsError) {
+      return errorResponse(500, "INTERNAL_ERROR", "Failed to load selected fiscal year AIPs.");
+    }
 
-    const selectedAip = (publishedAips ?? []).find((aip) => aip.fiscal_year === parsed.fiscalYear);
-    if (!selectedAip) {
+    const selectedAipId = (selectedYearAips?.[0] as PublishedAipRow | undefined)?.id ?? null;
+    if (!selectedAipId) {
       return errorResponse(
         404,
         "NOT_FOUND",
@@ -84,7 +125,15 @@ export async function GET(request: Request) {
       );
     }
 
-    const trendAips = [...(publishedAips ?? [])].sort((a, b) => a.fiscal_year - b.fiscal_year);
+    const trendAipsByYear = new Map<number, PublishedAipRow>();
+    for (const row of (publishedAips ?? []) as PublishedAipRow[]) {
+      if (!Number.isInteger(row.fiscal_year)) continue;
+      if (trendAipsByYear.has(row.fiscal_year)) continue;
+      trendAipsByYear.set(row.fiscal_year, row);
+      if (trendAipsByYear.size >= 5) break;
+    }
+
+    const trendAips = [...trendAipsByYear.values()].sort((a, b) => a.fiscal_year - b.fiscal_year);
     const trendAipIds = trendAips.map((aip) => aip.id);
     const yearByAipId = new Map(trendAips.map((aip) => [aip.id, aip.fiscal_year]));
 
@@ -92,14 +141,12 @@ export async function GET(request: Request) {
       await Promise.all([
         client
           .from("projects")
-          .select("sector_code,total")
-          .eq("aip_id", selectedAip.id)
-          .in("sector_code", [...DBV2_SECTOR_CODES]),
+          .select("aip_id,sector_code,total")
+          .in("aip_id", [selectedAipId]),
         client
           .from("projects")
           .select("aip_id,sector_code,total")
-          .in("aip_id", trendAipIds)
-          .in("sector_code", [...DBV2_SECTOR_CODES]),
+          .in("aip_id", trendAipIds),
       ]);
 
     if (selectedProjectsError || trendProjectsError) {
@@ -109,11 +156,28 @@ export async function GET(request: Request) {
     const totalsBySector = new Map<DashboardSectorCode, number>(DBV2_SECTOR_CODES.map((code) => [code, 0]));
 
     (selectedProjects ?? []).forEach((project) => {
-      const code = project.sector_code as DashboardSectorCode;
+      const code = toDashboardSectorCodeOrOther(project.sector_code);
       totalsBySector.set(code, (totalsBySector.get(code) ?? 0) + toAmount(project.total));
     });
 
-    const overallTotal = DBV2_SECTOR_CODES.reduce((sum, code) => sum + (totalsBySector.get(code) ?? 0), 0);
+    const fallbackTotalsByAipId = buildProjectTotalsByAipId(
+      ((selectedProjects ?? []) as ProjectRow[]).map((row) => ({
+        aip_id: row.aip_id,
+        total: row.total,
+      }))
+    );
+    const fileTotalsByAipId = await fetchAipFileTotalsByAipIds(client, [selectedAipId]);
+    const overallTotal = resolveAipDisplayTotal({
+      aipId: selectedAipId,
+      fileTotalsByAipId,
+      fallbackTotalsByAipId,
+    });
+
+    const selectedProjectTotal = fallbackTotalsByAipId.get(selectedAipId) ?? 0;
+    const residualToOther = overallTotal - selectedProjectTotal;
+    if (residualToOther > 0) {
+      totalsBySector.set("9000", (totalsBySector.get("9000") ?? 0) + residualToOther);
+    }
 
     const bySector = DBV2_SECTOR_CODES.map((sectorCode) => {
       const total = totalsBySector.get(sectorCode) ?? 0;
@@ -134,7 +198,7 @@ export async function GET(request: Request) {
 
     (trendProjects ?? []).forEach((project) => {
       const year = yearByAipId.get(project.aip_id);
-      const code = project.sector_code as DashboardSectorCode;
+      const code = toDashboardSectorCodeOrOther(project.sector_code);
       if (typeof year !== "number" || !yearSectorTotals.has(year)) return;
       const sectorMap = yearSectorTotals.get(year);
       if (!sectorMap) return;

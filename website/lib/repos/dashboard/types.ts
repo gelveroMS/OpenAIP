@@ -22,6 +22,7 @@ export const DASHBOARD_REPLY_MAX_LENGTH = 4000;
 export type DashboardAip = {
   id: string;
   fiscalYear: number;
+  totalInvestmentProgram?: number | null;
   status: AipStatus;
   statusUpdatedAt: string;
   submittedAt: string | null;

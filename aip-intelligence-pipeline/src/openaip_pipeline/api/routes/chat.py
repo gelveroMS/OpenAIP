@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import inspect
 import json
 import logging
 import os
@@ -122,7 +123,18 @@ async def _require_chat_signed_auth(request: Request) -> None:
     _log_chat_auth_verified(request=request, aud=aud, ts=ts)
 
 
-router = APIRouter(prefix="/v1/chat", tags=["chat"], dependencies=[Depends(_require_chat_signed_auth)])
+def _require_internal_token(request: Request) -> Any:
+    # Backward-compatible auth hook kept patchable in tests.
+    return _require_chat_signed_auth(request)
+
+
+async def _chat_auth_dependency(request: Request) -> None:
+    result = _require_internal_token(request)
+    if inspect.isawaitable(result):
+        await result
+
+
+router = APIRouter(prefix="/v1/chat", tags=["chat"], dependencies=[Depends(_chat_auth_dependency)])
 logger = logging.getLogger(__name__)
 _INTENT_ROUTER = IntentRouter()
 
@@ -138,11 +150,24 @@ class RetrievalScope(BaseModel):
     targets: list[RetrievalScopeTarget] = Field(default_factory=list)
 
 
+class RetrievalFilters(BaseModel):
+    fiscal_year: int | None = Field(default=None, ge=2000, le=2100)
+    scope_type: Literal["barangay", "city", "municipality"] | None = None
+    scope_name: str | None = Field(default=None, min_length=1, max_length=200)
+    document_type: str | None = Field(default=None, min_length=1, max_length=40)
+    publication_status: str | None = Field(default="published", min_length=1, max_length=40)
+    office_name: str | None = Field(default=None, min_length=1, max_length=200)
+    theme_tags: list[str] = Field(default_factory=list)
+    sector_tags: list[str] = Field(default_factory=list)
+
+
 class ChatAnswerRequest(BaseModel):
     question: str = Field(min_length=1, max_length=12000)
     retrieval_scope: RetrievalScope = Field(default_factory=RetrievalScope)
+    retrieval_mode: Literal["qa", "overview"] = "qa"
+    retrieval_filters: RetrievalFilters = Field(default_factory=RetrievalFilters)
     model_name: str | None = None
-    top_k: int = Field(default=8, ge=1, le=30)
+    top_k: int = Field(default=4, ge=1, le=30)
     min_similarity: float = Field(default=0.3, ge=0.0, le=1.0)
 
 
@@ -211,6 +236,8 @@ def chat_answer(
         chat_model=model_name,
         question=req.question,
         retrieval_scope=req.retrieval_scope.model_dump(),
+        retrieval_mode=req.retrieval_mode,
+        retrieval_filters=req.retrieval_filters.model_dump(exclude_none=True),
         top_k=req.top_k,
         min_similarity=req.min_similarity,
     )

@@ -36,6 +36,14 @@ export const AIP_MONITORING_LGU_NAMES: Record<string, string> = {
   [AIP_IDS.barangay_sanisidro_2026]: "Brgy. San Isidro",
 };
 
+export const AIP_MONITORING_BUDGET_TOTAL_BY_AIP_ID: Record<string, number> = {
+  [AIP_IDS.city_2026]: 65824308.28,
+  [AIP_IDS.city_2025]: 61200000,
+  [AIP_IDS.barangay_mamadid_2026]: 15400000,
+  [AIP_IDS.barangay_poblacion_2026]: 12950000,
+  [AIP_IDS.barangay_sanisidro_2026]: 14120000,
+};
+
 export const AIP_MONITORING_AIPS: AipRow[] = [
   {
     id: AIP_IDS.city_2026,

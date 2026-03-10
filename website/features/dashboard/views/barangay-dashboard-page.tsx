@@ -56,7 +56,7 @@ export function BarangayDashboardPage({
 
       <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-[3fr_1fr] xl:items-stretch">
         <div className="min-w-0 w-full">
-          <BudgetBreakdownSection totalBudget={toCurrency(vm.totalBudget)} items={vm.budgetBySector} detailsHref={data.selectedAip ? `/barangay/aips/${data.selectedAip.id}` : undefined} scope="barangay" />
+          <BudgetBreakdownSection totalBudget={toCurrency(vm.totalBudget)} items={vm.budgetBySector} detailsHref={data.selectedAip ? `/barangay/aips/${data.selectedAip.id}` : undefined} />
         </div>
         <div className="min-w-0 w-full flex flex-col gap-4">
           <DateCard label={today} />

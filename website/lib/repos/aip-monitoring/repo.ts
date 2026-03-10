@@ -9,6 +9,7 @@ export type AipMonitoringSeedData = {
   reviews: AipReviewRow[];
   activity: ActivityLogRow[];
   details: Record<string, AipMonitoringDetail>;
+  budgetTotalByAipId: Record<string, number>;
   lguNameByAipId: Record<string, string>;
   reviewerDirectory: Record<string, { name: string }>;
 };

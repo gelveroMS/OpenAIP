@@ -45,6 +45,7 @@ export function mapAipRowsToMonitoringRows({
   reviews,
   activity,
   details,
+  budgetTotalByAipId,
   lguNameByAipId,
   reviewerDirectory,
 }: {
@@ -52,6 +53,7 @@ export function mapAipRowsToMonitoringRows({
   reviews: AipReviewRow[];
   activity: ActivityLogRow[];
   details: Record<string, AipMonitoringDetail>;
+  budgetTotalByAipId: Record<string, number>;
   lguNameByAipId: Record<string, string>;
   reviewerDirectory: ReviewDirectory;
 }): AipMonitoringRow[] {
@@ -80,6 +82,11 @@ export function mapAipRowsToMonitoringRows({
       id: row.id,
       year: row.fiscal_year,
       lguName: lguNameByAipId[row.id] ?? "Unknown LGU",
+      budgetTotal:
+        typeof budgetTotalByAipId[row.id] === "number" &&
+        Number.isFinite(budgetTotalByAipId[row.id])
+          ? budgetTotalByAipId[row.id]
+          : 0,
       aipStatus: row.status,
       status,
       submittedDate: formatIsoDate(row.submitted_at ?? row.created_at),

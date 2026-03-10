@@ -1,3 +1,5 @@
 from openaip_pipeline.services.validation.barangay import validate_projects_json_str as validate_barangay_projects_json_str
 from openaip_pipeline.services.validation.city import validate_projects_json_str as validate_city_projects_json_str
 
+__all__ = ["validate_barangay_projects_json_str", "validate_city_projects_json_str"]
+

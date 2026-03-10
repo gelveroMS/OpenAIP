@@ -58,6 +58,7 @@ type FiltersPayload = {
 type SummaryPayload = {
   scope?: { scope_name?: string | null };
   totals?: {
+    overall_total?: number;
     by_sector?: Array<{
       sector_code: DashboardSectorCode;
       sector_label: string;
@@ -279,7 +280,11 @@ export default function CitizenBudgetAllocationView() {
     });
   }, [summaryPayload]);
 
-  const donutTotal = donutSectors.reduce((total, sector) => total + sector.amount, 0);
+  const donutTotal =
+    typeof summaryPayload?.totals?.overall_total === "number" &&
+    Number.isFinite(summaryPayload.totals.overall_total)
+      ? summaryPayload.totals.overall_total
+      : donutSectors.reduce((total, sector) => total + sector.amount, 0);
 
   const trendData = useMemo(() => {
     const years = Array.isArray(summaryPayload?.trend?.years) ? summaryPayload.trend.years : [];

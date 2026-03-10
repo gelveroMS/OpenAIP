@@ -7,7 +7,8 @@ export type ProjectRow = {
 
   extraction_artifact_id: UUID | null;
 
-  aip_ref_code: string;
+  project_key: string;
+  aip_ref_code: string | null;
   program_project_description: string;
   implementing_agency: string | null;
   start_date: string | null;
@@ -33,7 +34,7 @@ export type ProjectRow = {
   status?: "proposed" | "ongoing" | "completed" | "on_hold" | null;
   image_url?: string | null;
 
-  sector_code: string;
+  sector_code: string | null;
 
   is_human_edited: boolean;
   edited_by: UUID | null;

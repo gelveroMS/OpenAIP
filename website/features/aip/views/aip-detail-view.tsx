@@ -27,6 +27,7 @@ import {
 
 import type {
   AipHeader,
+  AipProjectRow,
   AipProcessingRunView,
   PipelineStageUi,
   PipelineStatusUi,
@@ -64,6 +65,7 @@ import { withCsrfHeader } from "@/lib/security/csrf";
 const PIPELINE_STAGES: PipelineStageUi[] = [
   "extract",
   "validate",
+  "scale_amounts",
   "summarize",
   "categorize",
   "embed",
@@ -78,6 +80,7 @@ const PIPELINE_STAGE_ORDER_FOR_FAILURE: PipelineStageUi[] = [
 const PIPELINE_STAGE_LABELS: Record<PipelineStageUi, string> = {
   extract: "Extraction",
   validate: "Validation",
+  scale_amounts: "Validation",
   summarize: "Summarization",
   categorize: "Categorization",
   embed: "Embedding",
@@ -86,6 +89,7 @@ const PIPELINE_STAGE_LABELS: Record<PipelineStageUi, string> = {
 const PIPELINE_STATUS: PipelineStatusUi[] = ["queued", "running", "succeeded", "failed"];
 const FINALIZE_REFRESH_MAX_ATTEMPTS = 5;
 const FINALIZE_REFRESH_INTERVAL_MS = 1500;
+const FLAGGED_PROJECTS_PAGE_SIZE = 5;
 const FINALIZE_PROGRESS_MESSAGE =
   "Saving processed data to the database. You will be redirected shortly.";
 const LIVE_STATUS_UNAVAILABLE_NOTICE =
@@ -196,16 +200,69 @@ function clampProgress(value: number): number {
   return Math.min(100, Math.max(0, Math.round(value)));
 }
 
+function normalizeMessage(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+type EmbeddingStatus = NonNullable<AipHeader["embedding"]>["status"];
+
+function toEmbeddingStatus(value: string): EmbeddingStatus | null {
+  if (
+    value === "queued" ||
+    value === "running" ||
+    value === "succeeded" ||
+    value === "failed"
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function isEmbedStage(stage: string): boolean {
+  return stage === "embed";
+}
+
+function buildEmbeddingFromRun(input: {
+  runId: string;
+  status: string;
+  progressMessage?: string | null;
+  errorMessage?: string | null;
+  overallProgressPct?: number | null;
+  updatedAt?: string | null;
+}): AipHeader["embedding"] {
+  const status = toEmbeddingStatus(input.status);
+  if (!status) return undefined;
+  return {
+    runId: input.runId,
+    status,
+    overallProgressPct:
+      typeof input.overallProgressPct === "number"
+        ? clampProgress(input.overallProgressPct)
+        : null,
+    progressMessage: normalizeMessage(input.progressMessage),
+    errorMessage: normalizeMessage(input.errorMessage),
+    updatedAt: input.updatedAt ?? null,
+  };
+}
+
 function hasSummaryText(summaryText: string | undefined): boolean {
   return typeof summaryText === "string" && summaryText.trim().length > 0;
 }
 
+function toDisplayPipelineStage(stage: PipelineStageUi): PipelineStageUi {
+  return stage === "scale_amounts" ? "validate" : stage;
+}
+
 function getPipelineStageLabel(stage: PipelineStageUi): string {
-  return PIPELINE_STAGE_LABELS[stage];
+  return PIPELINE_STAGE_LABELS[toDisplayPipelineStage(stage)];
 }
 
 function getCompletedPipelineStageLabels(failedStage: PipelineStageUi): string[] {
-  const failedIndex = PIPELINE_STAGE_ORDER_FOR_FAILURE.indexOf(failedStage);
+  const failedIndex = PIPELINE_STAGE_ORDER_FOR_FAILURE.indexOf(
+    toDisplayPipelineStage(failedStage)
+  );
   if (failedIndex <= 0) return [];
   return PIPELINE_STAGE_ORDER_FOR_FAILURE.slice(0, failedIndex).map(getPipelineStageLabel);
 }
@@ -224,6 +281,7 @@ function buildProgressByStage(
   const progressByStage: Record<PipelineStageUi, number> = {
     extract: 0,
     validate: 0,
+    scale_amounts: 0,
     summarize: 0,
     categorize: 0,
     embed: 0,
@@ -231,7 +289,7 @@ function buildProgressByStage(
 
   if (!stage || !status) return progressByStage;
 
-  const activeIndex = PIPELINE_STAGES.indexOf(stage);
+  const activeIndex = PIPELINE_STAGES.indexOf(toDisplayPipelineStage(stage));
   if (activeIndex < 0) return progressByStage;
 
   for (let index = 0; index < PIPELINE_STAGES.length; index += 1) {
@@ -320,9 +378,12 @@ export default function AipDetailView({
   const [isRetryingEmbedding, setIsRetryingEmbedding] = useState(false);
   const [embeddingRetryError, setEmbeddingRetryError] = useState<string | null>(null);
   const [embeddingRetrySuccess, setEmbeddingRetrySuccess] = useState<string | null>(null);
+  const [liveEmbedding, setLiveEmbedding] = useState<AipHeader["embedding"]>(aip.embedding);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState<string | null>(null);
   const [unresolvedAiCount, setUnresolvedAiCount] = useState(0);
+  const [aiFlaggedProjects, setAiFlaggedProjects] = useState<AipProjectRow[]>([]);
+  const [flaggedPage, setFlaggedPage] = useState(1);
   const [workflowPendingAction, setWorkflowPendingAction] = useState<
     | "delete_draft"
     | "cancel_submission"
@@ -337,8 +398,9 @@ export default function AipDetailView({
   const [cityPublishConfirmOpen, setCityPublishConfirmOpen] = useState(false);
   const [deleteDraftConfirmOpen, setDeleteDraftConfirmOpen] = useState(false);
   const lastHydratedRunIdRef = useRef<string | null>(null);
+  const lastHydratedEmbedRunIdRef = useRef<string | null>(null);
   const chatbotReadiness =
-    aip.status === "published" ? getAipChatbotReadinessStatus(aip.embedding) : null;
+    aip.status === "published" ? getAipChatbotReadinessStatus(liveEmbedding) : null;
   const isEmbedFailed = chatbotReadiness?.kind === "failed";
   const isEmbedRunning = chatbotReadiness?.kind === "embedding";
   const canManualEmbedDispatch =
@@ -402,23 +464,59 @@ export default function AipDetailView({
         if (cancelled) return;
 
         if (payload.run?.runId) {
-          setActiveRunId(payload.run.runId);
-          setProcessingState("processing");
-          setIsFinalizingAfterSuccess(false);
-          setFailedRun(null);
-          setRetryError(null);
-          setFinalizingNotice(null);
+          if (isEmbedStage(payload.run.stage)) {
+            setLiveEmbedding(
+              buildEmbeddingFromRun({
+                runId: payload.run.runId,
+                status: payload.run.status,
+                errorMessage: payload.run.errorMessage,
+                updatedAt: payload.run.createdAt,
+              })
+            );
+            setActiveRunId(null);
+            setProcessingRun(null);
+            setProcessingState("idle");
+            setIsFinalizingAfterSuccess(false);
+            setFailedRun(null);
+            setRetryError(null);
+            setFinalizingNotice(null);
+          } else {
+            setActiveRunId(payload.run.runId);
+            setProcessingState("processing");
+            setIsFinalizingAfterSuccess(false);
+            setFailedRun(null);
+            setRetryError(null);
+            setFinalizingNotice(null);
+          }
         } else if (payload.failedRun?.runId) {
-          setActiveRunId(null);
-          setProcessingState("idle");
-          setIsFinalizingAfterSuccess(false);
-          setFinalizingNotice(null);
-          setFailedRun({
-            runId: payload.failedRun.runId,
-            stage: payload.failedRun.stage,
-            message: payload.failedRun.errorMessage,
-          });
-          setRetryError(null);
+          if (isEmbedStage(payload.failedRun.stage)) {
+            setLiveEmbedding(
+              buildEmbeddingFromRun({
+                runId: payload.failedRun.runId,
+                status: payload.failedRun.status,
+                errorMessage: payload.failedRun.errorMessage,
+                updatedAt: payload.failedRun.createdAt,
+              })
+            );
+            setActiveRunId(null);
+            setProcessingRun(null);
+            setProcessingState("idle");
+            setIsFinalizingAfterSuccess(false);
+            setFinalizingNotice(null);
+            setFailedRun(null);
+            setRetryError(null);
+          } else {
+            setActiveRunId(null);
+            setProcessingState("idle");
+            setIsFinalizingAfterSuccess(false);
+            setFinalizingNotice(null);
+            setFailedRun({
+              runId: payload.failedRun.runId,
+              stage: toDisplayPipelineStage(payload.failedRun.stage),
+              message: payload.failedRun.errorMessage,
+            });
+            setRetryError(null);
+          }
         } else {
           setActiveRunId(null);
           setProcessingState("idle");
@@ -468,19 +566,54 @@ export default function AipDetailView({
         return;
       }
 
+      if (isEmbedStage(payload.stage)) {
+        setEmbeddingRetryError(null);
+        if (
+          payload.status === "running" ||
+          payload.status === "succeeded" ||
+          payload.status === "failed"
+        ) {
+          setEmbeddingRetrySuccess(null);
+        }
+        setLiveEmbedding(
+          buildEmbeddingFromRun({
+            runId: payload.runId,
+            status: payload.status,
+            progressMessage: payload.progressMessage,
+            errorMessage: payload.errorMessage,
+            overallProgressPct: payload.overallProgressPct,
+            updatedAt: payload.progressUpdatedAt,
+          })
+        );
+        setProcessingRun(null);
+        setProcessingState("idle");
+        setIsFinalizingAfterSuccess(false);
+        setFinalizingNotice(null);
+        setFailedRun((current) => (current?.runId === payload.runId ? null : current));
+        setRetryError(null);
+        setRunNotice(null);
+        setActiveRunId((current) => (current === payload.runId ? null : current));
+        if (runIdFromQuery) {
+          clearRunQuery();
+        }
+        return;
+      }
+
+      const displayStage = toDisplayPipelineStage(payload.stage);
+
       const shouldShowSyncingMessage =
         (payload.status === "queued" || payload.status === "running") &&
         typeof payload.stageProgressPct !== "number" &&
         !payload.progressMessage;
 
       setProcessingRun({
-        stage: payload.stage,
+        stage: displayStage,
         status: payload.status,
         message:
           payload.errorMessage ??
           (shouldShowSyncingMessage ? "Syncing live progress..." : null),
         progressByStage: buildProgressByStage(
-          payload.stage,
+          displayStage,
           payload.status,
           payload.stageProgressPct
         ),
@@ -527,7 +660,7 @@ export default function AipDetailView({
       setActiveRunId(null);
       setFailedRun({
         runId: payload.runId,
-        stage: payload.stage,
+        stage: displayStage,
         message: payload.errorMessage ?? payload.progressMessage ?? null,
       });
       setRetryError(null);
@@ -567,6 +700,37 @@ export default function AipDetailView({
     }
   }, [activeRunId, applyRunStatusPayload, isCityScope, shouldTrackRunStatus]);
 
+  const hydrateEmbedSnapshot = useCallback(async (mode: "initial" | "resync" = "initial") => {
+    if (!shouldTrackRunStatus || aip.status !== "published") return;
+    const embedRunId = liveEmbedding?.runId;
+    if (!embedRunId) return;
+    if (mode === "initial" && lastHydratedEmbedRunIdRef.current === embedRunId) return;
+    if (mode === "initial") {
+      lastHydratedEmbedRunIdRef.current = embedRunId;
+    }
+    try {
+      const runApiScope = isCityScope ? "city" : "barangay";
+      const res = await fetch(
+        `/api/${runApiScope}/aips/runs/${encodeURIComponent(embedRunId)}`
+      );
+      if (!res.ok) return;
+      const payload = (await res.json()) as RunSnapshotPayload;
+      if (!payload || payload.runId !== embedRunId || !isEmbedStage(payload.stage)) return;
+      applyRunStatusPayload({
+        runId: payload.runId,
+        status: payload.status,
+        stage: payload.stage,
+        errorMessage: payload.errorMessage,
+        overallProgressPct: payload.overallProgressPct,
+        stageProgressPct: payload.stageProgressPct,
+        progressMessage: payload.progressMessage,
+        progressUpdatedAt: payload.progressUpdatedAt,
+      });
+    } catch {
+      // best-effort sync; realtime remains primary transport
+    }
+  }, [aip.status, applyRunStatusPayload, isCityScope, liveEmbedding?.runId, shouldTrackRunStatus]);
+
   useEffect(() => {
     if (!activeRunId) {
       lastHydratedRunIdRef.current = null;
@@ -574,6 +738,14 @@ export default function AipDetailView({
     }
     void hydrateRunSnapshot("initial");
   }, [activeRunId, hydrateRunSnapshot]);
+
+  useEffect(() => {
+    if (aip.status !== "published" || !liveEmbedding?.runId) {
+      lastHydratedEmbedRunIdRef.current = null;
+      return;
+    }
+    void hydrateEmbedSnapshot("initial");
+  }, [aip.status, hydrateEmbedSnapshot, liveEmbedding?.runId]);
 
   const handleRealtimeUnavailable = useCallback(() => {
     setRunNotice(LIVE_STATUS_UNAVAILABLE_NOTICE);
@@ -599,6 +771,39 @@ export default function AipDetailView({
     },
     [handleRealtimeUnavailable, hydrateRunSnapshot]
   );
+
+  const handleRealtimeEmbedRunEvent = useCallback(
+    (event: ExtractionRunRealtimeEvent) => {
+      if (!isEmbedStage(event.run.stage ?? "")) return;
+      applyRunStatusPayload(mapRealtimeEventToRunStatusPayload(event));
+    },
+    [applyRunStatusPayload]
+  );
+
+  const handleRealtimeEmbedStatusChange = useCallback(
+    (status: REALTIME_SUBSCRIBE_STATES) => {
+      if (status === "SUBSCRIBED") {
+        setRunNotice(null);
+        void hydrateEmbedSnapshot("resync");
+        return;
+      }
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        handleRealtimeUnavailable();
+      }
+    },
+    [handleRealtimeUnavailable, hydrateEmbedSnapshot]
+  );
+
+  useExtractionRunsRealtime({
+    enabled: shouldTrackRunStatus && aip.status === "published",
+    aipId: aip.id,
+    channelKey: `${scope}-aip-detail-embed-${aip.id}`,
+    onRunEvent: handleRealtimeEmbedRunEvent,
+    onSubscribeError: () => {
+      handleRealtimeUnavailable();
+    },
+    onStatusChange: handleRealtimeEmbedStatusChange,
+  });
 
   useExtractionRunsRealtime({
     enabled: shouldTrackRunStatus && Boolean(activeRunId),
@@ -688,7 +893,14 @@ export default function AipDetailView({
           ? "Embedding retry dispatched."
           : "Embedding job dispatched.";
       setEmbeddingRetrySuccess(successMessage);
-      router.refresh();
+      setLiveEmbedding({
+        runId: liveEmbedding?.runId ?? `embed-dispatch-${Date.now()}`,
+        status: "queued",
+        overallProgressPct: null,
+        progressMessage: payload.message ?? "Search indexing job dispatched.",
+        errorMessage: null,
+        updatedAt: new Date().toISOString(),
+      });
     } catch (error) {
       setEmbeddingRetryError(
         error instanceof Error ? error.message : "Failed to dispatch embedding."
@@ -696,7 +908,7 @@ export default function AipDetailView({
     } finally {
       setIsRetryingEmbedding(false);
     }
-  }, [aip.id, isCityScope, router]);
+  }, [aip.id, isCityScope, liveEmbedding?.runId]);
 
   const handleRetryFailedRun = useCallback(async (mode: RetryFailedRunMode) => {
     if (!failedRun) return;
@@ -750,13 +962,27 @@ export default function AipDetailView({
     setProjectsLoading(true);
     setProjectsError(null);
     setUnresolvedAiCount(0);
+    setAiFlaggedProjects([]);
+    setFlaggedPage(1);
   }, [aip.id]);
+
+  useEffect(() => {
+    setLiveEmbedding(aip.embedding);
+  }, [aip.embedding, aip.id]);
 
   useEffect(() => {
     if (aip.status !== "for_revision") {
       setRevisionReplyDraft("");
     }
   }, [aip.status]);
+
+  useEffect(() => {
+    const totalPages = Math.max(
+      1,
+      Math.ceil(aiFlaggedProjects.length / FLAGGED_PROJECTS_PAGE_SIZE)
+    );
+    setFlaggedPage((previous) => Math.min(previous, totalPages));
+  }, [aiFlaggedProjects.length]);
 
   const isWorkflowBusy = workflowPendingAction !== null;
   const canManageBarangayWorkflow =
@@ -777,7 +1003,6 @@ export default function AipDetailView({
     canManageBarangayWorkflow &&
     !projectsLoading &&
     !projectsError &&
-    unresolvedAiCount === 0 &&
     (!requiresRevisionReply || trimmedRevisionReply.length > 0);
   const canSaveRevisionReply =
     isBarangayScope &&
@@ -792,14 +1017,29 @@ export default function AipDetailView({
     ? "Loading project review statuses before submission."
     : projectsError
       ? "Project review statuses are unavailable right now. Please refresh and try again."
-      : unresolvedAiCount > 0
-        ? `${unresolvedAiCount} AI-flagged project(s) still need an official response before submission.`
-        : requiresRevisionReply && trimmedRevisionReply.length === 0
+      : requiresRevisionReply && trimmedRevisionReply.length === 0
           ? "Reply to reviewer remarks is required before resubmission."
-        : null;
+          : null;
+  const unresolvedAiAdvisoryMessage =
+    unresolvedAiCount > 0
+      ? `${unresolvedAiCount} AI-flagged project(s) have not been addressed with an LGU feedback note yet. You may still continue, but citizens will see these as unaddressed.`
+      : null;
+  const flaggedProjectsTotalPages = Math.max(
+    1,
+    Math.ceil(aiFlaggedProjects.length / FLAGGED_PROJECTS_PAGE_SIZE)
+  );
+  const currentFlaggedPage = Math.min(flaggedPage, flaggedProjectsTotalPages);
+  const flaggedProjectsPageStart = (currentFlaggedPage - 1) * FLAGGED_PROJECTS_PAGE_SIZE;
+  const visibleFlaggedProjects = aiFlaggedProjects.slice(
+    flaggedProjectsPageStart,
+    flaggedProjectsPageStart + FLAGGED_PROJECTS_PAGE_SIZE
+  );
+  const showFlaggedProjectsPagination =
+    aiFlaggedProjects.length > FLAGGED_PROJECTS_PAGE_SIZE;
 
   const handleProjectsStateChange = useCallback(
     (state: {
+      rows: AipProjectRow[];
       loading: boolean;
       error: string | null;
       unresolvedAiCount: number;
@@ -807,6 +1047,9 @@ export default function AipDetailView({
       setProjectsLoading(state.loading);
       setProjectsError(state.error);
       setUnresolvedAiCount(state.unresolvedAiCount);
+      setAiFlaggedProjects(
+        state.rows.filter((project) => project.reviewStatus === "ai_flagged")
+      );
     },
     []
   );
@@ -1182,6 +1425,77 @@ export default function AipDetailView({
                 </Alert>
               ) : null}
 
+              {(isBarangayScope || isCityScope) &&
+              (aip.status === "draft" || aip.status === "for_revision") &&
+              unresolvedAiAdvisoryMessage ? (
+                <Alert className="border-amber-200 bg-amber-50">
+                  <AlertDescription className="space-y-3 text-amber-800">
+                    <p>{unresolvedAiAdvisoryMessage}</p>
+                    {aiFlaggedProjects.length > 0 ? (
+                      <div className="rounded border border-amber-300 bg-amber-100/50 px-3 py-2">
+                        <p className="text-xs font-semibold text-amber-900">
+                          Flagged projects:
+                        </p>
+                        <ul className="mt-2 space-y-1 text-xs">
+                          {visibleFlaggedProjects.map((project) => {
+                            const projectHref = `/${scope}/aips/${encodeURIComponent(
+                              aip.id
+                            )}/${encodeURIComponent(project.id)}`;
+                            return (
+                              <li key={project.id} className="leading-relaxed">
+                                <a
+                                  href={projectHref}
+                                  className="font-semibold text-amber-900 underline underline-offset-2 hover:text-amber-950"
+                                >
+                                  {project.projectRefCode}
+                                </a>
+                                <span className="text-amber-900">
+                                  {" "}
+                                  - {project.aipDescription}
+                                </span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                        {showFlaggedProjectsPagination ? (
+                          <div className="mt-3 flex items-center justify-between">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 border-amber-300 bg-amber-50 px-2 text-amber-900 hover:bg-amber-100"
+                              onClick={() =>
+                                setFlaggedPage((previous) => Math.max(1, previous - 1))
+                              }
+                              disabled={currentFlaggedPage <= 1}
+                            >
+                              Previous
+                            </Button>
+                            <span className="text-[11px] text-amber-900">
+                              Page {currentFlaggedPage} of {flaggedProjectsTotalPages}
+                            </span>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 border-amber-300 bg-amber-50 px-2 text-amber-900 hover:bg-amber-100"
+                              onClick={() =>
+                                setFlaggedPage((previous) =>
+                                  Math.min(flaggedProjectsTotalPages, previous + 1)
+                                )
+                              }
+                              disabled={currentFlaggedPage >= flaggedProjectsTotalPages}
+                            >
+                              Next
+                            </Button>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </AlertDescription>
+                </Alert>
+              ) : null}
+
               {isBarangayScope &&
               !canManageBarangayWorkflow &&
               (aip.status === "draft" ||
@@ -1263,6 +1577,7 @@ export default function AipDetailView({
                     year={aip.year}
                     aipStatus={aip.status}
                     scope={scope}
+                    displayTotalBudget={aip.budget}
                     focusedRowId={focusedRowId}
                     enablePagination
                     onProjectsStateChange={handleProjectsStateChange}

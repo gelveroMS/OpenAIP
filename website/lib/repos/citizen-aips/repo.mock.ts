@@ -145,6 +145,7 @@ function toDetailRecord(aip: FixtureAip): CitizenAipDetailRecord {
       projectRefCode: row.projectRefCode,
       programDescription: row.aipDescription,
       totalAmount: row.amount,
+      hasAiIssues: (row.aiIssues?.length ?? 0) > 0,
       hasLguNote: Boolean(row.officialComment?.trim()),
     })),
     accountability: toAccountability(aip),
@@ -191,6 +192,7 @@ export function createMockCitizenAipRepo(): CitizenAipRepo {
         completionDate: null,
         totalAmount: project.amount,
         aiIssues: project.aiIssues ?? [],
+        hasLguNote: Boolean(project.officialComment?.trim()),
       };
     },
   };

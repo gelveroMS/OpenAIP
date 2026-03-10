@@ -1,5 +1,10 @@
 import "server-only";
 
+import {
+  collectInChunks,
+  collectPaged,
+  dedupeNonEmptyStrings,
+} from "@/lib/repos/_shared/supabase-batching";
 import { supabaseServer } from "@/lib/supabase/server";
 import { ChatRepoErrors } from "./types";
 import type { ChatCitation, ChatRetrievalMeta } from "./types";
@@ -83,37 +88,55 @@ export function createSupabaseChatRepo(): ChatRepo {
       const client = await supabaseServer();
       const query = normalizeSearchQuery(options?.query);
       if (!query) {
-        const { data, error } = await client
-          .from("chat_sessions")
-          .select("id,user_id,title,context,last_message_at,created_at,updated_at")
-          .eq("user_id", userId)
-          .order("updated_at", { ascending: false });
+        const rows = await collectPaged(async (from, to) => {
+          const { data, error } = await client
+            .from("chat_sessions")
+            .select("id,user_id,title,context,last_message_at,created_at,updated_at")
+            .eq("user_id", userId)
+            .order("updated_at", { ascending: false })
+            .order("id", { ascending: true })
+            .range(from, to);
 
-        if (error) {
-          throw new Error(error.message);
-        }
+          if (error) {
+            throw new Error(error.message);
+          }
+          return (data ?? []) as ChatSessionRow[];
+        });
 
-        return (data ?? []).map((row) => mapSession(row as ChatSessionRow));
+        return rows.map(mapSession);
       }
 
       const pattern = toIlikePattern(query);
 
-      const { data: titleMatches, error: titleError } = await client
-        .from("chat_sessions")
-        .select("id,user_id,title,context,last_message_at,created_at,updated_at")
-        .eq("user_id", userId)
-        .ilike("title", pattern);
-      if (titleError) {
-        throw new Error(titleError.message);
-      }
-
-      const { data: messageMatches, error: messageError } = await client
-        .from("chat_messages")
-        .select("session_id")
-        .ilike("content", pattern);
-      if (messageError) {
-        throw new Error(messageError.message);
-      }
+      const [titleMatches, messageMatches] = await Promise.all([
+        collectPaged(async (from, to) => {
+          const { data, error } = await client
+            .from("chat_sessions")
+            .select("id,user_id,title,context,last_message_at,created_at,updated_at")
+            .eq("user_id", userId)
+            .ilike("title", pattern)
+            .order("updated_at", { ascending: false })
+            .order("id", { ascending: true })
+            .range(from, to);
+          if (error) {
+            throw new Error(error.message);
+          }
+          return (data ?? []) as ChatSessionRow[];
+        }),
+        collectPaged(async (from, to) => {
+          const { data, error } = await client
+            .from("chat_messages")
+            .select("id,session_id")
+            .ilike("content", pattern)
+            .order("created_at", { ascending: false })
+            .order("id", { ascending: false })
+            .range(from, to);
+          if (error) {
+            throw new Error(error.message);
+          }
+          return (data ?? []) as Array<{ session_id: string | null }>;
+        }),
+      ]);
 
       const sessionIds = new Set<string>();
       for (const row of titleMatches ?? []) {
@@ -131,18 +154,32 @@ export function createSupabaseChatRepo(): ChatRepo {
         return [];
       }
 
-      const { data, error } = await client
-        .from("chat_sessions")
-        .select("id,user_id,title,context,last_message_at,created_at,updated_at")
-        .eq("user_id", userId)
-        .in("id", Array.from(sessionIds))
-        .order("updated_at", { ascending: false });
+      const rows = await collectInChunks(
+        dedupeNonEmptyStrings(Array.from(sessionIds)),
+        async (sessionIdChunk) => {
+          const { data, error } = await client
+            .from("chat_sessions")
+            .select("id,user_id,title,context,last_message_at,created_at,updated_at")
+            .eq("user_id", userId)
+            .in("id", sessionIdChunk)
+            .order("updated_at", { ascending: false })
+            .order("id", { ascending: true });
 
-      if (error) {
-        throw new Error(error.message);
-      }
+          if (error) {
+            throw new Error(error.message);
+          }
 
-      return (data ?? []).map((row) => mapSession(row as ChatSessionRow));
+          return (data ?? []) as ChatSessionRow[];
+        }
+      );
+
+      rows.sort((left, right) => {
+        if (left.updated_at !== right.updated_at) {
+          return left.updated_at < right.updated_at ? 1 : -1;
+        }
+        return left.id.localeCompare(right.id);
+      });
+      return rows.map(mapSession);
     },
 
     async getSession(sessionId: string): Promise<ChatSession | null> {

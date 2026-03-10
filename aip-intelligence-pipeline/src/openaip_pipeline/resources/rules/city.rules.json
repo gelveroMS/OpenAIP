@@ -4,43 +4,50 @@
   "rules": [
     {
       "id": "R001",
-      "title": "Required columns",
-      "description": "aip_ref_code, program_project_description, implementing_agency, start_date, completion_date, expected_output, source_of_funds, and total must exist and not be an empty string."
+      "title": "AIP reference code prefix",
+      "description": "aip_ref_code may be null or empty. If present and non-empty, it must start with one of: 1000, 3000, 8000, 9000."
     },
     {
       "id": "R002",
       "title": "Date validity",
-      "description": "start_date and completion_date must be valid month-name/month-only values or numeric date format M/D/YYYY or MM/DD/YYYY."
+      "description": "start_date and completion_date must be valid month-name or month-only values (case-insensitive) or numeric date format M/D/YYYY or MM/DD/YYYY."
     },
     {
       "id": "R003",
+      "title": "Date order",
+      "description": "If both start_date and completion_date are present, non-empty, and valid under R002, then start_date must be earlier than completion_date. If start_date is the same as or later than completion_date, add an error."
+    },
+    {
+      "id": "R004",
       "title": "Numeric columns",
       "description": "personal_services, maintenance_and_other_operating_expenses, capital_outlay, total, climate_change_adaptation, and climate_change_mitigation must be number or null."
     },
     {
-      "id": "R004",
+      "id": "R005",
       "title": "Total arithmetic consistency",
       "description": "total must equal personal_services + maintenance_and_other_operating_expenses + capital_outlay, treating null as 0, with tolerance of 1.00 peso."
     },
     {
-      "id": "R005",
+      "id": "R006",
       "title": "Climate expenditure bounds",
-      "description": "climate_change_adaptation + climate_change_mitigation must be <= total, treating null as 0, with tolerance of 1.00 peso."
+      "description": "climate_change_adaptation + climate_change_mitigation must be less than or equal to total, treating null as 0, with tolerance of 1.00 peso."
     },
     {
-      "id": "R006",
+      "id": "R007",
       "title": "CC typology code format",
       "description": "cc_topology_code must be null or match pattern A###-##."
     },
     {
-      "id": "R007",
-      "title": "PRM/NCR indicator presence",
-      "description": "If any indicator keys exist (prm_ncr_lgu_rm_objective_results_indicator, prm_ncr_lgu, rm_objective, results_indicator), each must be null or a non-empty string; do not require absent keys."
-    },
-    {
       "id": "R008",
       "title": "Non-negative money",
-      "description": "All numeric budget fields (PS/MOOE/CO/total/climate fields) must be >= 0 when not null."
+      "description": "All numeric budget fields (PS, MOOE, CO, total, and climate fields) must be greater than or equal to 0 when not null."
     }
+  ],
+  "notes": [
+    "Only check R003 if both dates are valid under R002.",
+    "For month-only values like Jan or January, treat them as valid for R002, but only compare date order in R003 when both dates can be interpreted consistently enough to determine ordering.",
+    "For R005, R006, and R008, only evaluate fields that are valid numbers or null.",
+    "Treat null as allowed unless another rule explicitly forbids it.",
+    "Indicator-related fields such as prm_ncr_lgu_rm_objective_results_indicator_code, prm_ncr_lgu, rm_objective, or results_indicator are not validated by this ruleset unless explicitly requested otherwise."
   ]
 }

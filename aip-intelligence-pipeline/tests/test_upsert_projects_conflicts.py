@@ -12,13 +12,13 @@ class _FakeProjectsClient:
     def __init__(
         self,
         *,
-        conflict_on_insert_refs: set[str] | None = None,
+        conflict_on_insert_keys: set[str] | None = None,
         conflict_row_human_edited: bool = False,
     ) -> None:
         self.insert_calls: list[dict[str, Any]] = []
         self.update_calls: list[dict[str, Any]] = []
         self.projects_by_key: dict[tuple[str, str], dict[str, Any]] = {}
-        self.conflict_on_insert_refs = {ref.lower() for ref in (conflict_on_insert_refs or set())}
+        self.conflict_on_insert_keys = {ref.lower() for ref in (conflict_on_insert_keys or set())}
         self.conflict_row_human_edited = conflict_row_human_edited
 
     @staticmethod
@@ -42,9 +42,12 @@ class _FakeProjectsClient:
         rows = list(self.projects_by_key.values())
         if filters:
             aip_id = self._strip_eq(filters.get("aip_id"))
+            project_key = self._strip_eq(filters.get("project_key"))
             ref_code = self._strip_eq(filters.get("aip_ref_code"))
             if aip_id:
                 rows = [row for row in rows if row.get("aip_id") == aip_id]
+            if project_key:
+                rows = [row for row in rows if row.get("project_key") == project_key]
             if ref_code:
                 rows = [row for row in rows if row.get("aip_ref_code") == ref_code]
         if limit is not None:
@@ -66,14 +69,16 @@ class _FakeProjectsClient:
             return [{"id": "ok"}]
 
         aip_id = str(row["aip_id"])
-        ref_code = str(row["aip_ref_code"])
-        key = (aip_id, ref_code.lower())
+        project_key = str(row["project_key"])
+        ref_code = row.get("aip_ref_code")
+        key = (aip_id, project_key.lower())
 
-        if key[1] in self.conflict_on_insert_refs:
-            self.conflict_on_insert_refs.remove(key[1])
+        if key[1] in self.conflict_on_insert_keys:
+            self.conflict_on_insert_keys.remove(key[1])
             self.projects_by_key[key] = {
                 "id": "proj-conflict",
                 "aip_id": aip_id,
+                "project_key": project_key,
                 "aip_ref_code": ref_code,
                 "is_human_edited": self.conflict_row_human_edited,
             }
@@ -86,6 +91,7 @@ class _FakeProjectsClient:
         stored = {
             "id": row_id,
             "aip_id": aip_id,
+            "project_key": project_key,
             "aip_ref_code": ref_code,
             "is_human_edited": False,
         }
@@ -107,18 +113,26 @@ class _FakeProjectsClient:
         row_id = self._strip_eq(filters.get("id"))
         if not row_id:
             return []
-        for key, row in self.projects_by_key.items():
+        for key, row in list(self.projects_by_key.items()):
             if row.get("id") != row_id:
                 continue
             updated = {**row, **patch}
-            self.projects_by_key[key] = updated
+            updated_key = str(updated.get("project_key") or "").lower() or key[1]
+            self.projects_by_key.pop(key, None)
+            self.projects_by_key[(str(updated.get("aip_id") or row["aip_id"]), updated_key)] = updated
             return [updated]
         return []
 
 
-def _sample_project(ref_code: str, description: str) -> dict[str, Any]:
+def _sample_project(
+    ref_code: str | None,
+    description: str,
+    *,
+    project_key: str | None = None,
+) -> dict[str, Any]:
     return {
         "aip_ref_code": ref_code,
+        "project_key": project_key,
         "program_project_description": description,
         "implementing_agency": "Barangay Council",
         "start_date": "2026-01-01",
@@ -157,7 +171,7 @@ def test_upsert_projects_updates_second_duplicate_ref_in_same_payload() -> None:
 
 
 def test_upsert_projects_recovers_from_insert_conflict_and_updates_row() -> None:
-    fake_client = _FakeProjectsClient(conflict_on_insert_refs={"1000-A"})
+    fake_client = _FakeProjectsClient(conflict_on_insert_keys={"1000-A"})
     repo = PipelineRepository(fake_client)  # type: ignore[arg-type]
 
     repo.upsert_projects(
@@ -173,7 +187,7 @@ def test_upsert_projects_recovers_from_insert_conflict_and_updates_row() -> None
 
 def test_upsert_projects_keeps_human_edited_row_on_insert_conflict() -> None:
     fake_client = _FakeProjectsClient(
-        conflict_on_insert_refs={"1000-A"},
+        conflict_on_insert_keys={"1000-A"},
         conflict_row_human_edited=True,
     )
     repo = PipelineRepository(fake_client)  # type: ignore[arg-type]
@@ -186,6 +200,28 @@ def test_upsert_projects_keeps_human_edited_row_on_insert_conflict() -> None:
 
     project_updates = [call for call in fake_client.update_calls if call["table"] == "projects"]
     assert project_updates == []
+
+
+def test_upsert_projects_uses_project_key_when_ref_is_null() -> None:
+    fake_client = _FakeProjectsClient()
+    repo = PipelineRepository(fake_client)  # type: ignore[arg-type]
+
+    repo.upsert_projects(
+        aip_id="aip-123",
+        extraction_artifact_id="artifact-1",
+        projects=[
+            _sample_project(None, "First null-ref version", project_key="CITY:ROW:1"),
+            _sample_project(None, "Second null-ref version", project_key="CITY:ROW:1"),
+        ],
+    )
+
+    project_inserts = [call for call in fake_client.insert_calls if call["table"] == "projects"]
+    project_updates = [call for call in fake_client.update_calls if call["table"] == "projects"]
+    assert len(project_inserts) == 1
+    assert project_inserts[0]["row"]["aip_ref_code"] is None
+    assert project_inserts[0]["row"]["project_key"] == "CITY:ROW:1"
+    assert len(project_updates) == 1
+    assert project_updates[0]["patch"]["program_project_description"] == "Second null-ref version"
 
 
 def test_upsert_projects_conflict_without_lookup_row_surfaces_context() -> None:
@@ -226,5 +262,6 @@ def test_upsert_projects_conflict_without_lookup_row_surfaces_context() -> None:
     message = str(error_info.value)
     assert "lookup found no conflicting row" in message
     assert "aip_id=aip-123" in message
+    assert "project_key=A101-01" in message
     assert "aip_ref_code=A101-01" in message
     assert "fk_projects_sector" in message

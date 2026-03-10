@@ -15,10 +15,13 @@ from openaip_pipeline.services.extraction.barangay import run_extraction as run_
 from openaip_pipeline.services.extraction.city import run_extraction as run_city_extraction
 from openaip_pipeline.services.openai_utils import build_openai_client
 from openaip_pipeline.services.rag.rag import answer_with_rag
+from openaip_pipeline.services.scaling.scale_amounts import scale_validated_amounts_json_str
 from openaip_pipeline.services.summarization.summarize import summarize_aip_overall_json_str
 from openaip_pipeline.services.validation.barangay import validate_projects_json_str as validate_barangay
 from openaip_pipeline.services.validation.city import validate_projects_json_str as validate_city
 from openaip_pipeline.worker.progress import clamp_pct, read_positive_float_env, run_with_heartbeat
+
+VALIDATION_FIXED_BATCH_SIZE = 25
 
 
 class PipelineGuardrailError(RuntimeError):
@@ -181,7 +184,7 @@ def _normalize_resume_start_stage(value: Any) -> str:
     lowered = stage.lower()
     if lowered == "embed":
         return "categorize"
-    if lowered in {"extract", "validate", "summarize", "categorize"}:
+    if lowered in {"extract", "validate", "scale_amounts", "summarize", "categorize"}:
         return lowered
     return "extract"
 
@@ -189,8 +192,10 @@ def _normalize_resume_start_stage(value: Any) -> str:
 def _required_input_artifact_type(start_stage: str) -> str | None:
     if start_stage == "validate":
         return "extract"
-    if start_stage == "summarize":
+    if start_stage == "scale_amounts":
         return "validate"
+    if start_stage == "summarize":
+        return "scale_amounts"
     if start_stage == "categorize":
         return "summarize"
     return None
@@ -248,6 +253,7 @@ def process_run(*, repo: PipelineRepository, settings: Settings, run: dict[str, 
         start_stage = _normalize_resume_start_stage(run.get("resume_from_stage"))
         extraction_payload: dict[str, Any] | None = None
         validation_payload: dict[str, Any] | None = None
+        scaled_payload: dict[str, Any] | None = None
         summary_payload: dict[str, Any] | None = None
         summary_text: str | None = None
 
@@ -277,14 +283,10 @@ def process_run(*, repo: PipelineRepository, settings: Settings, run: dict[str, 
                 )
                 if required_artifact_type == "extract":
                     extraction_payload = prerequisite_payload
-                    repo.upsert_aip_totals(
-                        aip_id=aip_id,
-                        totals=extraction_payload.get("totals")
-                        if isinstance(extraction_payload, dict)
-                        else [],
-                    )
                 elif required_artifact_type == "validate":
                     validation_payload = prerequisite_payload
+                elif required_artifact_type == "scale_amounts":
+                    scaled_payload = prerequisite_payload
                 elif required_artifact_type == "summarize":
                     summary_payload = prerequisite_payload
                     summary_text = _extract_summary_text(summary_payload)
@@ -293,6 +295,20 @@ def process_run(*, repo: PipelineRepository, settings: Settings, run: dict[str, 
         aip_scope = repo.get_aip_scope(aip_id)
         extraction_fn = run_city_extraction if aip_scope == "city" else run_barangay_extraction
         validation_fn = validate_city if aip_scope == "city" else validate_barangay
+        if required_artifact_type == "extract" and aip_scope != "city":
+            repo.upsert_aip_totals(
+                aip_id=aip_id,
+                totals=extraction_payload.get("totals")
+                if isinstance(extraction_payload, dict)
+                else [],
+            )
+        if required_artifact_type == "scale_amounts" and aip_scope == "city":
+            repo.upsert_aip_totals(
+                aip_id=aip_id,
+                totals=scaled_payload.get("totals")
+                if isinstance(scaled_payload, dict)
+                else [],
+            )
         if start_stage == "extract":
             current_stage = "extract"
             repo.set_run_stage(run_id=run_id, stage=current_stage)
@@ -337,12 +353,13 @@ def process_run(*, repo: PipelineRepository, settings: Settings, run: dict[str, 
                 payload=extraction_payload,
                 text=None,
             )
-            repo.upsert_aip_totals(
-                aip_id=aip_id,
-                totals=extraction_payload.get("totals")
-                if isinstance(extraction_payload, dict)
-                else [],
-            )
+            if aip_scope != "city":
+                repo.upsert_aip_totals(
+                    aip_id=aip_id,
+                    totals=extraction_payload.get("totals")
+                    if isinstance(extraction_payload, dict)
+                    else [],
+                )
 
         if start_stage in {"extract", "validate"}:
             if not _is_resumable_stage_payload(extraction_payload):
@@ -350,6 +367,15 @@ def process_run(*, repo: PipelineRepository, settings: Settings, run: dict[str, 
 
             current_stage = "validate"
             repo.set_run_stage(run_id=run_id, stage=current_stage)
+            repo.set_run_progress(
+                run_id=run_id,
+                stage=current_stage,
+                stage_progress_pct=0,
+                progress_message=(
+                    "Validation configured with fixed chunk size: "
+                    f"{VALIDATION_FIXED_BATCH_SIZE} project(s) per request."
+                ),
+            )
 
             def validation_progress(
                 done_projects: int,
@@ -365,11 +391,19 @@ def process_run(*, repo: PipelineRepository, settings: Settings, run: dict[str, 
                     stage_progress_pct=pct,
                     progress_message=message,
                 )
+                print(
+                    (
+                        "[WORKER][VALIDATE] "
+                        f"run={run_id} done={done_projects}/{total_projects} "
+                        f"chunk={batch_no}/{total_batches} message={message}"
+                    ),
+                    flush=True,
+                )
 
             validation_res = validation_fn(
                 json.dumps(extraction_payload, ensure_ascii=False),
                 model=model_name,
-                batch_size=None,
+                batch_size=VALIDATION_FIXED_BATCH_SIZE,
                 on_progress=validation_progress,
             )
             validation_payload = validation_res.validated_obj
@@ -388,9 +422,48 @@ def process_run(*, repo: PipelineRepository, settings: Settings, run: dict[str, 
                 text=None,
             )
 
-        if start_stage in {"extract", "validate", "summarize"}:
+        if start_stage in {"extract", "validate", "scale_amounts"}:
             if not _is_resumable_stage_payload(validation_payload):
-                raise RuntimeError("Summarization cannot start because validation payload is unavailable.")
+                raise RuntimeError("Amount scaling cannot start because validation payload is unavailable.")
+
+            current_stage = "scale_amounts"
+            repo.set_run_stage(run_id=run_id, stage=current_stage)
+            repo.set_run_progress(
+                run_id=run_id,
+                stage=current_stage,
+                stage_progress_pct=0,
+                progress_message="Scaling city monetary fields by 1000...",
+            )
+            scale_res = scale_validated_amounts_json_str(
+                json.dumps(validation_payload, ensure_ascii=False),
+                scope=aip_scope,
+            )
+            scaled_payload = scale_res.scaled_obj
+            repo.set_run_progress(
+                run_id=run_id,
+                stage=current_stage,
+                stage_progress_pct=100,
+                progress_message="Amount scaling complete.",
+            )
+            _persist_stage_artifact(
+                repo=repo,
+                run_id=run_id,
+                aip_id=aip_id,
+                stage="scale_amounts",
+                payload=scaled_payload,
+                text=None,
+            )
+            if aip_scope == "city":
+                repo.upsert_aip_totals(
+                    aip_id=aip_id,
+                    totals=scaled_payload.get("totals")
+                    if isinstance(scaled_payload, dict)
+                    else [],
+                )
+
+        if start_stage in {"extract", "validate", "scale_amounts", "summarize"}:
+            if not _is_resumable_stage_payload(scaled_payload):
+                raise RuntimeError("Summarization cannot start because scaled payload is unavailable.")
 
             current_stage = "summarize"
             repo.set_run_stage(run_id=run_id, stage=current_stage)
@@ -401,7 +474,7 @@ def process_run(*, repo: PipelineRepository, settings: Settings, run: dict[str, 
                 expected_seconds=read_positive_float_env("PIPELINE_SUMMARIZE_EXPECTED_SECONDS", 60.0),
                 message_prefix="Generating summary",
                 fn=lambda: summarize_aip_overall_json_str(
-                    json.dumps(validation_payload, ensure_ascii=False),
+                    json.dumps(scaled_payload, ensure_ascii=False),
                     model=model_name,
                 ),
             )
@@ -514,7 +587,9 @@ def process_run(*, repo: PipelineRepository, settings: Settings, run: dict[str, 
                 repo=repo,
                 run_id=run_id,
                 aip_id=aip_id,
-                stage=current_stage if current_stage in {"extract", "validate", "summarize", "categorize", "embed"} else "extract",
+                stage=current_stage
+                if current_stage in {"extract", "validate", "scale_amounts", "summarize", "categorize", "embed"}
+                else "extract",
                 payload={
                     "error": sanitized_message,
                     "reason_code": reason_code,

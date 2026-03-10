@@ -3,6 +3,7 @@ export type { AipHeader, AipStatus, LguScope } from "@/lib/repos/aip/repo";
 export type PipelineStageUi =
   | "extract"
   | "validate"
+  | "scale_amounts"
   | "summarize"
   | "categorize"
   | "embed";

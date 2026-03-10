@@ -23,6 +23,20 @@ export type AipRevisionFeedbackCycle = {
   replies: AipRevisionFeedbackMessage[];
 };
 
+export type AipProcessingStage =
+  | "extract"
+  | "validate"
+  | "scale_amounts"
+  | "summarize"
+  | "categorize"
+  | "embed";
+
+export type AipProcessingStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed";
+
 export type AipHeader = {
   id: string; // aipId
   scope: LguScope;
@@ -75,6 +89,8 @@ export type AipHeader = {
     overallProgressPct: number;
     message?: string | null;
     runId?: string;
+    stage?: AipProcessingStage | null;
+    status?: AipProcessingStatus | null;
   };
   embedding?: {
     runId: string;

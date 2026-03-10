@@ -27,6 +27,19 @@ export function buildBudgetAllocation(rows: AipProjectRow[]): {
   rows: BudgetAllocationRow[];
   totalBudget: number;
   totalProjects: number;
+  coveredPercentage: number;
+} {
+  return buildBudgetAllocationWithOptions(rows);
+}
+
+export function buildBudgetAllocationWithOptions(
+  rows: AipProjectRow[],
+  options?: { displayTotalBudget?: number | null }
+): {
+  rows: BudgetAllocationRow[];
+  totalBudget: number;
+  totalProjects: number;
+  coveredPercentage: number;
 } {
   const map = new Map<string, { count: number; budget: number }>();
 
@@ -39,10 +52,20 @@ export function buildBudgetAllocation(rows: AipProjectRow[]): {
   }
 
   const categories = orderSectors(Array.from(map.keys()));
-  const totalBudget = categories.reduce((sum, key) => sum + (map.get(key)?.budget ?? 0), 0);
+  const projectTotalBudget = categories.reduce((sum, key) => sum + (map.get(key)?.budget ?? 0), 0);
   const totalProjects = categories.reduce((sum, key) => sum + (map.get(key)?.count ?? 0), 0);
+  const displayTotalBudget = options?.displayTotalBudget;
+  const hasDisplayTotalBudget =
+    typeof displayTotalBudget === "number" && Number.isFinite(displayTotalBudget);
+  let denominator = projectTotalBudget;
+  if (hasDisplayTotalBudget) {
+    denominator =
+      displayTotalBudget <= 0
+        ? displayTotalBudget
+        : Math.max(displayTotalBudget, projectTotalBudget);
+  }
 
-  if (totalBudget <= 0) {
+  if (denominator <= 0) {
     return {
       rows: categories.map((key) => ({
         category: key === "Unknown" ? "Unassigned" : key,
@@ -50,53 +73,41 @@ export function buildBudgetAllocation(rows: AipProjectRow[]): {
         budget: map.get(key)?.budget ?? 0,
         percentage: 0,
       })),
-      totalBudget,
+      totalBudget: denominator,
       totalProjects,
+      coveredPercentage: 0,
     };
   }
 
-  const raw = categories.map((key) => {
-    const budget = map.get(key)?.budget ?? 0;
-    const pct = (budget / totalBudget) * 100;
-    return { key, budget, pct, base: Math.floor(pct), remainder: pct - Math.floor(pct) };
-  });
-
-  let remaining = 100 - raw.reduce((sum, item) => sum + item.base, 0);
-  if (remaining < 0) remaining = 0;
-
-  const withExtras = [...raw].sort((a, b) => {
-    if (b.remainder !== a.remainder) return b.remainder - a.remainder;
-    return b.budget - a.budget;
-  });
-
-  const increments = new Map<string, number>();
-  for (let i = 0; i < withExtras.length; i += 1) {
-    if (remaining <= 0) break;
-    const key = withExtras[i].key;
-    increments.set(key, (increments.get(key) ?? 0) + 1);
-    remaining -= 1;
-  }
-
   return {
-    rows: raw.map((item) => ({
-      category: item.key === "Unknown" ? "Unassigned" : item.key,
-      projectCount: map.get(item.key)?.count ?? 0,
-      budget: map.get(item.key)?.budget ?? 0,
-      percentage: item.base + (increments.get(item.key) ?? 0),
+    rows: categories.map((key) => ({
+      category: key === "Unknown" ? "Unassigned" : key,
+      projectCount: map.get(key)?.count ?? 0,
+      budget: map.get(key)?.budget ?? 0,
+      percentage: Number((((map.get(key)?.budget ?? 0) / denominator) * 100).toFixed(1)),
     })),
-    totalBudget,
+    totalBudget: denominator,
     totalProjects,
+    coveredPercentage: Number(((projectTotalBudget / denominator) * 100).toFixed(1)),
   };
+}
+
+function formatPercentage(value: number): string {
+  if (!Number.isFinite(value)) return "0%";
+  const normalized = Number(value.toFixed(1));
+  return `${normalized % 1 === 0 ? normalized.toFixed(0) : normalized.toFixed(1)}%`;
 }
 
 export function BudgetAllocationTable({
   rows,
   totalBudget,
   totalProjects,
+  coveredPercentage,
 }: {
   rows: BudgetAllocationRow[];
   totalBudget: number;
   totalProjects: number;
+  coveredPercentage: number;
 }) {
   return (
     <Card className="border-slate-200">
@@ -127,7 +138,7 @@ export function BudgetAllocationTable({
                     {formatPeso(row.budget)}
                   </TableCell>
                   <TableCell className="text-xs text-slate-700 text-right tabular-nums">
-                    {row.percentage}%
+                    {formatPercentage(row.percentage)}
                   </TableCell>
                 </TableRow>
               ))}
@@ -140,7 +151,7 @@ export function BudgetAllocationTable({
                   {formatPeso(totalBudget)}
                 </TableCell>
                 <TableCell className="text-xs text-slate-700 text-right tabular-nums">
-                  {totalBudget > 0 ? 100 : 0}%
+                  {formatPercentage(coveredPercentage)}
                 </TableCell>
               </TableRow>
             </TableBody>

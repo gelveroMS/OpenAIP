@@ -5,7 +5,10 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import type { AipProjectRow, AipStatus } from "../types";
 import { AipDetailsTableCard } from "../components/aip-details-table-card";
-import { BudgetAllocationTable, buildBudgetAllocation } from "../components/budget-allocation-table";
+import {
+  BudgetAllocationTable,
+  buildBudgetAllocationWithOptions,
+} from "../components/budget-allocation-table";
 import { listAipProjectsAction } from "../actions/aip-projects.actions";
 
 type ProjectsStateSnapshot = {
@@ -22,6 +25,7 @@ export function AipDetailsTableView({
   scope,
   focusedRowId,
   enablePagination = false,
+  displayTotalBudget,
   onProjectRowClick,
   onProjectsStateChange,
 }: {
@@ -31,6 +35,7 @@ export function AipDetailsTableView({
   scope: "city" | "barangay";
   focusedRowId?: string;
   enablePagination?: boolean;
+  displayTotalBudget?: number | null;
   onProjectRowClick?: (row: AipProjectRow) => void;
   onProjectsStateChange?: (state: ProjectsStateSnapshot) => void;
 }) {
@@ -81,7 +86,13 @@ export function AipDetailsTableView({
     });
   }, [error, loading, onProjectsStateChange, rows, unresolvedAiCount]);
 
-  const allocation = React.useMemo(() => buildBudgetAllocation(rows), [rows]);
+  const allocation = React.useMemo(
+    () =>
+      buildBudgetAllocationWithOptions(rows, {
+        displayTotalBudget,
+      }),
+    [displayTotalBudget, rows]
+  );
 
   if (loading) {
     return <div className="text-sm text-slate-500">Loading projects...</div>;
@@ -99,6 +110,7 @@ export function AipDetailsTableView({
         rows={allocation.rows}
         totalBudget={allocation.totalBudget}
         totalProjects={allocation.totalProjects}
+        coveredPercentage={allocation.coveredPercentage}
       />
 
       <AipDetailsTableCard

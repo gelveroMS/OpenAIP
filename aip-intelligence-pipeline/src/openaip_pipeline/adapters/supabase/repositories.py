@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import date, datetime
 from typing import Any
 from urllib.error import HTTPError
@@ -10,14 +11,22 @@ from openaip_pipeline.core.clock import now_utc_iso
 from openaip_pipeline.services.line_items.embedding_text import build_line_item_embedding_text
 
 
-ACTIVE_STAGE_ORDER = ["extract", "validate", "summarize", "categorize"]
-STAGE_WEIGHTS: dict[str, int] = {"extract": 40, "validate": 20, "summarize": 15, "categorize": 25}
+ACTIVE_STAGE_ORDER = ["extract", "validate", "scale_amounts", "summarize", "categorize"]
+STAGE_WEIGHTS: dict[str, int] = {
+    "extract": 35,
+    "validate": 20,
+    "scale_amounts": 10,
+    "summarize": 15,
+    "categorize": 20,
+}
 STAGE_START_MESSAGES: dict[str, str] = {
     "extract": "Starting extraction...",
     "validate": "Starting validation...",
+    "scale_amounts": "Scaling city monetary values...",
     "summarize": "Starting summarization...",
     "categorize": "Starting categorization...",
 }
+SECTOR_PREFIXES: tuple[str, ...] = ("1000", "3000", "8000", "9000")
 
 
 def _clamp_pct(value: float) -> int:
@@ -130,10 +139,57 @@ def _derive_sector_code(aip_ref_code: Any) -> str | None:
     text = _normalize_text_or_none(aip_ref_code)
     if not text:
         return None
-    digits = "".join(ch for ch in text if ch.isdigit())
-    if len(digits) >= 4:
-        return digits[:4]
+    for prefix in SECTOR_PREFIXES:
+        if text.startswith(prefix):
+            return prefix
     return None
+
+
+def _project_key_token(value: Any) -> str | None:
+    text = _normalize_text_or_none(value)
+    if not text:
+        return None
+    return text.casefold()
+
+
+def _resolve_project_key(raw_project: dict[str, Any], aip_ref_code: str | None) -> str:
+    project_key = _normalize_text_or_none(raw_project.get("project_key"))
+    if project_key:
+        return project_key
+    if aip_ref_code:
+        return aip_ref_code
+
+    source_ref = _first_source_ref(raw_project) or {}
+    page_no = _to_int_or_none(source_ref.get("page"))
+    row_no = _to_int_or_none(source_ref.get("row_index"))
+    table_no = _to_int_or_none(source_ref.get("table_index"))
+    if page_no is not None and row_no is not None and table_no is not None:
+        return f"source:{page_no}:{table_no}:{row_no}"
+
+    amounts = raw_project.get("amounts") if isinstance(raw_project.get("amounts"), dict) else {}
+    fingerprint_parts = [
+        _normalize_text_or_none(raw_project.get("program_project_description")) or "",
+        _normalize_text_or_none(raw_project.get("implementing_agency")) or "",
+        _normalize_text_or_none(raw_project.get("start_date")) or "",
+        _normalize_text_or_none(raw_project.get("completion_date")) or "",
+        _normalize_text_or_none(raw_project.get("expected_output")) or "",
+        _normalize_text_or_none(raw_project.get("source_of_funds")) or "",
+        str(amounts.get("personal_services_raw") or amounts.get("personal_services") or raw_project.get("personal_services") or ""),
+        str(
+            amounts.get("maintenance_and_other_operating_expenses_raw")
+            or amounts.get("maintenance_and_other_operating_expenses")
+            or raw_project.get("maintenance_and_other_operating_expenses")
+            or ""
+        ),
+        str(amounts.get("financial_expenses_raw") or amounts.get("financial_expenses") or raw_project.get("financial_expenses") or ""),
+        str(amounts.get("capital_outlay_raw") or amounts.get("capital_outlay") or raw_project.get("capital_outlay") or ""),
+        str(amounts.get("total_raw") or amounts.get("total") or raw_project.get("total") or ""),
+        str(page_no if page_no is not None else ""),
+        str(row_no if row_no is not None else ""),
+        str(table_no if table_no is not None else ""),
+    ]
+    digest = hashlib.sha1("|".join(fingerprint_parts).encode("utf-8")).hexdigest()[:16]
+    return f"hash:{digest}"
 
 
 def _first_source_ref(project: dict[str, Any]) -> dict[str, Any] | None:
@@ -474,22 +530,24 @@ class PipelineRepository:
             return
         existing_rows = self.client.select(
             "projects",
-            select="id,aip_ref_code,is_human_edited",
+            select="id,project_key,aip_ref_code,is_human_edited",
             filters={"aip_id": f"eq.{aip_id}"},
         )
-        existing_by_ref = {
-            row["aip_ref_code"].lower(): row
-            for row in existing_rows
-            if isinstance(row.get("aip_ref_code"), str) and row.get("aip_ref_code")
-        }
+        existing_by_key: dict[str, dict[str, Any]] = {}
+        for row in existing_rows:
+            key_token = _project_key_token(row.get("project_key"))
+            if not key_token:
+                continue
+            existing_by_key[key_token] = row
         for raw in projects:
             if not isinstance(raw, dict):
                 continue
-            ref_code = str(raw.get("aip_ref_code") or "").strip()
-            if not ref_code:
+            ref_code = _normalize_text_or_none(raw.get("aip_ref_code"))
+            project_key = _resolve_project_key(raw, ref_code)
+            project_key_token = _project_key_token(project_key)
+            if not project_key_token:
                 continue
-            ref_key = ref_code.lower()
-            existing = existing_by_ref.get(ref_key)
+            existing = existing_by_key.get(project_key_token)
             if existing and bool(existing.get("is_human_edited")):
                 continue
             amounts = raw.get("amounts") if isinstance(raw.get("amounts"), dict) else {}
@@ -497,6 +555,7 @@ class PipelineRepository:
             classification = raw.get("classification") if isinstance(raw.get("classification"), dict) else {}
             payload = {
                 "extraction_artifact_id": extraction_artifact_id,
+                "project_key": project_key,
                 "aip_ref_code": ref_code,
                 "program_project_description": str(raw.get("program_project_description") or "Unspecified project"),
                 "implementing_agency": raw.get("implementing_agency"),
@@ -536,32 +595,48 @@ class PipelineRepository:
             create_payload = dict(payload)
             create_payload["aip_id"] = aip_id
             try:
-                inserted = self.client.insert("projects", create_payload, select="id,aip_ref_code,is_human_edited")
+                inserted = self.client.insert(
+                    "projects",
+                    create_payload,
+                    select="id,project_key,aip_ref_code,is_human_edited",
+                )
                 if inserted:
-                    existing_by_ref[ref_key] = inserted[0]
+                    inserted_key_token = _project_key_token(inserted[0].get("project_key"))
+                    if inserted_key_token:
+                        existing_by_key[inserted_key_token] = inserted[0]
             except HTTPError as error:
                 if error.code != 409:
                     raise RuntimeError(
                         (
                             "Failed to insert project row. "
-                            f"aip_id={aip_id} aip_ref_code={ref_code} error={error}"
+                            f"aip_id={aip_id} project_key={project_key} "
+                            f"aip_ref_code={ref_code} error={error}"
                         )
                     ) from error
                 conflict_rows = self.client.select(
                     "projects",
-                    select="id,aip_ref_code,is_human_edited",
-                    filters={"aip_id": f"eq.{aip_id}", "aip_ref_code": f"eq.{ref_code}"},
+                    select="id,project_key,aip_ref_code,is_human_edited",
+                    filters={"aip_id": f"eq.{aip_id}", "project_key": f"eq.{project_key}"},
                     limit=1,
                 )
+                if not conflict_rows and ref_code:
+                    conflict_rows = self.client.select(
+                        "projects",
+                        select="id,project_key,aip_ref_code,is_human_edited",
+                        filters={"aip_id": f"eq.{aip_id}", "aip_ref_code": f"eq.{ref_code}"},
+                        limit=1,
+                    )
                 if not conflict_rows:
                     raise RuntimeError(
                         (
                             "Project insert returned HTTP 409 but lookup found no conflicting row. "
-                            f"aip_id={aip_id} aip_ref_code={ref_code} error={error}"
+                            f"aip_id={aip_id} project_key={project_key} "
+                            f"aip_ref_code={ref_code} error={error}"
                         )
                     ) from error
                 conflict_row = conflict_rows[0]
-                existing_by_ref[ref_key] = conflict_row
+                conflict_key_token = _project_key_token(conflict_row.get("project_key")) or project_key_token
+                existing_by_key[conflict_key_token] = conflict_row
                 if bool(conflict_row.get("is_human_edited")):
                     continue
                 self.client.update("projects", payload, filters={"id": f"eq.{conflict_row['id']}"})
@@ -604,9 +679,6 @@ class PipelineRepository:
                 continue
 
             amounts = raw_project.get("amounts") if isinstance(raw_project.get("amounts"), dict) else {}
-            classification = (
-                raw_project.get("classification") if isinstance(raw_project.get("classification"), dict) else {}
-            )
 
             source_ref = _first_source_ref(raw_project) or {}
             page_no = _to_int_or_none(source_ref.get("page"))
@@ -617,15 +689,8 @@ class PipelineRepository:
             if not aip_ref_code and (page_no is None or row_no is None or table_no is None):
                 # Skip rows without a stable idempotent key.
                 continue
-            sector_code = (
-                _normalize_text_or_none(raw_project.get("sector_code"))
-                or _normalize_text_or_none(classification.get("sector_code"))
-                or _derive_sector_code(aip_ref_code)
-            )
-            sector_name = (
-                _normalize_text_or_none(raw_project.get("sector_name"))
-                or _normalize_text_or_none(classification.get("sector_name"))
-            )
+            sector_code = _derive_sector_code(aip_ref_code)
+            sector_name = _normalize_text_or_none(raw_project.get("sector_name")) if sector_code else None
             payload = {
                 "aip_id": aip_id,
                 "fiscal_year": fiscal_year,

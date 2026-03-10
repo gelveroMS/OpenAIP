@@ -14,6 +14,7 @@ import {
   deriveUsageMetrics,
   listLguOptions,
 } from "./mappers/admin-dashboard.mapper";
+import { collectPaged } from "@/lib/repos/_shared/supabase-batching";
 import type {
   AdminDashboardDataset,
   AdminDashboardFilters,
@@ -106,74 +107,106 @@ export function parseAdminDashboardFilters(
 async function loadAdminDashboardDataset(): Promise<AdminDashboardDataset> {
   const admin = supabaseAdmin();
   const [
-    citiesResult,
-    municipalitiesResult,
-    barangaysResult,
-    profilesResult,
-    aipsResult,
-    feedbackResult,
-    activityResult,
-    chatMessagesResult,
+    cities,
+    municipalities,
+    barangays,
+    profiles,
+    aips,
+    feedback,
+    activity,
+    chatMessages,
   ] = await Promise.all([
-    admin
-      .from("cities")
-      .select("id,region_id,province_id,psgc_code,name,is_independent,is_active,created_at"),
-    admin
-      .from("municipalities")
-      .select("id,province_id,psgc_code,name,is_active,created_at"),
-    admin
-      .from("barangays")
-      .select("id,city_id,municipality_id,psgc_code,name,is_active,created_at"),
-    admin
-      .from("profiles")
-      .select(
-        "id,role,full_name,email,barangay_id,city_id,municipality_id,is_active,created_at,updated_at"
-      ),
-    admin
-      .from("aips")
-      .select(
-        "id,fiscal_year,barangay_id,city_id,municipality_id,status,status_updated_at,submitted_at,published_at,created_by,created_at,updated_at"
-      ),
-    admin
-      .from("feedback")
-      .select(
-        "id,target_type,aip_id,project_id,parent_feedback_id,source,kind,extraction_run_id,extraction_artifact_id,field_key,severity,body,is_public,author_id,created_at,updated_at"
-      ),
-    admin
-      .from("activity_log")
-      .select(
-        "id,actor_id,actor_role,action,entity_table,entity_id,region_id,province_id,city_id,municipality_id,barangay_id,metadata,created_at"
-      ),
-    admin
-      .from("chat_messages")
-      .select("id,session_id,role,content,citations,retrieval_meta,created_at"),
+    collectPaged(async (from, to) => {
+      const { data, error } = await admin
+        .from("cities")
+        .select("id,region_id,province_id,psgc_code,name,is_independent,is_active,created_at")
+        .order("id", { ascending: true })
+        .range(from, to);
+      if (error) throw new Error(error.message);
+      return (data ?? []) as AdminDashboardDataset["cities"];
+    }),
+    collectPaged(async (from, to) => {
+      const { data, error } = await admin
+        .from("municipalities")
+        .select("id,province_id,psgc_code,name,is_active,created_at")
+        .order("id", { ascending: true })
+        .range(from, to);
+      if (error) throw new Error(error.message);
+      return (data ?? []) as AdminDashboardDataset["municipalities"];
+    }),
+    collectPaged(async (from, to) => {
+      const { data, error } = await admin
+        .from("barangays")
+        .select("id,city_id,municipality_id,psgc_code,name,is_active,created_at")
+        .order("id", { ascending: true })
+        .range(from, to);
+      if (error) throw new Error(error.message);
+      return (data ?? []) as AdminDashboardDataset["barangays"];
+    }),
+    collectPaged(async (from, to) => {
+      const { data, error } = await admin
+        .from("profiles")
+        .select(
+          "id,role,full_name,email,barangay_id,city_id,municipality_id,is_active,created_at,updated_at"
+        )
+        .order("id", { ascending: true })
+        .range(from, to);
+      if (error) throw new Error(error.message);
+      return (data ?? []) as AdminDashboardDataset["profiles"];
+    }),
+    collectPaged(async (from, to) => {
+      const { data, error } = await admin
+        .from("aips")
+        .select(
+          "id,fiscal_year,barangay_id,city_id,municipality_id,status,status_updated_at,submitted_at,published_at,created_by,created_at,updated_at"
+        )
+        .order("id", { ascending: true })
+        .range(from, to);
+      if (error) throw new Error(error.message);
+      return (data ?? []) as AdminDashboardDataset["aips"];
+    }),
+    collectPaged(async (from, to) => {
+      const { data, error } = await admin
+        .from("feedback")
+        .select(
+          "id,target_type,aip_id,project_id,parent_feedback_id,source,kind,extraction_run_id,extraction_artifact_id,field_key,severity,body,is_public,author_id,created_at,updated_at"
+        )
+        .order("id", { ascending: true })
+        .range(from, to);
+      if (error) throw new Error(error.message);
+      return (data ?? []) as AdminDashboardDataset["feedback"];
+    }),
+    collectPaged(async (from, to) => {
+      const { data, error } = await admin
+        .from("activity_log")
+        .select(
+          "id,actor_id,actor_role,action,entity_table,entity_id,region_id,province_id,city_id,municipality_id,barangay_id,metadata,created_at"
+        )
+        .order("id", { ascending: true })
+        .range(from, to);
+      if (error) throw new Error(error.message);
+      return (data ?? []) as AdminDashboardDataset["activity"];
+    }),
+    collectPaged(async (from, to) => {
+      const { data, error } = await admin
+        .from("chat_messages")
+        .select("id,session_id,role,content,citations,retrieval_meta,created_at")
+        .order("id", { ascending: true })
+        .range(from, to);
+      if (error) throw new Error(error.message);
+      return (data ?? []) as AdminDashboardDataset["chatMessages"];
+    }),
   ]);
 
-  const firstError = [
-    citiesResult,
-    municipalitiesResult,
-    barangaysResult,
-    profilesResult,
-    aipsResult,
-    feedbackResult,
-    activityResult,
-    chatMessagesResult,
-  ].find((result) => result.error)?.error;
-
-  if (firstError) {
-    throw new Error(firstError.message);
-  }
-
   return {
-    cities: (citiesResult.data ?? []) as AdminDashboardDataset["cities"],
-    municipalities:
-      (municipalitiesResult.data ?? []) as AdminDashboardDataset["municipalities"],
-    barangays: (barangaysResult.data ?? []) as AdminDashboardDataset["barangays"],
-    profiles: (profilesResult.data ?? []) as AdminDashboardDataset["profiles"],
-    aips: (aipsResult.data ?? []) as AdminDashboardDataset["aips"],
-    feedback: (feedbackResult.data ?? []) as AdminDashboardDataset["feedback"],
-    activity: (activityResult.data ?? []) as AdminDashboardDataset["activity"],
-    chatMessages: (chatMessagesResult.data ?? []) as AdminDashboardDataset["chatMessages"],
+    cities,
+    municipalities,
+    barangays,
+    profiles,
+    aips,
+    feedback,
+    activity,
+    chatMessages,
   };
 }
 

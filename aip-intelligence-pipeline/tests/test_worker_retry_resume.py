@@ -195,8 +195,10 @@ def _patch_pipeline_fns(
     call_counts: dict[str, int],
     extract_payload: dict[str, Any] | None = None,
     validate_payload: dict[str, Any] | None = None,
+    scale_payload: dict[str, Any] | None = None,
     summarize_payload: dict[str, Any] | None = None,
     categorize_payload: dict[str, Any] | None = None,
+    validation_batch_sizes: list[int | None] | None = None,
 ) -> None:
     monkeypatch.setattr(
         processor_module,
@@ -216,7 +218,44 @@ def _patch_pipeline_fns(
 
     def fake_validate(extraction_json_str: str, **kwargs: Any) -> Any:
         call_counts["validate"] += 1
+        if validation_batch_sizes is not None:
+            value = kwargs.get("batch_size")
+            validation_batch_sizes.append(value if isinstance(value, int) else None)
         payload = validate_payload or _validate_payload()
+        progress_cb = kwargs.get("on_progress")
+        if callable(progress_cb):
+            project_count = (
+                len(payload.get("projects"))
+                if isinstance(payload.get("projects"), list)
+                else 0
+            )
+            progress_cb(
+                0,
+                project_count,
+                0,
+                1,
+                (
+                    "Validation preflight: "
+                    f"{project_count} project(s) planned across 1 chunk(s)."
+                ),
+            )
+            progress_cb(
+                0,
+                project_count,
+                1,
+                1,
+                (
+                    "Validation chunk start: "
+                    f"processing chunk 1/1 with {project_count} project(s)."
+                ),
+            )
+            progress_cb(
+                project_count,
+                project_count,
+                1,
+                1,
+                f"Validating projects {project_count}/{project_count} (chunk 1/1)...",
+            )
         return SimpleNamespace(validated_obj=payload, validated_json_str=json.dumps(payload, ensure_ascii=False))
 
     def fake_summarize(validated_json_str: str, **kwargs: Any) -> Any:
@@ -237,15 +276,32 @@ def _patch_pipeline_fns(
             categorized_json_str=json.dumps(payload, ensure_ascii=False),
         )
 
+    def fake_scale(validated_json_str: str, **kwargs: Any) -> Any:
+        if "scale_amounts" in call_counts:
+            call_counts["scale_amounts"] += 1
+        payload = scale_payload or validate_payload or _validate_payload()
+        return SimpleNamespace(
+            scaled_obj=payload,
+            scaled_json_str=json.dumps(payload, ensure_ascii=False),
+            scope=str(kwargs.get("scope") or ""),
+            scaled=True,
+        )
+
     monkeypatch.setattr(processor_module, "run_city_extraction", fake_extract)
     monkeypatch.setattr(processor_module, "validate_city", fake_validate)
+    monkeypatch.setattr(processor_module, "scale_validated_amounts_json_str", fake_scale)
     monkeypatch.setattr(processor_module, "summarize_aip_overall_json_str", fake_summarize)
     monkeypatch.setattr(processor_module, "categorize_from_summarized_json_str", fake_categorize)
 
 
 def test_resume_from_validate_skips_extraction(monkeypatch) -> None:
     calls = {"extract": 0, "validate": 0, "summarize": 0, "categorize": 0}
-    _patch_pipeline_fns(monkeypatch, call_counts=calls)
+    validation_batch_sizes: list[int | None] = []
+    _patch_pipeline_fns(
+        monkeypatch,
+        call_counts=calls,
+        validation_batch_sizes=validation_batch_sizes,
+    )
 
     repo = _FakeRepo(
         lineage={"run-new": "run-old"},
@@ -268,8 +324,102 @@ def test_resume_from_validate_skips_extraction(monkeypatch) -> None:
     assert repo.failed == []
     inserted_types = [row[0] for row in repo.inserted_artifacts]
     assert "extract" not in inserted_types
-    assert inserted_types[:3] == ["validate", "summarize", "categorize"]
+    assert inserted_types[:4] == ["validate", "scale_amounts", "summarize", "categorize"]
     assert repo.upsert_totals_calls
+    assert validation_batch_sizes == [processor_module.VALIDATION_FIXED_BATCH_SIZE]
+
+
+def test_validate_stage_writes_intermediate_progress_and_logs(monkeypatch, capsys) -> None:
+    calls = {"extract": 0, "validate": 0, "summarize": 0, "categorize": 0}
+    _patch_pipeline_fns(monkeypatch, call_counts=calls)
+
+    repo = _FakeRepo(
+        lineage={"run-new": "run-old"},
+        artifacts={("run-old", "extract"): _extract_payload()},
+        scope="city",
+    )
+    run = {
+        "id": "run-new",
+        "aip_id": "aip-001",
+        "uploaded_file_id": "file-001",
+        "resume_from_stage": "validate",
+        "model_name": "gpt-5.2",
+    }
+
+    processor_module.process_run(repo=repo, settings=_settings(), run=run)
+
+    validate_messages = [
+        message
+        for stage, _, message in repo.progress_calls
+        if stage == "validate" and isinstance(message, str)
+    ]
+    assert validate_messages
+    assert any("fixed chunk size" in message.lower() for message in validate_messages)
+    assert any("Validation preflight:" in message for message in validate_messages)
+    assert any("Validation chunk start:" in message for message in validate_messages)
+    assert "Validation complete." in validate_messages
+    preflight_index = next(
+        idx for idx, message in enumerate(validate_messages) if "Validation preflight:" in message
+    )
+    complete_index = validate_messages.index("Validation complete.")
+    assert preflight_index < complete_index
+
+    captured = capsys.readouterr()
+    assert "[WORKER][VALIDATE] run=run-new" in captured.out
+
+
+def test_scale_stage_runs_before_summarize_and_passes_scaled_payload(monkeypatch) -> None:
+    calls = {"extract": 0, "validate": 0, "scale_amounts": 0, "summarize": 0, "categorize": 0}
+    scaled_payload = {
+        "projects": [
+            {
+                "aip_ref_code": "P-001",
+                "program_project_description": "Project One",
+                "errors": None,
+            }
+        ],
+        "totals": [],
+        "scaled_marker": True,
+    }
+    _patch_pipeline_fns(
+        monkeypatch,
+        call_counts=calls,
+        scale_payload=scaled_payload,
+    )
+
+    captured_payload: dict[str, Any] = {}
+
+    def fake_summarize(validated_json_str: str, **kwargs: Any) -> Any:
+        calls["summarize"] += 1
+        captured_payload["input"] = json.loads(validated_json_str)
+        payload = _summarize_payload()
+        text = str((payload.get("summary") or {}).get("text") or "Generated summary.")
+        return SimpleNamespace(
+            summary_obj=payload,
+            summary_json_str=json.dumps(payload, ensure_ascii=False),
+            summary_text=text,
+        )
+
+    monkeypatch.setattr(processor_module, "summarize_aip_overall_json_str", fake_summarize)
+
+    repo = _FakeRepo(
+        lineage={"run-new": "run-old"},
+        artifacts={("run-old", "extract"): _extract_payload()},
+        scope="city",
+    )
+    run = {
+        "id": "run-new",
+        "aip_id": "aip-001",
+        "uploaded_file_id": "file-001",
+        "resume_from_stage": "validate",
+        "model_name": "gpt-5.2",
+    }
+
+    processor_module.process_run(repo=repo, settings=_settings(), run=run)
+
+    assert calls["scale_amounts"] == 1
+    assert calls["summarize"] == 1
+    assert captured_payload["input"].get("scaled_marker") is True
 
 
 def test_resume_from_summarize_skips_extract_and_validate(monkeypatch) -> None:
@@ -278,7 +428,7 @@ def test_resume_from_summarize_skips_extract_and_validate(monkeypatch) -> None:
 
     repo = _FakeRepo(
         lineage={"run-new": "run-old"},
-        artifacts={("run-old", "validate"): _validate_payload()},
+        artifacts={("run-old", "scale_amounts"): _validate_payload()},
         scope="city",
     )
     run = {

@@ -19,6 +19,11 @@ export default function AipProjectsTable({ aip }: { aip: AipDetails }) {
   const [activeSector, setActiveSector] = useState<AipProjectSector>('General Sector');
   const [query, setQuery] = useState('');
   const [offset, setOffset] = useState(0);
+  const unresolvedAiCount = useMemo(
+    () =>
+      aip.projectRows.filter((row) => row.hasAiIssues && !row.hasLguNote).length,
+    [aip.projectRows]
+  );
 
   const filteredRows = useMemo(() => {
     const loweredQuery = query.trim().toLowerCase();
@@ -97,6 +102,13 @@ export default function AipProjectsTable({ aip }: { aip: AipDetails }) {
           Tip: Select a row to view the project&apos;s full details.
         </div>
 
+        {unresolvedAiCount > 0 ? (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Notice: {unresolvedAiCount} AI-flagged project(s) in this AIP have not been
+            addressed by an LGU feedback note yet.
+          </div>
+        ) : null}
+
         <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
           <Table>
             <TableHeader>
@@ -110,7 +122,13 @@ export default function AipProjectsTable({ aip }: { aip: AipDetails }) {
               {visibleRows.map((row) => (
                 <TableRow
                   key={row.id}
-                  className={`cursor-pointer ${row.hasLguNote ? "bg-amber-50 hover:bg-amber-100" : ""}`}
+                  className={`cursor-pointer ${
+                    row.hasLguNote
+                      ? "bg-amber-50 hover:bg-amber-100"
+                      : row.hasAiIssues
+                        ? "bg-rose-50 hover:bg-rose-100"
+                        : ""
+                  }`}
                   onClick={() => {
                     router.push(`/aips/${encodeURIComponent(aip.id)}/${encodeURIComponent(row.id)}`);
                   }}
@@ -158,6 +176,10 @@ export default function AipProjectsTable({ aip }: { aip: AipDetails }) {
         </div>
 
         <div className="flex flex-wrap justify-end gap-5 pt-2 text-xs text-slate-600">
+          <div className="inline-flex items-center gap-2">
+            <span className="inline-block h-3.5 w-3.5 rounded-sm bg-rose-500" aria-hidden="true" />
+            AI-flagged with no LGU feedback note
+          </div>
           <div className="inline-flex items-center gap-2">
             <span className="inline-block h-3.5 w-3.5 rounded-sm bg-amber-500" aria-hidden="true" />
             Has LGU feedback note

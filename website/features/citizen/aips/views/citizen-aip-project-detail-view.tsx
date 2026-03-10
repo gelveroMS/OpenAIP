@@ -30,6 +30,7 @@ export default function CitizenAipProjectDetailView({
   project: AipProjectDetails;
 }) {
   const hasAiIssues = project.aiIssues.length > 0;
+  const hasUnaddressedAiIssues = hasAiIssues && !project.hasLguNote;
 
   return (
     <section className="space-y-6">
@@ -76,11 +77,18 @@ export default function CitizenAipProjectDetailView({
                 : "No AI-detected issues for this project."}
             </p>
             {hasAiIssues ? (
-              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-rose-800/90">
-                {project.aiIssues.map((issue, index) => (
-                  <li key={`${issue}-${index}`}>{issue}</li>
-                ))}
-              </ul>
+              <>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-rose-800/90">
+                  {project.aiIssues.map((issue, index) => (
+                    <li key={`${issue}-${index}`}>{issue}</li>
+                  ))}
+                </ul>
+                {hasUnaddressedAiIssues ? (
+                  <p className="mt-3 text-sm font-medium text-rose-900">
+                    This AI-flagged project has not been addressed by an LGU feedback note yet.
+                  </p>
+                ) : null}
+              </>
             ) : null}
           </div>
 

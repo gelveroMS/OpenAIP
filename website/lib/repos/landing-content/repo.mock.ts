@@ -16,8 +16,6 @@ const MOCK_SCOPE_IDS = {
   mamatid: "mock-barangay-mamatid",
 } as const;
 
-const CURRENT_FISCAL_YEAR = 2026;
-
 const BASE_MARKERS = [
   {
     id: "mk-main",
@@ -448,7 +446,7 @@ function buildLandingResult(input?: LandingContentQuery): LandingContentResult {
       : SCOPE_PROFILES_BY_ID[MOCK_SCOPE_IDS.city];
 
   const availableFiscalYears = [2026, 2025];
-  const baseFiscalYear = requestedFiscalYear ?? CURRENT_FISCAL_YEAR;
+  const baseFiscalYear = requestedFiscalYear ?? availableFiscalYears[0];
   const priorYear = availableFiscalYears.find((year) => year < baseFiscalYear);
   const hasRequestedYear = availableFiscalYears.includes(baseFiscalYear);
   const resolvedFiscalYear = hasRequestedYear

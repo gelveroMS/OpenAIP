@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from openaip_pipeline.core.clock import now_utc_iso
 
-ArtifactStage = Literal["extract", "validate", "summarize", "categorize"]
+ArtifactStage = Literal["extract", "validate", "scale_amounts", "summarize", "categorize"]
 SourceRefKind = Literal["table_row", "text_block", "header", "footer", "unknown"]
 LguType = Literal["city", "barangay", "municipality", "unknown"]
 DocumentType = Literal["AIP", "BAIP", "unknown"]

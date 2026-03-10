@@ -80,6 +80,7 @@ export function toAipDetails(record: CitizenAipDetailRecord): AipDetails {
       projectRefCode: row.projectRefCode,
       programDescription: row.programDescription,
       totalAmount: row.totalAmount,
+      hasAiIssues: row.hasAiIssues,
       hasLguNote: row.hasLguNote,
     })),
     accountability: record.accountability,
@@ -105,5 +106,6 @@ export function toAipProjectDetails(
     completionDate: record.completionDate,
     totalAmount: record.totalAmount,
     aiIssues: record.aiIssues,
+    hasLguNote: record.hasLguNote,
   };
 }

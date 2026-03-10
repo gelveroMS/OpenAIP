@@ -136,6 +136,11 @@ function resolveProjectLguLabel(meta?: ProjectUiMeta): string {
   return label;
 }
 
+function toDisplayRefCode(value: string | null | undefined): string {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized.length > 0 ? normalized : "Unspecified";
+}
+
 export function mapProjectRowToUiModel(
   projectRow: ProjectRow,
   healthDetails?: HealthProjectDetailsRow | null,
@@ -143,7 +148,7 @@ export function mapProjectRowToUiModel(
   meta?: ProjectUiMeta
 ): UiProject {
   const kind = inferKind(projectRow);
-  const projectRefCode = projectRow.aip_ref_code || projectRow.id;
+  const projectRefCode = toDisplayRefCode(projectRow.aip_ref_code);
   const title =
     projectRow.program_project_description || projectRow.expected_output || "Untitled Project";
   const description =
@@ -163,7 +168,7 @@ export function mapProjectRowToUiModel(
     const budgetAllocated = projectRow.total ?? 0;
 
     const project: HealthProject = {
-      id: projectRefCode,
+      id: projectRow.id,
       kind: "health",
       year,
       title,
@@ -194,7 +199,7 @@ export function mapProjectRowToUiModel(
     const contractCost = infraDetails?.contract_cost ?? projectRow.total ?? 0;
 
     const project: InfrastructureProject = {
-      id: projectRefCode,
+      id: projectRow.id,
       kind: "infrastructure",
       year,
       title,
@@ -215,7 +220,7 @@ export function mapProjectRowToUiModel(
   }
 
   const project: OtherProject = {
-    id: projectRefCode,
+    id: projectRow.id,
     kind: "other",
     projectRefCode,
     year,

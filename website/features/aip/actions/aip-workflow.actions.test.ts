@@ -4,11 +4,14 @@ const mockGetAppEnv = vi.fn<() => "dev" | "staging" | "prod">(() => "dev");
 const mockIsMockEnabled = vi.fn(() => false);
 const mockGetActorContext = vi.fn();
 const mockGetAipDetail = vi.fn();
+const mockGetAipProjectRows = vi.fn();
+const mockUpdateAipStatus = vi.fn();
 const mockSupabaseAdmin = vi.fn();
 const mockSupabaseServer = vi.fn();
 const mockWriteActivityLog = vi.fn();
 const mockWriteWorkflowActivityLog = vi.fn();
 const mockAssertActorCanManageBarangayAipWorkflow = vi.fn();
+const mockNotifySafely = vi.fn();
 
 type UploadedFileRefRow = {
   bucket_id: string | null;
@@ -51,10 +54,10 @@ vi.mock("@/lib/audit/activity-log", () => ({
 vi.mock("@/lib/repos/aip/repo.server", () => ({
   getAipRepo: vi.fn(() => ({
     getAipDetail: mockGetAipDetail,
-    updateAipStatus: vi.fn(),
+    updateAipStatus: mockUpdateAipStatus,
   })),
   getAipProjectRepo: vi.fn(() => ({
-    listByAip: vi.fn(async () => []),
+    listByAip: mockGetAipProjectRows,
   })),
 }));
 
@@ -74,6 +77,10 @@ vi.mock("@/mocks/fixtures/aip/aips.table.fixture", () => ({
   AIPS_TABLE: [],
 }));
 
+vi.mock("@/lib/notifications", () => ({
+  notifySafely: (...args: unknown[]) => mockNotifySafely(...args),
+}));
+
 vi.mock("@/lib/supabase/admin", () => ({
   supabaseAdmin: () => mockSupabaseAdmin(),
 }));
@@ -91,6 +98,7 @@ import {
   cancelAipSubmissionAction,
   deleteAipDraftAction,
   saveAipRevisionReplyAction,
+  submitCityAipForPublishAction,
   submitAipForReviewAction,
 } from "./aip-workflow.actions";
 
@@ -99,6 +107,7 @@ function createSupabaseServerClient() {
     from: (table: string) => {
       if (table === "aip_reviews") {
         return {
+          insert: async () => ({ error: null }),
           select: () => ({
             eq: () => ({
               eq: () => ({
@@ -205,8 +214,14 @@ describe("deleteAipDraftAction strict storage-first deletion", () => {
     mockWriteActivityLog.mockResolvedValue("log-001");
     mockWriteWorkflowActivityLog.mockReset();
     mockWriteWorkflowActivityLog.mockResolvedValue("log-002");
+    mockNotifySafely.mockReset();
+    mockNotifySafely.mockResolvedValue(undefined);
     mockAssertActorCanManageBarangayAipWorkflow.mockReset();
     mockAssertActorCanManageBarangayAipWorkflow.mockResolvedValue(undefined);
+    mockGetAipProjectRows.mockReset();
+    mockGetAipProjectRows.mockResolvedValue([]);
+    mockUpdateAipStatus.mockReset();
+    mockUpdateAipStatus.mockResolvedValue(undefined);
     mockGetAipDetail.mockResolvedValue({
       id: "aip-001",
       scope: "barangay",
@@ -448,5 +463,47 @@ describe("deleteAipDraftAction strict storage-first deletion", () => {
       ok: false,
       message: "Only the uploader of this AIP can modify this workflow.",
     });
+  });
+
+  it("allows barangay submit for review even when AI-flagged projects remain unresolved", async () => {
+    mockGetActorContext.mockResolvedValue({
+      userId: "barangay-official-001",
+      role: "barangay_official",
+      scope: { kind: "barangay", id: "barangay-001" },
+    });
+    mockGetAipDetail.mockResolvedValue({
+      id: "aip-001",
+      scope: "barangay",
+      status: "draft",
+    });
+    mockGetAipProjectRows.mockResolvedValue([
+      { id: "project-001", reviewStatus: "ai_flagged" },
+    ]);
+
+    const result = await submitAipForReviewAction({ aipId: "aip-001" });
+
+    expect(result).toEqual({ ok: true, message: "AIP submitted for review." });
+    expect(mockUpdateAipStatus).toHaveBeenCalledWith("aip-001", "pending_review");
+  });
+
+  it("allows city submit & publish even when AI-flagged projects remain unresolved", async () => {
+    mockGetActorContext.mockResolvedValue({
+      userId: "city-official-001",
+      role: "city_official",
+      scope: { kind: "city", id: "city-001" },
+    });
+    mockGetAipDetail.mockResolvedValue({
+      id: "aip-city-001",
+      scope: "city",
+      status: "draft",
+    });
+    mockGetAipProjectRows.mockResolvedValue([
+      { id: "project-001", reviewStatus: "ai_flagged" },
+    ]);
+
+    const result = await submitCityAipForPublishAction({ aipId: "aip-city-001" });
+
+    expect(result).toEqual({ ok: true, message: "AIP published successfully." });
+    expect(mockUpdateAipStatus).toHaveBeenCalledWith("aip-city-001", "published");
   });
 });

@@ -14,7 +14,9 @@ import type {
 
 export type AipProcessingState = "idle" | "processing" | "complete" | "error";
 
-const STAGES: { key: Exclude<PipelineStageUi, "embed">; label: string; message: string }[] = [
+type DisplayPipelineStage = Exclude<PipelineStageUi, "scale_amounts" | "embed">;
+
+const STAGES: { key: DisplayPipelineStage; label: string; message: string }[] = [
   { key: "extract", label: "Extraction", message: "Extracting data from document..." },
   { key: "validate", label: "Validation", message: "Validating extracted information..." },
   { key: "summarize", label: "Summarization", message: "Generating summary and insights..." },
@@ -23,19 +25,37 @@ const STAGES: { key: Exclude<PipelineStageUi, "embed">; label: string; message: 
 
 const clampProgress = (value: number) => Math.min(100, Math.max(0, value));
 
+const normalizeStageForDisplay = (
+  stage: PipelineStageUi | null
+): DisplayPipelineStage | "embed" | null => {
+  if (stage === "scale_amounts") return "validate";
+  if (
+    stage === "extract" ||
+    stage === "validate" ||
+    stage === "summarize" ||
+    stage === "categorize" ||
+    stage === "embed"
+  ) {
+    return stage;
+  }
+  return null;
+};
+
 const getActiveStageIndex = (stage: PipelineStageUi | null) => {
-  if (stage === "embed") return STAGES.length - 1;
-  return Math.max(0, STAGES.findIndex((s) => s.key === stage));
+  const normalizedStage = normalizeStageForDisplay(stage);
+  if (normalizedStage === "embed") return STAGES.length - 1;
+  return Math.max(0, STAGES.findIndex((s) => s.key === normalizedStage));
 };
 
 const getStatusMessage = (stage: PipelineStageUi | null) => {
-  if (stage === "embed") return "Finalizing processed output...";
-  if (!stage) return "Preparing submission...";
-  return STAGES.find((s) => s.key === stage)?.message ?? "Processing...";
+  const normalizedStage = normalizeStageForDisplay(stage);
+  if (normalizedStage === "embed") return "Finalizing processed output...";
+  if (!normalizedStage) return "Preparing submission...";
+  return STAGES.find((s) => s.key === normalizedStage)?.message ?? "Processing...";
 };
 
 const isStageComplete = (
-  stage: Exclude<PipelineStageUi, "embed">,
+  stage: DisplayPipelineStage,
   progressByStage: Record<PipelineStageUi, number> | null,
   status: PipelineStatusUi | null
 ) => {

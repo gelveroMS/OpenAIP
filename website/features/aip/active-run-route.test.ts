@@ -36,13 +36,13 @@ function createClientWithLatestRun(latestRun: unknown) {
   };
 }
 
-describe("active extraction run routes include embed stage", () => {
+describe("active extraction run routes include embed and scale_amounts stages", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
   });
 
-  it("city route surfaces failed embed run and includes embed in stage filter", async () => {
+  it("city route surfaces failed embed run and includes scale_amounts in stage filter", async () => {
     const { client, state } = createClientWithLatestRun({
       id: "run-embed-city",
       aip_id: "aip-city-1",
@@ -62,6 +62,7 @@ describe("active extraction run routes include embed stage", () => {
 
     expect(response.status).toBe(200);
     expect(state.inValues).toContain("embed");
+    expect(state.inValues).toContain("scale_amounts");
     expect(body.failedRun).toEqual(
       expect.objectContaining({
         runId: "run-embed-city",
@@ -71,7 +72,7 @@ describe("active extraction run routes include embed stage", () => {
     );
   });
 
-  it("barangay route surfaces failed embed run and includes embed in stage filter", async () => {
+  it("barangay route surfaces failed embed run and includes scale_amounts in stage filter", async () => {
     const { client, state } = createClientWithLatestRun({
       id: "run-embed-brgy",
       aip_id: "aip-brgy-1",
@@ -91,6 +92,7 @@ describe("active extraction run routes include embed stage", () => {
 
     expect(response.status).toBe(200);
     expect(state.inValues).toContain("embed");
+    expect(state.inValues).toContain("scale_amounts");
     expect(body.failedRun).toEqual(
       expect.objectContaining({
         runId: "run-embed-brgy",

@@ -6,8 +6,8 @@ INPUT
 
 OUTPUT
 - Return the FULL JSON exactly as received, but update ONLY the "errors" field of each project.
-- If NO violations -> errors = null
-- If HAS violations -> errors = array of strings ("R### short message")
+- If NO violations → errors = null
+- If HAS violations → errors = array of strings ("R### short message")
 - Do NOT modify any other keys/values.
 - Output JSON only.
 
@@ -30,23 +30,27 @@ CITY AIP COLUMN ALIGNMENT (Annex B)
 
 VALIDATION RULES (evaluate EACH project)
 
-R001 Required columns (must exist and not be empty string):
-- aip_ref_code
-- program_project_description
-- implementing_agency
-- start_date
-- completion_date
-- expected_output
-- source_of_funds
-- total
+R001 AIP reference code format:
+aip_ref_code may be null or an empty string.
+If aip_ref_code is present and not empty, it must start with one of the following prefixes only:
+- 1000
+- 3000
+- 8000
+- 9000
+  If aip_ref_code is present but does not start with one of these prefixes, add an error.
 
 R002 Date validity (start_date and completion_date):
 Accept either:
 A) Month-only or month-name formats (case-insensitive): "Jan", "January", "Jan 2026", "Sep 1 2026", "Sep 1, 2026"
-B) Numeric format: M/D/YYYY or MM/DD/YYYY with Month 1-12, Day 1-31, Year 4 digits
+B) Numeric format: M/D/YYYY or MM/DD/YYYY with Month 1–12, Day 1–31, Year 4 digits
 Do NOT flag month-only values like "Jan" or "Dec".
 
-R003 Numeric columns must be number or null (not strings like "1,000"):
+R003 Date order:
+If both start_date and completion_date are present, non-empty, and valid under R002, then start_date must be earlier than completion_date.
+If start_date is later than completion_date, add an error.
+If start_date and completion_date are the same, do not add an error
+
+R004 Numeric columns must be number or null (not strings like "1,000"):
 - personal_services
 - maintenance_and_other_operating_expenses
 - capital_outlay
@@ -54,30 +58,51 @@ R003 Numeric columns must be number or null (not strings like "1,000"):
 - climate_change_adaptation
 - climate_change_mitigation
 
-R004 Total arithmetic consistency:
+R005 Total arithmetic consistency:
 total must equal personal_services + maintenance_and_other_operating_expenses + capital_outlay
 Treat null as 0.
 Allow tolerance of 1.00 peso.
 
-R005 Climate expenditure bounds:
+R006 Climate expenditure bounds:
 (climate_change_adaptation + climate_change_mitigation) <= total
 Treat null as 0.
 Allow tolerance of 1.00 peso.
 
-R006 CC typology code format:
+R007 CC typology code format:
 cc_topology_code must be null OR match pattern: A###-## (example: A214-04)
-
-R007 PRM/NCR results indicator code presence (column 15):
-If any of these keys exist, they must be either null or a non-empty string:
-- prm_ncr_lgu_rm_objective_results_indicator
-- prm_ncr_lgu
-- rm_objective
-- results_indicator
-Do NOT require the field if it is not present in the extracted JSON.
 
 R008 Non-negative money:
 All numeric budget fields (PS/MOOE/CO/total/climate fields) must be >= 0 if not null.
 
 ERROR STRING FORMAT
 - Each error string must start with the rule ID, e.g.:
-"R004 total mismatch: expected 12345.00 but got 12000.00"
+  "R005 total mismatch: expected 12345.00 but got 12000.00"
+
+Suggested error messages:
+- R001 invalid aip_ref_code prefix
+- R002 invalid start_date
+- R002 invalid completion_date
+- R003 start_date must be earlier than completion_date
+- R004 invalid numeric field: personal_services
+- R004 invalid numeric field: maintenance_and_other_operating_expenses
+- R004 invalid numeric field: capital_outlay
+- R004 invalid numeric field: total
+- R004 invalid numeric field: climate_change_adaptation
+- R004 invalid numeric field: climate_change_mitigation
+- R005 total mismatch: expected X but got Y
+- R006 climate total exceeds total budget
+- R007 invalid cc_topology_code format
+- R008 negative value in personal_services
+- R008 negative value in maintenance_and_other_operating_expenses
+- R008 negative value in capital_outlay
+- R008 negative value in total
+- R008 negative value in climate_change_adaptation
+- R008 negative value in climate_change_mitigation
+
+IMPORTANT
+- Only check R003 if both dates are valid under R002.
+- For month-only values like "Jan" or "January", treat them as valid for R002, but only compare date order in R003 when both dates can be interpreted consistently enough to determine ordering.
+- For R005, R006, and R008, only evaluate fields that are valid numbers or null.
+- Treat null as allowed unless another rule explicitly forbids it.
+- Keep messages short and deterministic.
+- Output JSON only.

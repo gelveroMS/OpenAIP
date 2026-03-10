@@ -155,19 +155,6 @@ export default function NotificationsInbox({
   const [error, setError] = useState<string | null>(null);
   const [markAllBusy, setMarkAllBusy] = useState(false);
 
-  useEffect(() => {
-    let isActive = true;
-    const client = supabaseBrowser();
-    void client.auth.getUser().then(({ data }) => {
-      if (!isActive) return;
-      setUserId(data.user?.id ?? null);
-    });
-
-    return () => {
-      isActive = false;
-    };
-  }, []);
-
   const syncUnreadTotal = useCallback(async () => {
     try {
       const next = await fetchUnreadCount();
@@ -210,13 +197,69 @@ export default function NotificationsInbox({
   );
 
   useEffect(() => {
-    void loadPage(0, "all");
-  }, [loadPage]);
+    let isActive = true;
+    const client = supabaseBrowser();
+
+    async function bootstrap() {
+      try {
+        const sessionResult = await client.auth.getSession();
+        if (!isActive) return;
+        const sessionUserId = sessionResult.data.session?.user?.id ?? null;
+        if (sessionUserId) {
+          setUserId(sessionUserId);
+          return;
+        }
+        const userResult = await client.auth.getUser();
+        if (!isActive) return;
+        setUserId(userResult.data.user?.id ?? null);
+      } catch {
+        if (!isActive) return;
+        setUserId(null);
+      }
+    }
+
+    void bootstrap();
+
+    const {
+      data: { subscription },
+    } = client.auth.onAuthStateChange((event, session) => {
+      if (!isActive) return;
+      if (event === "SIGNED_OUT") {
+        setUserId(null);
+        return;
+      }
+      if (
+        event === "INITIAL_SESSION" ||
+        event === "SIGNED_IN" ||
+        event === "TOKEN_REFRESHED"
+      ) {
+        setUserId(session?.user?.id ?? null);
+      }
+    });
+
+    return () => {
+      isActive = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!userId) {
+      setItems([]);
+      setOffset(0);
+      setFilteredTotal(0);
+      setAllTotal(0);
+      setUnreadTotal(0);
+      setHasNext(false);
+      setLoading(false);
+      return;
+    }
+    void loadPage(0, activeFilter);
+  }, [activeFilter, loadPage, userId]);
 
   const handleFilterChange = (nextFilter: FilterStatus) => {
     if (nextFilter === activeFilter) return;
     setActiveFilter(nextFilter);
-    void loadPage(0, nextFilter);
   };
 
   const handleMarkAllRead = async () => {
@@ -246,9 +289,10 @@ export default function NotificationsInbox({
   };
 
   const handleRealtimeEvent = useCallback(async () => {
+    if (!userId) return;
     await Promise.all([syncUnreadTotal(), refreshAllTotal()]);
     await loadPage(0, activeFilter);
-  }, [activeFilter, loadPage, refreshAllTotal, syncUnreadTotal]);
+  }, [activeFilter, loadPage, refreshAllTotal, syncUnreadTotal, userId]);
 
   const prevOffset = Math.max(0, offset - PAGE_SIZE);
   const emptyStateMessage =
@@ -429,6 +473,10 @@ export default function NotificationsInbox({
       <NotificationsRealtimeListener
         userId={userId}
         onEvent={() => {
+          void handleRealtimeEvent();
+        }}
+        onStatusChange={(status) => {
+          if (status !== "SUBSCRIBED") return;
           void handleRealtimeEvent();
         }}
       />

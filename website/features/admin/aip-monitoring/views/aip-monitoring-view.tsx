@@ -55,6 +55,7 @@ export default function AipMonitoringView() {
             reviews: seedData.reviews,
             activity: seedData.activity,
             details: seedData.details,
+            budgetTotalByAipId: seedData.budgetTotalByAipId,
             lguNameByAipId: seedData.lguNameByAipId,
             reviewerDirectory: seedData.reviewerDirectory,
           })

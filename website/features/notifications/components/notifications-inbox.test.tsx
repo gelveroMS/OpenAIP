@@ -1,7 +1,22 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import NotificationsInbox from "@/features/notifications/components/notifications-inbox";
+
+const mockGetSession = vi.fn();
+const mockGetUser = vi.fn();
+const mockOnAuthStateChange = vi.fn();
+const authState = vi.hoisted(() => ({
+  callback:
+    undefined as
+      | ((event: string, session: { user: { id: string } } | null) => void)
+      | undefined,
+}));
+const realtimeState = vi.hoisted(() => ({
+  userId: null as string | null,
+  onEvent: undefined as ((event: unknown) => void) | undefined,
+  onStatusChange: undefined as ((status: string) => void) | undefined,
+}));
 
 vi.mock("next/link", () => ({
   default: (props: { children: ReactNode; href: string; className?: string }) => (
@@ -18,13 +33,9 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/supabase/client", () => ({
   supabaseBrowser: () => ({
     auth: {
-      getUser: async () => ({
-        data: {
-          user: {
-            id: "user-123",
-          },
-        },
-      }),
+      getSession: mockGetSession,
+      getUser: mockGetUser,
+      onAuthStateChange: mockOnAuthStateChange,
     },
   }),
 }));
@@ -34,7 +45,16 @@ vi.mock("@/lib/security/csrf", () => ({
 }));
 
 vi.mock("@/features/notifications/realtime-listener", () => ({
-  default: () => null,
+  default: (props: {
+    userId?: string | null;
+    onEvent?: (event: unknown) => void;
+    onStatusChange?: (status: string) => void;
+  }) => {
+    realtimeState.userId = props.userId ?? null;
+    realtimeState.onEvent = props.onEvent;
+    realtimeState.onStatusChange = props.onStatusChange;
+    return null;
+  },
 }));
 
 function okJson(data: unknown) {
@@ -47,6 +67,28 @@ function okJson(data: unknown) {
 describe("NotificationsInbox", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    authState.callback = undefined;
+    realtimeState.userId = null;
+    realtimeState.onEvent = undefined;
+    realtimeState.onStatusChange = undefined;
+    mockGetSession.mockResolvedValue({
+      data: { session: { user: { id: "user-123" } } },
+    });
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: "user-123" } },
+    });
+    mockOnAuthStateChange.mockImplementation(
+      (callback: (event: string, session: { user: { id: string } } | null) => void) => {
+        authState.callback = callback;
+        return {
+          data: {
+            subscription: {
+              unsubscribe: vi.fn(),
+            },
+          },
+        };
+      }
+    );
   });
 
   it("renders all and unread counts on initial load", async () => {
@@ -262,6 +304,174 @@ describe("NotificationsInbox", () => {
     );
     expect(screen.queryByText("Open related page")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Mark as read" })).not.toBeInTheDocument();
+  });
+
+  it("starts realtime listener after delayed auth session availability", async () => {
+    mockGetSession.mockResolvedValue({
+      data: { session: null },
+    });
+    mockGetUser.mockResolvedValue({
+      data: { user: null },
+    });
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/notifications?offset=0&limit=20&status=all") {
+        return okJson({
+          items: [],
+          offset: 0,
+          limit: 20,
+          total: 0,
+          hasNext: false,
+          nextOffset: null,
+        });
+      }
+      if (url === "/api/notifications/unread-count") {
+        return okJson({ unreadCount: 0 });
+      }
+      return okJson({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<NotificationsInbox />);
+
+    await waitFor(() => {
+      expect(realtimeState.userId).toBeNull();
+    });
+
+    act(() => {
+      authState.callback?.("SIGNED_IN", { user: { id: "user-123" } });
+    });
+
+    await waitFor(() => {
+      expect(realtimeState.userId).toBe("user-123");
+    });
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/notifications?offset=0&limit=20&status=all",
+        expect.objectContaining({ method: "GET" })
+      );
+    });
+  });
+
+  it("refreshes unread count and list on realtime events and reconnect subscribe", async () => {
+    let unreadCount = 1;
+    let allItems = [
+      {
+        id: "notif-1",
+        event_type: "AIP_SUBMITTED",
+        recipient_role: "city_official",
+        scope_type: "city",
+        title: "Initial item",
+        message: "Initial item",
+        action_url: null,
+        metadata: {
+          fiscal_year: 2026,
+          barangay_name: "Barangay Uno",
+          entity_type: "aip",
+        },
+        created_at: "2026-03-03T00:00:00.000Z",
+        read_at: null,
+      },
+    ];
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/notifications?offset=0&limit=20&status=all") {
+        return okJson({
+          items: allItems,
+          offset: 0,
+          limit: 20,
+          total: allItems.length,
+          hasNext: false,
+          nextOffset: null,
+        });
+      }
+      if (url === "/api/notifications?offset=0&limit=20&status=unread") {
+        return okJson({
+          items: allItems.filter((item) => item.read_at === null),
+          offset: 0,
+          limit: 20,
+          total: unreadCount,
+          hasNext: false,
+          nextOffset: null,
+        });
+      }
+      if (url === "/api/notifications/unread-count") {
+        return okJson({ unreadCount });
+      }
+      return okJson({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<NotificationsInbox />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("AIP submitted").length).toBe(1);
+    });
+    expect(screen.getByRole("button", { name: "Unread (1)" })).toBeInTheDocument();
+
+    act(() => {
+      unreadCount = 2;
+      allItems = [
+        ...allItems,
+        {
+          id: "notif-2",
+          event_type: "AIP_SUBMITTED",
+          recipient_role: "city_official",
+          scope_type: "city",
+          title: "Realtime item",
+          message: "Realtime item",
+          action_url: null,
+          metadata: {
+            fiscal_year: 2026,
+            barangay_name: "Barangay Uno",
+            entity_type: "aip",
+          },
+          created_at: "2026-03-03T00:01:00.000Z",
+          read_at: null,
+        },
+      ];
+      realtimeState.onEvent?.({ eventType: "INSERT" });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Unread (2)" })).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(screen.getAllByText("AIP submitted").length).toBe(2);
+    });
+
+    act(() => {
+      unreadCount = 3;
+      allItems = [
+        ...allItems,
+        {
+          id: "notif-3",
+          event_type: "AIP_SUBMITTED",
+          recipient_role: "city_official",
+          scope_type: "city",
+          title: "Reconnect item",
+          message: "Reconnect item",
+          action_url: null,
+          metadata: {
+            fiscal_year: 2026,
+            barangay_name: "Barangay Uno",
+            entity_type: "aip",
+          },
+          created_at: "2026-03-03T00:02:00.000Z",
+          read_at: null,
+        },
+      ];
+      realtimeState.onStatusChange?.("SUBSCRIBED");
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Unread (3)" })).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(screen.getAllByText("AIP submitted").length).toBe(3);
+    });
   });
 
   it("marks all notifications as read from the all tab", async () => {

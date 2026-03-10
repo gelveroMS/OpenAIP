@@ -217,21 +217,36 @@ export default function AipManagementView({
             })
           );
 
-          const payload = (await response.json()) as {
-            message?: string;
-            aipId?: string;
-            runId?: string;
-            status?: string;
-          };
+          const payload = (await response.json()) as
+            | {
+                ok: true;
+                message: string;
+                data?: {
+                  aipId?: string;
+                  runId?: string;
+                  status?: string;
+                };
+              }
+            | {
+                ok?: false;
+                code?: string;
+                message?: string;
+              };
 
-          if (!response.ok || !payload.aipId || !payload.runId || !payload.status) {
+          if (
+            !response.ok ||
+            payload.ok !== true ||
+            !payload.data?.aipId ||
+            !payload.data?.runId ||
+            !payload.data?.status
+          ) {
             throw new Error(payload.message ?? "Failed to upload AIP.");
           }
 
           return {
-            aipId: payload.aipId,
-            runId: payload.runId,
-            status: payload.status,
+            aipId: payload.data.aipId,
+            runId: payload.data.runId,
+            status: payload.data.status,
           };
         }}
         onSuccess={({ aipId, runId }) => {

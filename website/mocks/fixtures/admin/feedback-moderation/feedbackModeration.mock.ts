@@ -23,6 +23,7 @@ const createProjectRow = (input: {
   id: input.id,
   aip_id: input.aipId,
   extraction_artifact_id: null,
+  project_key: input.id,
   aip_ref_code: input.id,
   program_project_description: input.description,
   implementing_agency: null,

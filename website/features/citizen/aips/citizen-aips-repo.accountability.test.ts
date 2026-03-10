@@ -126,6 +126,24 @@ function createServerClient(input: {
         };
       }
 
+      if (table === "aip_totals") {
+        return {
+          select: () => ({
+            eq: () => ({
+              in: async () => ({
+                data: [
+                  {
+                    aip_id: input.aipId,
+                    total_investment_program: 1_000_000,
+                  },
+                ],
+                error: null,
+              }),
+            }),
+          }),
+        };
+      }
+
       if (table === "profiles") {
         return {
           select: () => ({

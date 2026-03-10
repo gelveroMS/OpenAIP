@@ -117,32 +117,6 @@ export default function NotificationsBell({ href, className }: Props) {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
 
-  useEffect(() => {
-    let isActive = true;
-    const client = supabaseBrowser();
-
-    async function bootstrap() {
-      const [{ data }, unread] = await Promise.all([
-        client.auth.getUser(),
-        fetchUnreadCount(),
-      ]);
-      if (!isActive) return;
-      setUserId(data.user?.id ?? null);
-      setUnreadCount(unread);
-    }
-
-    void bootstrap();
-    return () => {
-      isActive = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!toast) return;
-    const timeout = window.setTimeout(() => setToast(null), 3500);
-    return () => window.clearTimeout(timeout);
-  }, [toast]);
-
   const refreshUnread = useCallback(async () => {
     const next = await fetchUnreadCount();
     setUnreadCount(next);
@@ -157,6 +131,66 @@ export default function NotificationsBell({ href, className }: Props) {
       setPreviewLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    let isActive = true;
+    const client = supabaseBrowser();
+
+    async function bootstrap() {
+      try {
+        const [sessionResult, unread] = await Promise.all([
+          client.auth.getSession(),
+          fetchUnreadCount(),
+        ]);
+        if (!isActive) return;
+        const sessionUserId = sessionResult.data.session?.user?.id ?? null;
+        if (sessionUserId) {
+          setUserId(sessionUserId);
+        } else {
+          const userResult = await client.auth.getUser();
+          if (!isActive) return;
+          setUserId(userResult.data.user?.id ?? null);
+        }
+        setUnreadCount(unread);
+      } catch {
+        if (!isActive) return;
+        setUserId(null);
+      }
+    }
+
+    void bootstrap();
+
+    const {
+      data: { subscription },
+    } = client.auth.onAuthStateChange((event, session) => {
+      if (!isActive) return;
+      if (event === "SIGNED_OUT") {
+        setUserId(null);
+        setUnreadCount(0);
+        setPreviewItems([]);
+        return;
+      }
+      if (
+        event === "INITIAL_SESSION" ||
+        event === "SIGNED_IN" ||
+        event === "TOKEN_REFRESHED"
+      ) {
+        setUserId(session?.user?.id ?? null);
+        void refreshUnread();
+      }
+    });
+
+    return () => {
+      isActive = false;
+      subscription.unsubscribe();
+    };
+  }, [refreshUnread]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timeout = window.setTimeout(() => setToast(null), 3500);
+    return () => window.clearTimeout(timeout);
+  }, [toast]);
 
   const handlePreviewOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -335,6 +369,13 @@ export default function NotificationsBell({ href, className }: Props) {
           setPreviewItems((current) =>
             current.filter((item) => (event.row.read_at === null ? true : item.id !== event.row.id))
           );
+          void refreshUnread();
+          if (previewOpen) {
+            void loadPreview();
+          }
+        }}
+        onStatusChange={(status) => {
+          if (status !== "SUBSCRIBED") return;
           void refreshUnread();
           if (previewOpen) {
             void loadPreview();

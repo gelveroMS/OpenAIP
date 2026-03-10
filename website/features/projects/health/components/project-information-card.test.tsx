@@ -21,6 +21,7 @@ function buildProject(overrides: Partial<HealthProject> = {}): HealthProject {
     kind: "health",
     year: 2026,
     title: "Health Project Detail Test",
+    lguLabel: "Brgy. Test",
     status: "ongoing",
     imageUrl: "/mock/health/health1.jpg",
     month: "January",

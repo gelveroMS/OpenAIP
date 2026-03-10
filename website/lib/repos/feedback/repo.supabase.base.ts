@@ -1,6 +1,12 @@
 import type { FeedbackKind, RoleType } from "@/lib/contracts/databasev2";
 import { withWorkflowActivityMetadata } from "@/lib/audit/workflow-metadata";
 import {
+  chunkArray,
+  collectInChunks,
+  collectPaged,
+  dedupeNonEmptyStrings,
+} from "@/lib/repos/_shared/supabase-batching";
+import {
   CITIZEN_INITIATED_FEEDBACK_KINDS,
   isCitizenInitiatedFeedbackKind,
 } from "@/lib/constants/feedback-kind";
@@ -37,6 +43,7 @@ type SupabaseFilterQueryLike = PromiseLike<SupabaseQueryResult> & {
   maybeSingle: () => Promise<SupabaseQueryResult>;
   or: (...args: unknown[]) => SupabaseFilterQueryLike;
   order: (...args: unknown[]) => SupabaseFilterQueryLike;
+  range?: (from: number, to: number) => SupabaseFilterQueryLike;
   select: (...args: unknown[]) => SupabaseFilterQueryLike;
   single: () => Promise<SupabaseQueryResult>;
   update: (...args: unknown[]) => SupabaseFilterQueryLike;
@@ -101,7 +108,7 @@ type ScopeNameMaps = {
 type ProjectLookupRow = {
   id: string;
   aip_id: string;
-  aip_ref_code: string;
+  aip_ref_code: string | null;
   program_project_description: string;
   category: string;
   start_date: string | null;
@@ -215,49 +222,62 @@ async function listFeedbackRowsByParentIds(
   client: SupabaseClientLike,
   parentIds: string[]
 ): Promise<FeedbackSelectRow[]> {
-  if (parentIds.length === 0) return [];
-  const { data, error } = await client
-    .from("feedback")
-    .select(FEEDBACK_SELECT_COLUMNS)
-    .in("parent_feedback_id", parentIds)
-    .order("created_at", { ascending: true });
+  const normalizedParentIds = dedupeNonEmptyStrings(parentIds);
+  if (normalizedParentIds.length === 0) return [];
 
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  return (data ?? []) as FeedbackSelectRow[];
+  return collectInChunks(normalizedParentIds, (parentIdChunk) =>
+    collectRowsWithOptionalPaging<FeedbackSelectRow>(() =>
+      client
+        .from("feedback")
+        .select(FEEDBACK_SELECT_COLUMNS)
+        .in("parent_feedback_id", parentIdChunk)
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+    )
+  );
 }
 
 async function listFeedbackRowsByThreadId(
   client: SupabaseClientLike,
   threadId: string
 ): Promise<FeedbackSelectRow[]> {
-  const { data, error } = await client
-    .from("feedback")
-    .select(FEEDBACK_SELECT_COLUMNS)
-    .or(`id.eq.${threadId},parent_feedback_id.eq.${threadId}`)
-    .order("created_at", { ascending: true });
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  return (data ?? []) as FeedbackSelectRow[];
+  return collectRowsWithOptionalPaging<FeedbackSelectRow>(() =>
+    client
+      .from("feedback")
+      .select(FEEDBACK_SELECT_COLUMNS)
+      .or(`id.eq.${threadId},parent_feedback_id.eq.${threadId}`)
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+  );
 }
 
 async function listProfilesByIds(
   client: SupabaseClientLike,
   profileIds: string[]
 ): Promise<Map<string, ProfileSelectRow>> {
-  const deduped = Array.from(new Set(profileIds.filter(Boolean)));
+  const deduped = dedupeNonEmptyStrings(profileIds);
   const map = new Map<string, ProfileSelectRow>();
   if (deduped.length === 0) return map;
 
-  const { data, error } = await client
-    .from("profiles")
-    .select("id,role,full_name,barangay_id,city_id,municipality_id")
-    .in("id", deduped);
+  const { data, error } = await (async () => {
+    try {
+      const rows = await collectInChunks(deduped, async (profileIdChunk) => {
+        const { data: chunkData, error: chunkError } = await client
+          .from("profiles")
+          .select("id,role,full_name,barangay_id,city_id,municipality_id")
+          .in("id", profileIdChunk);
+
+        if (chunkError) throw new Error(chunkError.message);
+        return (chunkData ?? []) as ProfileSelectRow[];
+      });
+      return { data: rows, error: null as { message: string } | null };
+    } catch (error) {
+      return {
+        data: null,
+        error: { message: error instanceof Error ? error.message : String(error) },
+      };
+    }
+  })();
 
   if (error && typeof window === "undefined") {
     throw new Error(error.message);
@@ -345,13 +365,28 @@ async function listScopeNameMapsByProfiles(
 
   const [barangayResult, cityResult, municipalityResult] = await Promise.all([
     unresolvedBarangayIds.length
-      ? client.from("barangays").select("id,name").in("id", unresolvedBarangayIds)
+      ? collectInChunks(unresolvedBarangayIds, async (idChunk) => {
+          const { data, error } = await client.from("barangays").select("id,name").in("id", idChunk);
+          if (error) throw new Error(error.message);
+          return (data ?? []) as Array<{ id: string; name: string }>;
+        }).then((data) => ({ data, error: null as { message: string } | null }))
       : Promise.resolve({ data: [], error: null }),
     unresolvedCityIds.length
-      ? client.from("cities").select("id,name").in("id", unresolvedCityIds)
+      ? collectInChunks(unresolvedCityIds, async (idChunk) => {
+          const { data, error } = await client.from("cities").select("id,name").in("id", idChunk);
+          if (error) throw new Error(error.message);
+          return (data ?? []) as Array<{ id: string; name: string }>;
+        }).then((data) => ({ data, error: null as { message: string } | null }))
       : Promise.resolve({ data: [], error: null }),
     unresolvedMunicipalityIds.length
-      ? client.from("municipalities").select("id,name").in("id", unresolvedMunicipalityIds)
+      ? collectInChunks(unresolvedMunicipalityIds, async (idChunk) => {
+          const { data, error } = await client
+            .from("municipalities")
+            .select("id,name")
+            .in("id", idChunk);
+          if (error) throw new Error(error.message);
+          return (data ?? []) as Array<{ id: string; name: string }>;
+        }).then((data) => ({ data, error: null as { message: string } | null }))
       : Promise.resolve({ data: [], error: null }),
   ]);
 
@@ -452,13 +487,36 @@ function getScopeColumn(scope: InboxScope): "barangay_id" | "city_id" {
   return scope === "city" ? "city_id" : "barangay_id";
 }
 
-function chunkArray<T>(values: T[], size = 200): T[][] {
-  if (values.length === 0) return [];
-  const chunks: T[][] = [];
-  for (let index = 0; index < values.length; index += size) {
-    chunks.push(values.slice(index, index + size));
+function hasRange(
+  query: SupabaseFilterQueryLike
+): query is SupabaseFilterQueryLike & {
+  range: (from: number, to: number) => SupabaseFilterQueryLike;
+} {
+  return typeof (query as { range?: unknown }).range === "function";
+}
+
+async function collectRowsWithOptionalPaging<T>(
+  buildQuery: () => SupabaseFilterQueryLike
+): Promise<T[]> {
+  const initialQuery = buildQuery();
+
+  // Local mock clients in tests may not implement range(); gracefully fall back.
+  if (!hasRange(initialQuery)) {
+    const { data, error } = await initialQuery;
+    if (error) throw new Error(error.message);
+    return (data ?? []) as T[];
   }
-  return chunks;
+
+  return collectPaged(async (from, to) => {
+    const pagedQuery = buildQuery();
+    if (!hasRange(pagedQuery)) {
+      throw new Error("Expected query to support range pagination.");
+    }
+
+    const { data, error } = await pagedQuery.range(from, to);
+    if (error) throw new Error(error.message);
+    return (data ?? []) as T[];
+  });
 }
 
 async function resolveInboxAccess(
@@ -507,16 +565,17 @@ async function listScopedAipIds(
   input: { scope: InboxScope; scopeId: string }
 ): Promise<string[]> {
   const scopeColumn = getScopeColumn(input.scope);
-  const { data, error } = await client
-    .from("aips")
-    .select("id")
-    .eq(scopeColumn, input.scopeId);
-
-  if (error) throw new Error(error.message);
+  const rows = await collectRowsWithOptionalPaging<{ id: string }>(() =>
+    client
+      .from("aips")
+      .select("id")
+      .eq(scopeColumn, input.scopeId)
+      .order("id", { ascending: true })
+  );
 
   return Array.from(
     new Set(
-      ((data ?? []) as Array<{ id: string }>)
+      rows
         .map((row) => row.id)
         .filter((id): id is string => typeof id === "string" && id.length > 0)
     )
@@ -531,14 +590,15 @@ async function listScopedProjectIdsByAips(
 
   const projectIds = new Set<string>();
   for (const aipChunk of chunkArray(aipIds)) {
-    const { data, error } = await client
-      .from("projects")
-      .select("id,aip_id")
-      .in("aip_id", aipChunk);
+    const rows = await collectRowsWithOptionalPaging<ScopedProjectLookupRow>(() =>
+      client
+        .from("projects")
+        .select("id,aip_id")
+        .in("aip_id", aipChunk)
+        .order("id", { ascending: true })
+    );
 
-    if (error) throw new Error(error.message);
-
-    for (const row of (data ?? []) as ScopedProjectLookupRow[]) {
+    for (const row of rows) {
       if (row.id) projectIds.add(row.id);
     }
   }
@@ -556,17 +616,19 @@ async function listScopedInboxRoots(
   const rootsById = new Map<string, FeedbackSelectRow>();
 
   for (const aipChunk of chunkArray(aipIds)) {
-    const { data, error } = await client
-      .from("feedback")
-      .select(FEEDBACK_SELECT_COLUMNS)
-      .is("parent_feedback_id", null)
-      .eq("target_type", "aip")
-      .in("aip_id", aipChunk)
-      .in("kind", [...CITIZEN_INITIATED_FEEDBACK_KINDS]);
+    const rows = await collectRowsWithOptionalPaging<FeedbackSelectRow>(() =>
+      client
+        .from("feedback")
+        .select(FEEDBACK_SELECT_COLUMNS)
+        .is("parent_feedback_id", null)
+        .eq("target_type", "aip")
+        .in("aip_id", aipChunk)
+        .in("kind", [...CITIZEN_INITIATED_FEEDBACK_KINDS])
+        .order("updated_at", { ascending: false })
+        .order("id", { ascending: true })
+    );
 
-    if (error) throw new Error(error.message);
-
-    for (const row of (data ?? []) as FeedbackSelectRow[]) {
+    for (const row of rows) {
       if (isCitizenInitiatedFeedbackKind(row.kind)) {
         rootsById.set(row.id, row);
       }
@@ -575,17 +637,19 @@ async function listScopedInboxRoots(
 
   const projectIds = await listScopedProjectIdsByAips(client, aipIds);
   for (const projectChunk of chunkArray(projectIds)) {
-    const { data, error } = await client
-      .from("feedback")
-      .select(FEEDBACK_SELECT_COLUMNS)
-      .is("parent_feedback_id", null)
-      .eq("target_type", "project")
-      .in("project_id", projectChunk)
-      .in("kind", [...CITIZEN_INITIATED_FEEDBACK_KINDS]);
+    const rows = await collectRowsWithOptionalPaging<FeedbackSelectRow>(() =>
+      client
+        .from("feedback")
+        .select(FEEDBACK_SELECT_COLUMNS)
+        .is("parent_feedback_id", null)
+        .eq("target_type", "project")
+        .in("project_id", projectChunk)
+        .in("kind", [...CITIZEN_INITIATED_FEEDBACK_KINDS])
+        .order("updated_at", { ascending: false })
+        .order("id", { ascending: true })
+    );
 
-    if (error) throw new Error(error.message);
-
-    for (const row of (data ?? []) as FeedbackSelectRow[]) {
+    for (const row of rows) {
       if (isCitizenInitiatedFeedbackKind(row.kind)) {
         rootsById.set(row.id, row);
       }
@@ -972,18 +1036,17 @@ export function createCommentRepoFromClient(getClient: GetClient): CommentRepo {
               scopeId: access.scopeId,
             })
           : await (async () => {
-              const { data, error } = await client
-                .from("feedback")
-                .select(FEEDBACK_SELECT_COLUMNS)
-                .is("parent_feedback_id", null)
-                .in("kind", [...CITIZEN_INITIATED_FEEDBACK_KINDS])
-                .order("updated_at", { ascending: false });
+              const rows = await collectRowsWithOptionalPaging<FeedbackSelectRow>(() =>
+                client
+                  .from("feedback")
+                  .select(FEEDBACK_SELECT_COLUMNS)
+                  .is("parent_feedback_id", null)
+                  .in("kind", [...CITIZEN_INITIATED_FEEDBACK_KINDS])
+                  .order("updated_at", { ascending: false })
+                  .order("id", { ascending: true })
+              );
 
-              if (error) {
-                throw new Error(error.message);
-              }
-
-              return ((data ?? []) as FeedbackSelectRow[]).filter((row) =>
+              return rows.filter((row) =>
                 isCitizenInitiatedFeedbackKind(row.kind)
               );
             })();
@@ -1124,14 +1187,15 @@ export function createFeedbackRepoFromClient(getClient: GetClient): FeedbackRepo
   return {
     async listForAip(aipId) {
       const client = await getClient();
-      const { data, error } = await client
-        .from("feedback")
-        .select(FEEDBACK_SELECT_COLUMNS)
-        .eq("target_type", "aip")
-        .eq("aip_id", aipId)
-        .order("created_at", { ascending: true });
-      if (error) throw new Error(error.message);
-      const rows = (data as unknown[] | null) ?? [];
+      const rows = await collectRowsWithOptionalPaging<FeedbackSelectRow>(() =>
+        client
+          .from("feedback")
+          .select(FEEDBACK_SELECT_COLUMNS)
+          .eq("target_type", "aip")
+          .eq("aip_id", aipId)
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true })
+      );
       return rows.map((row: unknown) =>
         mapFeedbackRowToItem(row as FeedbackSelectRow)
       );
@@ -1139,14 +1203,15 @@ export function createFeedbackRepoFromClient(getClient: GetClient): FeedbackRepo
 
     async listForProject(projectId) {
       const client = await getClient();
-      const { data, error } = await client
-        .from("feedback")
-        .select(FEEDBACK_SELECT_COLUMNS)
-        .eq("target_type", "project")
-        .eq("project_id", projectId)
-        .order("created_at", { ascending: true });
-      if (error) throw new Error(error.message);
-      const rows = (data as unknown[] | null) ?? [];
+      const rows = await collectRowsWithOptionalPaging<FeedbackSelectRow>(() =>
+        client
+          .from("feedback")
+          .select(FEEDBACK_SELECT_COLUMNS)
+          .eq("target_type", "project")
+          .eq("project_id", projectId)
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true })
+      );
       return rows.map((row: unknown) =>
         mapFeedbackRowToItem(row as FeedbackSelectRow)
       );
@@ -1259,16 +1324,17 @@ export function createFeedbackThreadsRepoFromClient(
   return {
     async listThreadRootsByTarget(target) {
       const client = await getClient();
-      const base = client
-        .from("feedback")
-        .select(FEEDBACK_SELECT_COLUMNS)
-        .is("parent_feedback_id", null);
-      const { data, error } = await toTargetFilterQuery(base, target).order(
-        "created_at",
-        { ascending: true }
-      );
-      if (error) throw new Error(error.message);
-      const rows = (data as unknown[] | null) ?? [];
+      const rows = await collectRowsWithOptionalPaging<FeedbackSelectRow>(() => {
+        const base = client
+          .from("feedback")
+          .select(FEEDBACK_SELECT_COLUMNS)
+          .is("parent_feedback_id", null);
+
+        return toTargetFilterQuery(base, target)
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true });
+      });
+
       return rows.map((row: unknown) =>
         mapFeedbackRowToThreadRow(row as FeedbackSelectRow)
       );

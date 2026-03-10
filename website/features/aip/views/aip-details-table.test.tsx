@@ -74,7 +74,12 @@ vi.mock("../components/aip-details-table-card", () => ({
 
 vi.mock("../components/budget-allocation-table", () => ({
   BudgetAllocationTable: () => <div data-testid="budget-table" />,
-  buildBudgetAllocation: () => ({ rows: [], totalBudget: 0, totalProjects: 0 }),
+  buildBudgetAllocationWithOptions: () => ({
+    rows: [],
+    totalBudget: 0,
+    totalProjects: 0,
+    coveredPercentage: 0,
+  }),
 }));
 
 describe("AipDetailsTableView", () => {

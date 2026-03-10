@@ -76,6 +76,10 @@ export async function runAipProjectReviewUtilsTests() {
     deriveSectorFromRefCode("UNKNOWN-CODE") === "Unknown",
     "Expected Unknown sector for non-standard ref code."
   );
+  assert(
+    deriveSectorFromRefCode(null) === "Unknown",
+    "Expected Unknown sector when ref code is null."
+  );
 
   const whitespaceOnlyDiff = diffProjectEditableFields(base, {
     ...base,

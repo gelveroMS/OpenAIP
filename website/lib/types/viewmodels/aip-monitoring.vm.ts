@@ -11,6 +11,7 @@ export type AipMonitoringRow = {
   id: string;
   year: number;
   lguName: string;
+  budgetTotal: number;
   aipStatus: AipStatus;
   status: AipMonitoringStatus;
   submittedDate: string;

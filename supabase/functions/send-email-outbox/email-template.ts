@@ -418,6 +418,8 @@ function resolveCanonicalTemplateKey(context: NormalizedNotificationEmailContext
 
   if (lowerTemplateKey === "aip_extraction_succeeded") return "aip_extraction_succeeded";
   if (lowerTemplateKey === "aip_extraction_failed") return "aip_extraction_failed";
+  if (lowerTemplateKey === "aip_embed_succeeded") return "aip_embed_succeeded";
+  if (lowerTemplateKey === "aip_embed_failed") return "aip_embed_failed";
   if (lowerTemplateKey === "project_update_posted") return "project_update_posted";
   if (lowerTemplateKey === "feedback_posted") return "feedback_posted";
   if (lowerTemplateKey === "feedback_reply") return "feedback_reply";
@@ -425,6 +427,8 @@ function resolveCanonicalTemplateKey(context: NormalizedNotificationEmailContext
 
   if (upperTemplateKey === "AIP_EXTRACTION_SUCCEEDED") return "aip_extraction_succeeded";
   if (upperTemplateKey === "AIP_EXTRACTION_FAILED") return "aip_extraction_failed";
+  if (upperTemplateKey === "AIP_EMBED_SUCCEEDED") return "aip_embed_succeeded";
+  if (upperTemplateKey === "AIP_EMBED_FAILED") return "aip_embed_failed";
   if (upperTemplateKey === "PROJECT_UPDATE_STATUS_CHANGED") return "project_update_posted";
   if (upperTemplateKey === "FEEDBACK_VISIBILITY_CHANGED") return "feedback_visibility_changed";
   if (upperTemplateKey === "FEEDBACK_CREATED") {
@@ -448,8 +452,6 @@ const TEMPLATE_REGISTRY: Record<string, EventTemplateSpec> = {
       buildDetailsRows([
         { label: "LGU", value: context.details.lguName },
         { label: "AIP", value: context.details.entityLabel },
-        { label: "Run ID", value: context.details.runId },
-        { label: "Stage", value: context.details.stage },
         { label: "Completed at", value: context.details.occurredAt },
       ]),
   },
@@ -475,6 +477,43 @@ const TEMPLATE_REGISTRY: Record<string, EventTemplateSpec> = {
     advisoryTitle: "Suggested Action",
     advisoryBody:
       "Review the failed run details, confirm the uploaded PDF is valid, and retry extraction.",
+  },
+  aip_embed_succeeded: {
+    subtitle: "AIP Search Indexing",
+    heading: "AIP embedding completed",
+    ctaLabel: "Open AIP",
+    detailsLabel: "DETAILS",
+    intro: (context) => {
+      const aipLabel = context.details.entityLabel ?? "this AIP";
+      return `Search indexing has completed for ${aipLabel}. Chatbot queries are now enabled.`;
+    },
+    details: (context) =>
+      buildDetailsRows([
+        { label: "LGU", value: context.details.lguName },
+        { label: "AIP", value: context.details.entityLabel },
+        { label: "Completed at", value: context.details.occurredAt },
+      ]),
+  },
+  aip_embed_failed: {
+    subtitle: "AIP Search Indexing",
+    heading: "AIP embedding failed",
+    ctaLabel: "Review failed indexing run",
+    detailsLabel: "FAILURE DETAILS",
+    intro: (context) => {
+      const aipLabel = context.details.entityLabel ?? "this AIP";
+      return `Search indexing for ${aipLabel} failed. Review the details and retry indexing when ready.`;
+    },
+    details: (context) =>
+      buildDetailsRows([
+        { label: "LGU", value: context.details.lguName },
+        { label: "AIP", value: context.details.entityLabel },
+        { label: "Error code", value: context.details.errorCode },
+        { label: "Error message", value: context.details.errorMessage },
+        { label: "Failed at", value: context.details.occurredAt },
+      ]),
+    advisoryTitle: "Suggested Action",
+    advisoryBody:
+      "Review the failed run details, verify embed configuration and model availability, then retry indexing.",
   },
   AIP_CLAIMED: {
     subtitle: "AIP Review Update",

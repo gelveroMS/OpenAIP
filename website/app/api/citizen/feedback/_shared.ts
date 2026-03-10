@@ -25,6 +25,7 @@ export const PROJECT_FEEDBACK_DISPLAY_KINDS = [
 export const PROJECT_FEEDBACK_MAX_LENGTH = 1000;
 export const HIDDEN_FEEDBACK_PLACEHOLDER =
   "This comment has been hidden due to policy violation.";
+const UNSPECIFIED_REF_CODE = "Unspecified";
 
 export type CitizenProjectFeedbackKind = (typeof CITIZEN_PROJECT_FEEDBACK_KINDS)[number];
 export type ProjectFeedbackDisplayKind = (typeof PROJECT_FEEDBACK_DISPLAY_KINDS)[number];
@@ -55,7 +56,7 @@ type SupabaseServerClient = Awaited<ReturnType<typeof supabaseServer>>;
 type ProjectLookupRow = {
   id: string;
   aip_id: string;
-  aip_ref_code: string;
+  aip_ref_code: string | null;
   category: "health" | "infrastructure" | "other";
   created_at: string;
 };
@@ -117,6 +118,11 @@ export function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     value
   );
+}
+
+function toDisplayRefCode(value: string | null | undefined): string {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized.length > 0 ? normalized : UNSPECIFIED_REF_CODE;
 }
 
 function buildLguLabel(params: {
@@ -542,7 +548,7 @@ export async function resolveProjectByIdOrRef(
   return {
     id: row.id,
     aipId: row.aip_id,
-    aipRefCode: row.aip_ref_code,
+    aipRefCode: toDisplayRefCode(row.aip_ref_code),
     category: row.category,
     aipStatus: aip.status,
   };

@@ -33,6 +33,7 @@ export type AipProjectRow = {
   projectRefCode: string;
   programDescription: string;
   totalAmount: number;
+  hasAiIssues: boolean;
   hasLguNote: boolean;
 };
 
@@ -64,6 +65,7 @@ export type AipProjectDetails = {
   completionDate: string | null;
   totalAmount: number;
   aiIssues: string[];
+  hasLguNote: boolean;
 };
 
 export type AipFilterLguOption = {

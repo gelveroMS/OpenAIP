@@ -8,7 +8,8 @@ export type ProjectRowDTO = {
   id: string;
   aip_id: string;
   extraction_artifact_id: string | null;
-  aip_ref_code: string;
+  project_key: string;
+  aip_ref_code: string | null;
   program_project_description: string;
   implementing_agency: string | null;
   start_date: string | null;
@@ -25,7 +26,7 @@ export type ProjectRowDTO = {
   prm_ncr_lgu_rm_objective_results_indicator: string | null;
   errors: Json | null;
   category: "health" | "infrastructure" | "other";
-  sector_code: string;
+  sector_code: string | null;
   is_human_edited: boolean;
   edited_by: string | null;
   edited_at: string | null;
@@ -116,6 +117,7 @@ export const MOCK_PROJECTS_ROWS: ProjectRowDTO[] = [
       id: project.projectRefCode,
       aip_id: resolveMockProjectAipId(project.year, index),
       extraction_artifact_id: null,
+      project_key: project.projectRefCode,
       aip_ref_code: project.projectRefCode,
       program_project_description: project.title,
       implementing_agency: implementingAgency,
@@ -147,6 +149,7 @@ export const MOCK_PROJECTS_ROWS: ProjectRowDTO[] = [
     id: "PROJ-O-2026-001",
     aip_id: AIP_IDS.barangay_santamaria_2026,
     extraction_artifact_id: null,
+    project_key: "PROJ-O-2026-001",
     aip_ref_code: "PROJ-O-2026-001",
     program_project_description: "Other Community Initiative",
     implementing_agency: null,

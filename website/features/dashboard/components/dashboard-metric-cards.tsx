@@ -162,7 +162,7 @@ export function KpiRow({
         variant="status"
         label="Total Budget"
         value={totalBudget}
-        subtext={`Based on project totals for ${fiscalYear}`}
+        subtext={`File total (fallback: project totals) for FY ${fiscalYear}`}
         icon={<Wallet className="h-5 w-5" strokeWidth={2.2} />}
         accent="green"
         accentMode="border"

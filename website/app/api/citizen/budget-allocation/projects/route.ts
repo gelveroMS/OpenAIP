@@ -13,11 +13,19 @@ type ProjectsErrorCode = "BAD_REQUEST" | "NOT_FOUND" | "INTERNAL_ERROR";
 
 type ProjectRow = {
   id: string;
-  aip_ref_code: string;
+  aip_ref_code: string | null;
   program_project_description: string;
   source_of_funds: string | null;
   total: number | null;
+  sector_code: string | null;
 };
+
+const UNSPECIFIED_REF_CODE = "Unspecified";
+
+function toDisplayRefCode(value: string | null | undefined): string {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized.length > 0 ? normalized : UNSPECIFIED_REF_CODE;
+}
 
 function errorResponse(status: number, code: ProjectsErrorCode, message: string) {
   return NextResponse.json({ error: { code, message } }, { status });
@@ -64,6 +72,16 @@ function escapeForIlike(input: string): string {
   return input.replace(/[%_,]/g, (token) => `\\${token}`);
 }
 
+function buildOtherSectorClause(): string {
+  return "sector_code.is.null,and(sector_code.not.like.1000%,sector_code.not.like.3000%,sector_code.not.like.8000%)";
+}
+
+function matchesOtherSector(value: string | null | undefined): boolean {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (!normalized) return true;
+  return !normalized.startsWith("1000") && !normalized.startsWith("3000") && !normalized.startsWith("8000");
+}
+
 function buildProjectQuery(input: {
   client: Awaited<ReturnType<typeof supabaseServer>>;
   withCount: boolean;
@@ -76,21 +94,34 @@ function buildProjectQuery(input: {
   let query = input.client
     .from("projects")
     .select(
-      "id,aip_ref_code,program_project_description,source_of_funds,total,aips!inner(id)",
+      "id,aip_ref_code,program_project_description,source_of_funds,total,sector_code,aips!inner(id)",
       input.withCount ? { count: "exact" } : undefined
     )
     .eq("aips.status", "published")
     .eq("aips.fiscal_year", input.fiscalYear)
-    .eq(`aips.${input.scopeColumn}`, input.scopeId)
-    .in("sector_code", [...DBV2_SECTOR_CODES]);
+    .eq(`aips.${input.scopeColumn}`, input.scopeId);
 
-  if (input.sectorCode) {
+  const escapedQuery = input.q ? escapeForIlike(input.q) : "";
+  const otherSectorClause = buildOtherSectorClause();
+  const otherSectorGroup = `or(${otherSectorClause})`;
+
+  if (input.sectorCode === "9000" && escapedQuery) {
+    query = query.or(
+      `and(aip_ref_code.ilike.%${escapedQuery}%,${otherSectorGroup}),and(program_project_description.ilike.%${escapedQuery}%,${otherSectorGroup})`
+    );
+    return query;
+  }
+
+  if (input.sectorCode === "9000") {
+    query = query.or(otherSectorClause);
+  } else if (input.sectorCode) {
     query = query.eq("sector_code", input.sectorCode);
   }
 
-  if (input.q) {
-    const escaped = escapeForIlike(input.q);
-    query = query.or(`aip_ref_code.ilike.%${escaped}%,program_project_description.ilike.%${escaped}%`);
+  if (escapedQuery) {
+    query = query.or(
+      `aip_ref_code.ilike.%${escapedQuery}%,program_project_description.ilike.%${escapedQuery}%`
+    );
   }
 
   return query;
@@ -150,9 +181,12 @@ export async function GET(request: Request) {
       return errorResponse(500, "INTERNAL_ERROR", "Failed to load project list.");
     }
 
-    const items = (data ?? []).map((row) => ({
+    const scopedRows =
+      parsed.sectorCode === "9000" ? (data ?? []).filter((row) => matchesOtherSector(row.sector_code)) : data ?? [];
+
+    const items = scopedRows.map((row) => ({
       project_id: row.id,
-      aip_ref_code: row.aip_ref_code,
+      aip_ref_code: toDisplayRefCode(row.aip_ref_code),
       program_project_description: row.program_project_description,
       source_of_funds: row.source_of_funds,
       total: typeof row.total === "number" ? row.total : 0,

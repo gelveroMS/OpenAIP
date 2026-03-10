@@ -1,6 +1,11 @@
 import "server-only";
 
 import { createSupabaseFeedbackThreadsRepo } from "@/lib/repos/feedback/repo.supabase";
+import { fetchAipFileTotalsByAipIds } from "@/lib/repos/_shared/aip-totals";
+import {
+  chunkArray,
+  SUPABASE_PAGE_SIZE,
+} from "@/lib/repos/_shared/supabase-batching";
 import { supabaseServer } from "@/lib/supabase/server";
 import { applyAipUploaderMetadata, resolveDefaultFiscalYear, resolveSelectedFiscalYear } from "./mappers";
 import type { DashboardRepo } from "./repo";
@@ -48,10 +53,10 @@ type ProfileRow = {
 type ProjectRow = {
   id: string;
   aip_id: string;
-  aip_ref_code: string;
+  aip_ref_code: string | null;
   program_project_description: string;
   category: DashboardProject["category"];
-  sector_code: string;
+  sector_code: string | null;
   total: number | null;
   personal_services: number | null;
   maintenance_and_other_operating_expenses: number | null;
@@ -114,6 +119,12 @@ type ActivityLogRow = {
 const CITIZEN_KIND_SET = new Set<string>(CITIZEN_FEEDBACK_KINDS);
 const PROJECT_UPDATE_ACTION_SET = new Set<string>(["project_info_updated", "project_updated"]);
 
+function toTimestamp(value: string | null | undefined): number {
+  if (!value) return Number.NEGATIVE_INFINITY;
+  const ts = new Date(value).getTime();
+  return Number.isFinite(ts) ? ts : Number.NEGATIVE_INFINITY;
+}
+
 function getScopeColumn(scope: DashboardScope): "barangay_id" | "city_id" {
   return scope === "city" ? "city_id" : "barangay_id";
 }
@@ -122,6 +133,7 @@ function mapAipRow(row: AipRow): DashboardAip {
   return {
     id: row.id,
     fiscalYear: row.fiscal_year,
+    totalInvestmentProgram: null,
     status: row.status,
     statusUpdatedAt: row.status_updated_at,
     submittedAt: row.submitted_at,
@@ -133,13 +145,21 @@ function mapAipRow(row: AipRow): DashboardAip {
 }
 
 function mapProjectRow(row: ProjectRow, healthProgramName: string | null): DashboardProject {
+  const aipRefCode =
+    typeof row.aip_ref_code === "string" && row.aip_ref_code.trim().length > 0
+      ? row.aip_ref_code.trim()
+      : "Unspecified";
+  const sectorCode =
+    typeof row.sector_code === "string" && row.sector_code.trim().length > 0
+      ? row.sector_code.trim()
+      : "unknown";
   return {
     id: row.id,
     aipId: row.aip_id,
-    aipRefCode: row.aip_ref_code,
+    aipRefCode,
     programProjectDescription: row.program_project_description,
     category: row.category,
-    sectorCode: row.sector_code,
+    sectorCode,
     total: row.total,
     personalServices: row.personal_services,
     maintenanceAndOtherOperatingExpenses: row.maintenance_and_other_operating_expenses,
@@ -208,15 +228,29 @@ async function listAipsByScope(
   input: { scope: DashboardScope; scopeId: string }
 ): Promise<DashboardAip[]> {
   const scopeColumn = getScopeColumn(input.scope);
-  const { data, error } = await client
-    .from("aips")
-    .select("id,fiscal_year,status,status_updated_at,submitted_at,published_at,created_at")
-    .eq(scopeColumn, input.scopeId)
-    .order("fiscal_year", { ascending: false })
-    .order("created_at", { ascending: false });
+  const rows: AipRow[] = [];
+  let from = 0;
 
-  if (error) throw new Error(error.message);
-  return ((data ?? []) as AipRow[]).map(mapAipRow);
+  while (true) {
+    const to = from + SUPABASE_PAGE_SIZE - 1;
+    const { data, error } = await client
+      .from("aips")
+      .select("id,fiscal_year,status,status_updated_at,submitted_at,published_at,created_at")
+      .eq(scopeColumn, input.scopeId)
+      .order("fiscal_year", { ascending: false })
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(from, to);
+
+    if (error) throw new Error(error.message);
+
+    const batch = (data ?? []) as AipRow[];
+    rows.push(...batch);
+    if (batch.length < SUPABASE_PAGE_SIZE) break;
+    from += SUPABASE_PAGE_SIZE;
+  }
+
+  return rows.map(mapAipRow);
 }
 
 async function listAipUploaderMetadata(
@@ -224,20 +258,28 @@ async function listAipUploaderMetadata(
   aipIds: string[]
 ): Promise<Map<string, { uploadedBy: string | null; uploadedDate: string | null }>> {
   const metadataByAipId = new Map<string, { uploadedBy: string | null; uploadedDate: string | null }>();
-  if (aipIds.length === 0) return metadataByAipId;
-
-  const { data: uploadRows, error: uploadError } = await client
-    .from("uploaded_files")
-    .select("aip_id,uploaded_by,created_at,is_current")
-    .eq("is_current", true)
-    .in("aip_id", aipIds)
-    .order("created_at", { ascending: false });
-  if (uploadError) throw new Error(uploadError.message);
+  const uniqueAipIds = Array.from(
+    new Set(
+      aipIds.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    )
+  );
+  if (uniqueAipIds.length === 0) return metadataByAipId;
 
   const latestUploadByAipId = new Map<string, UploadedFileRow>();
-  for (const row of (uploadRows ?? []) as UploadedFileRow[]) {
-    if (!latestUploadByAipId.has(row.aip_id)) {
-      latestUploadByAipId.set(row.aip_id, row);
+  for (const aipIdChunk of chunkArray(uniqueAipIds)) {
+    const { data: uploadRows, error: uploadError } = await client
+      .from("uploaded_files")
+      .select("aip_id,uploaded_by,created_at,is_current")
+      .eq("is_current", true)
+      .in("aip_id", aipIdChunk)
+      .order("created_at", { ascending: false });
+    if (uploadError) throw new Error(uploadError.message);
+
+    for (const row of (uploadRows ?? []) as UploadedFileRow[]) {
+      const existing = latestUploadByAipId.get(row.aip_id);
+      if (!existing || toTimestamp(row.created_at) > toTimestamp(existing.created_at)) {
+        latestUploadByAipId.set(row.aip_id, row);
+      }
     }
   }
 
@@ -251,14 +293,16 @@ async function listAipUploaderMetadata(
 
   const uploaderNameById = new Map<string, string | null>();
   if (uploaderIds.length > 0) {
-    const { data: profileRows, error: profileError } = await client
-      .from("profiles")
-      .select("id,full_name")
-      .in("id", uploaderIds);
-    if (profileError) throw new Error(profileError.message);
+    for (const uploaderIdChunk of chunkArray(uploaderIds)) {
+      const { data: profileRows, error: profileError } = await client
+        .from("profiles")
+        .select("id,full_name")
+        .in("id", uploaderIdChunk);
+      if (profileError) throw new Error(profileError.message);
 
-    for (const profile of (profileRows ?? []) as ProfileRow[]) {
-      uploaderNameById.set(profile.id, profile.full_name?.trim() || null);
+      for (const profile of (profileRows ?? []) as ProfileRow[]) {
+        uploaderNameById.set(profile.id, profile.full_name?.trim() || null);
+      }
     }
   }
 
@@ -273,27 +317,49 @@ async function listAipUploaderMetadata(
 }
 
 async function listProjects(client: SupabaseClient, aipId: string): Promise<DashboardProject[]> {
-  const { data, error } = await client
-    .from("projects")
-    .select(
-      "id,aip_id,aip_ref_code,program_project_description,category,sector_code,total,personal_services,maintenance_and_other_operating_expenses,capital_outlay,errors,is_human_edited,edited_at"
-    )
-    .eq("aip_id", aipId);
+  const projects: ProjectRow[] = [];
+  let from = 0;
 
-  if (error) throw new Error(error.message);
-  const projects = (data ?? []) as ProjectRow[];
-  const projectIds = projects.map((project) => project.id);
+  while (true) {
+    const to = from + SUPABASE_PAGE_SIZE - 1;
+    const { data, error } = await client
+      .from("projects")
+      .select(
+        "id,aip_id,aip_ref_code,program_project_description,category,sector_code,total,personal_services,maintenance_and_other_operating_expenses,capital_outlay,errors,is_human_edited,edited_at"
+      )
+      .eq("aip_id", aipId)
+      .order("aip_ref_code", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, to);
+
+    if (error) throw new Error(error.message);
+
+    const batch = (data ?? []) as ProjectRow[];
+    projects.push(...batch);
+    if (batch.length < SUPABASE_PAGE_SIZE) break;
+    from += SUPABASE_PAGE_SIZE;
+  }
+
+  const projectIds = Array.from(
+    new Set(
+      projects
+        .map((project) => project.id)
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    )
+  );
 
   let healthByProjectId = new Map<string, string>();
   if (projectIds.length > 0) {
-    const { data: healthData, error: healthError } = await client
-      .from("health_project_details")
-      .select("project_id,program_name")
-      .in("project_id", projectIds);
-    if (healthError) throw new Error(healthError.message);
-    healthByProjectId = new Map(
-      ((healthData ?? []) as HealthDetailsRow[]).map((row) => [row.project_id, row.program_name])
-    );
+    const healthRows: HealthDetailsRow[] = [];
+    for (const projectIdChunk of chunkArray(projectIds)) {
+      const { data: healthData, error: healthError } = await client
+        .from("health_project_details")
+        .select("project_id,program_name")
+        .in("project_id", projectIdChunk);
+      if (healthError) throw new Error(healthError.message);
+      healthRows.push(...((healthData ?? []) as HealthDetailsRow[]));
+    }
+    healthByProjectId = new Map(healthRows.map((row) => [row.project_id, row.program_name]));
   }
 
   return projects.map((project) => mapProjectRow(project, healthByProjectId.get(project.id) ?? null));
@@ -348,15 +414,24 @@ async function listFeedback(
   if (aipFeedbackError) throw new Error(aipFeedbackError.message);
 
   const rows: FeedbackRow[] = [...((aipFeedback ?? []) as FeedbackRow[])];
+  const uniqueProjectIds = Array.from(
+    new Set(
+      input.projectIds.filter(
+        (value): value is string => typeof value === "string" && value.trim().length > 0
+      )
+    )
+  );
 
-  if (input.projectIds.length > 0) {
-    const { data: projectFeedback, error: projectFeedbackError } = await client
-      .from("feedback")
-      .select("id,target_type,aip_id,project_id,parent_feedback_id,kind,source,body,created_at")
-      .eq("target_type", "project")
-      .in("project_id", input.projectIds);
-    if (projectFeedbackError) throw new Error(projectFeedbackError.message);
-    rows.push(...((projectFeedback ?? []) as FeedbackRow[]));
+  if (uniqueProjectIds.length > 0) {
+    for (const projectIdChunk of chunkArray(uniqueProjectIds)) {
+      const { data: projectFeedback, error: projectFeedbackError } = await client
+        .from("feedback")
+        .select("id,target_type,aip_id,project_id,parent_feedback_id,kind,source,body,created_at")
+        .eq("target_type", "project")
+        .in("project_id", projectIdChunk);
+      if (projectFeedbackError) throw new Error(projectFeedbackError.message);
+      rows.push(...((projectFeedback ?? []) as FeedbackRow[]));
+    }
   }
 
   return rows.map(mapFeedbackRow);
@@ -579,12 +654,20 @@ export function createSupabaseDashboardRepo(): DashboardRepo {
         scope: input.scope,
         scopeId: input.scopeId,
       });
+      const aipTotalsByAipId = await fetchAipFileTotalsByAipIds(
+        client,
+        baseAips.map((aip) => aip.id)
+      );
+      const baseAipsWithTotals = baseAips.map((aip) => ({
+        ...aip,
+        totalInvestmentProgram: aipTotalsByAipId.get(aip.id) ?? null,
+      }));
 
       const aipMetadata = await listAipUploaderMetadata(
         client,
         baseAips.map((aip) => aip.id)
       );
-      const allAips = applyAipUploaderMetadata(baseAips, aipMetadata);
+      const allAips = applyAipUploaderMetadata(baseAipsWithTotals, aipMetadata);
 
       const availableFiscalYears = Array.from(
         new Set(allAips.map((aip) => aip.fiscalYear))

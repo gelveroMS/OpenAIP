@@ -264,6 +264,16 @@ Deno.test("renderTemplateHtml supports event-specific headings", () => {
       expectedHeading: "AIP processing failed",
       expectedSubtitle: "AIP Processing",
     },
+    {
+      key: "aip_embed_succeeded",
+      expectedHeading: "AIP embedding completed",
+      expectedSubtitle: "AIP Search Indexing",
+    },
+    {
+      key: "aip_embed_failed",
+      expectedHeading: "AIP embedding failed",
+      expectedSubtitle: "AIP Search Indexing",
+    },
     { key: "FEEDBACK_CREATED", expectedHeading: "New feedback posted", expectedSubtitle: "Citizen Engagement" },
     { key: "feedback_reply", expectedHeading: "New reply in feedback thread", expectedSubtitle: "Citizen Engagement" },
     {
@@ -407,7 +417,8 @@ Deno.test("renderTemplateHtml renders uploader extraction success and failure te
 
   assertEquals(successHtml.includes("AIP processing completed"), true);
   assertEquals(successHtml.includes("Open AIP"), true);
-  assertEquals(successHtml.includes("Run ID: <strong>run-001</strong>"), true);
+  assertEquals(successHtml.includes("Run ID: <strong>run-001</strong>"), false);
+  assertEquals(successHtml.includes("Stage: <strong>categorize</strong>"), false);
   assertEquals(successHtml.includes("/api/notifications/open?dedupe="), true);
 
   assertEquals(failedHtml.includes("AIP processing failed"), true);
@@ -415,6 +426,58 @@ Deno.test("renderTemplateHtml renders uploader extraction success and failure te
   assertEquals(failedHtml.includes("Error code: <strong>PARSE_TIMEOUT</strong>"), true);
   assertEquals(
     failedHtml.includes("Error message: <strong>Validation timed out while parsing totals.</strong>"),
+    true
+  );
+});
+
+Deno.test("renderTemplateHtml renders uploader embed success and failure templates", () => {
+  const successHtml = renderTemplateHtml(
+    "aip_embed_succeeded",
+    "AIP embedding completed",
+    {
+      event_type: "AIP_EMBED_SUCCEEDED",
+      entity_label: "AIP FY 2026",
+      lgu_name: "Barangay Uno",
+      run_id: "run-embed-001",
+      stage: "embed",
+      occurred_at: "2026-03-10T01:00:00.000Z",
+      action_url: "/barangay/aips/aip-1",
+      notification_ref: "AIP_EMBED_SUCCEEDED:aip:aip-1:run:run-embed-001:status->succeeded",
+    },
+    "https://openaip.example.com"
+  );
+
+  const failedHtml = renderTemplateHtml(
+    "aip_embed_failed",
+    "AIP embedding failed",
+    {
+      event_type: "AIP_EMBED_FAILED",
+      entity_label: "AIP FY 2026",
+      lgu_name: "Barangay Uno",
+      run_id: "run-embed-002",
+      stage: "embed",
+      error_code: "EMBED_TIMEOUT",
+      error_message: "Embedding provider timeout while indexing chunks.",
+      occurred_at: "2026-03-10T01:10:00.000Z",
+      action_url: "/barangay/aips/aip-1",
+      notification_ref: "AIP_EMBED_FAILED:aip:aip-1:run:run-embed-002:status->failed",
+    },
+    "https://openaip.example.com"
+  );
+
+  assertEquals(successHtml.includes("AIP embedding completed"), true);
+  assertEquals(successHtml.includes("Open AIP"), true);
+  assertEquals(successHtml.includes("Run ID: <strong>run-embed-001</strong>"), false);
+  assertEquals(successHtml.includes("Stage: <strong>embed</strong>"), false);
+  assertEquals(successHtml.includes("/api/notifications/open?dedupe="), true);
+
+  assertEquals(failedHtml.includes("AIP embedding failed"), true);
+  assertEquals(failedHtml.includes("Review failed indexing run"), true);
+  assertEquals(failedHtml.includes("Run ID: <strong>run-embed-002</strong>"), false);
+  assertEquals(failedHtml.includes("Failed stage: <strong>embed</strong>"), false);
+  assertEquals(failedHtml.includes("Error code: <strong>EMBED_TIMEOUT</strong>"), true);
+  assertEquals(
+    failedHtml.includes("Error message: <strong>Embedding provider timeout while indexing chunks.</strong>"),
     true
   );
 });
@@ -448,4 +511,35 @@ Deno.test("renderTemplateHtml resolves uppercase extraction template keys", () =
 
   assertEquals(successHtml.includes("AIP processing completed"), true);
   assertEquals(failedHtml.includes("AIP processing failed"), true);
+});
+
+Deno.test("renderTemplateHtml resolves uppercase embed template keys", () => {
+  const successHtml = renderTemplateHtml(
+    "AIP_EMBED_SUCCEEDED",
+    "AIP embedding completed",
+    {
+      event_type: "AIP_EMBED_SUCCEEDED",
+      entity_label: "AIP FY 2026",
+      lgu_name: "City of Sample",
+      run_id: "run-embed-010",
+      action_url: "/city/aips/aip-10",
+    },
+    "https://openaip.example.com"
+  );
+
+  const failedHtml = renderTemplateHtml(
+    "AIP_EMBED_FAILED",
+    "AIP embedding failed",
+    {
+      event_type: "AIP_EMBED_FAILED",
+      entity_label: "AIP FY 2026",
+      run_id: "run-embed-011",
+      error_message: "Embedding request failed",
+      action_url: "/city/aips/aip-10",
+    },
+    "https://openaip.example.com"
+  );
+
+  assertEquals(successHtml.includes("AIP embedding completed"), true);
+  assertEquals(failedHtml.includes("AIP embedding failed"), true);
 });

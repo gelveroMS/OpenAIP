@@ -50,6 +50,54 @@ function ChatbotStatusIcon({ kind }: { kind: AipChatbotReadinessKind }) {
   return <CircleDashed className="h-3.5 w-3.5" />;
 }
 
+function formatUploadedDateForProcessing(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return value;
+
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+  if (dateOnlyMatch) {
+    const year = Number(dateOnlyMatch[1]);
+    const monthIndex = Number(dateOnlyMatch[2]) - 1;
+    const day = Number(dateOnlyMatch[3]);
+    const date = new Date(year, monthIndex, day);
+    return date.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+    });
+  }
+
+  const parsed = new Date(trimmed);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+    });
+  }
+
+  return value;
+}
+
+function getProcessingStageLabel(processing: NonNullable<AipHeader["processing"]>): string {
+  if (processing.state === "finalizing") return "Finalizing";
+
+  switch (processing.stage) {
+    case "extract":
+      return "Extracting";
+    case "validate":
+      return "Validating";
+    case "scale_amounts":
+      return "Validating";
+    case "summarize":
+      return "Summarizing";
+    case "categorize":
+      return "Categorizing";
+    default:
+      return processing.status === "queued" ? "Queued" : "Processing";
+  }
+}
+
 /**
  * AipCard Component
  * 
@@ -74,8 +122,14 @@ export default function AipCard({
     ? aip.processing.message ??
       (aip.processing.state === "finalizing"
         ? "Finalizing processed output..."
-        : "Processing AIP submission...")
+        : aip.processing.status === "queued"
+          ? "Queued for processing..."
+          : "Processing AIP submission...")
     : null;
+  const processingStageLabel = aip.processing
+    ? getProcessingStageLabel(aip.processing)
+    : null;
+  const uploadedDateLabel = formatUploadedDateForProcessing(aip.uploadedAt);
   const isSummaryTruncated = Boolean(
     aip.summaryText &&
       typeof aip.description === "string" &&
@@ -88,20 +142,32 @@ export default function AipCard({
     <Link href={`/${scope}/aips/${aip.id}`} className="block">
       <Card className="cursor-pointer border-slate-200 py-0 transition-all hover:border-slate-300 hover:shadow-md">
         <CardContent className="p-5">
-          <div className="flex items-start justify-between">
+          <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <h3 className="text-xl font-semibold text-slate-900 hover:text-[#022437] transition-colors">
                 {aip.title}
               </h3>
               {isProcessingCard ? (
-                <div className="max-w-md">
-                  <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    <span>Overall Progress</span>
+                <div className="mt-2 space-y-3">
+                  <p className="flex flex-wrap items-center gap-1 text-sm text-slate-500">
+                    <span>Uploaded: {uploadedDateLabel}</span>
+                    <span className="text-slate-300">•</span>
+                    <span>File: {aip.fileName}</span>
+                  </p>
+
+                  <div className="flex items-center justify-between text-sm font-medium text-[#022437]">
+                    <span>Overall progress</span>
                     <span>{progressValue}%</span>
                   </div>
-                  <Progress value={progressValue} className="h-2.5" />
+                  <Progress
+                    value={progressValue}
+                    className="h-2.5 bg-slate-200 [&_[data-slot=progress-indicator]]:bg-[#022437]"
+                  />
                   {progressMessage ? (
-                    <p className="text-xs text-slate-500">{progressMessage}</p>
+                    <div className="flex items-center gap-2 text-sm text-slate-500">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-sky-500" />
+                      <p>{progressMessage}</p>
+                    </div>
                   ) : null}
                 </div>
               ) : (
@@ -156,9 +222,19 @@ export default function AipCard({
 
             </div>
 
-            <Badge variant="outline" className={`rounded-full ${getAipStatusBadgeClass(aip.status)}`}>
-              {aip.status}
-            </Badge>
+            {isProcessingCard ? (
+              <Badge
+                variant="outline"
+                className="h-8 gap-1.5 rounded-full border-[#022437] bg-[#022437] px-3 text-white"
+              >
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {processingStageLabel}
+              </Badge>
+            ) : (
+              <Badge variant="outline" className={`rounded-full ${getAipStatusBadgeClass(aip.status)}`}>
+                {aip.status}
+              </Badge>
+            )}
           </div>
         </CardContent>
       </Card>

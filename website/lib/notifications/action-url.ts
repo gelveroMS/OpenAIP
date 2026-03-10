@@ -213,6 +213,18 @@ export function buildNotificationActionUrl(input: BuildNotificationActionUrlInpu
         return withQuery("/admin/aip-monitoring", { run: input.runId });
       }
       return "/notifications";
+    case "AIP_EMBED_SUCCEEDED":
+    case "AIP_EMBED_FAILED":
+      if (input.recipientScopeType === "barangay") {
+        return input.aipId ? `/barangay/aips/${input.aipId}` : "/barangay/aips";
+      }
+      if (input.recipientScopeType === "city") {
+        return input.aipId ? `/city/aips/${input.aipId}` : "/city/aips";
+      }
+      if (input.recipientScopeType === "admin") {
+        return "/admin/aip-monitoring";
+      }
+      return "/notifications";
     case "AIP_PUBLISHED":
       if (input.recipientScopeType === "city") {
         return input.aipId ? `/city/aips/${input.aipId}` : "/city/aips";

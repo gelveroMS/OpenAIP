@@ -44,6 +44,102 @@ function makeAip(overrides: Partial<AipHeader> = {}): AipHeader {
   };
 }
 
+describe("AipCard processing UI", () => {
+  it("renders stage pill, metadata, and live progress details for running runs", () => {
+    render(
+      <AipCard
+        aip={makeAip({
+          status: "draft",
+          uploadedAt: "2026-02-25",
+          fileName: "AIP_2026.pdf",
+          processing: {
+            state: "processing",
+            overallProgressPct: 51,
+            message: "Extracting pages 13/25...",
+            runId: "run-100",
+            stage: "extract",
+            status: "running",
+          },
+        })}
+      />
+    );
+
+    expect(screen.getByText("Extracting")).toBeInTheDocument();
+    expect(screen.getByText(/Uploaded: Feb 25, 2026/)).toBeInTheDocument();
+    expect(screen.getByText(/File: AIP_2026\.pdf/)).toBeInTheDocument();
+    expect(screen.getByText("Overall progress")).toBeInTheDocument();
+    expect(screen.getByText("51%")).toBeInTheDocument();
+    expect(screen.getByText("Extracting pages 13/25...")).toBeInTheDocument();
+  });
+
+  it("renders scale_amounts as validating while preserving the scaling progress message", () => {
+    render(
+      <AipCard
+        aip={makeAip({
+          status: "draft",
+          processing: {
+            state: "processing",
+            overallProgressPct: 72,
+            message: "Scaling city monetary fields by 1000...",
+            runId: "run-scale",
+            stage: "scale_amounts",
+            status: "running",
+          },
+        })}
+      />
+    );
+
+    expect(screen.getByText("Validating")).toBeInTheDocument();
+    expect(
+      screen.getByText("Scaling city monetary fields by 1000...")
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Scaling amounts")).not.toBeInTheDocument();
+  });
+
+  it("shows queued fallback label and message when run is queued", () => {
+    render(
+      <AipCard
+        aip={makeAip({
+          status: "draft",
+          processing: {
+            state: "processing",
+            overallProgressPct: 0,
+            message: null,
+            runId: "run-queued",
+            stage: null,
+            status: "queued",
+          },
+        })}
+      />
+    );
+
+    expect(screen.getByText("Queued")).toBeInTheDocument();
+    expect(screen.getByText("Queued for processing...")).toBeInTheDocument();
+  });
+
+  it("shows finalizing label and fallback message", () => {
+    render(
+      <AipCard
+        aip={makeAip({
+          status: "draft",
+          processing: {
+            state: "finalizing",
+            overallProgressPct: 100,
+            message: null,
+            runId: "run-finalizing",
+            stage: "categorize",
+            status: "succeeded",
+          },
+        })}
+      />
+    );
+
+    expect(screen.getByText("Finalizing")).toBeInTheDocument();
+    expect(screen.getByText("Finalizing processed output...")).toBeInTheDocument();
+    expect(screen.getByText("100%")).toBeInTheDocument();
+  });
+});
+
 describe("AipCard chatbot readiness status", () => {
   it("shows Chatbot ready when embedding succeeded", () => {
     render(

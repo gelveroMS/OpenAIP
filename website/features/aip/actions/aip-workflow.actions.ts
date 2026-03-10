@@ -4,7 +4,7 @@ import { getAppEnv, isMockEnabled } from "@/lib/config/appEnv";
 import type { ActorContext } from "@/lib/domain/actor-context";
 import { getActorContext } from "@/lib/domain/get-actor-context";
 import { writeActivityLog, writeWorkflowActivityLog } from "@/lib/audit/activity-log";
-import { getAipProjectRepo, getAipRepo } from "@/lib/repos/aip/repo.server";
+import { getAipRepo } from "@/lib/repos/aip/repo.server";
 import { assertActorCanManageBarangayAipWorkflow } from "@/lib/repos/aip/workflow-permissions.server";
 import { getFeedbackRepo } from "@/lib/repos/feedback/repo.server";
 import {
@@ -675,19 +675,6 @@ export async function submitAipForReviewAction(input: {
       );
     }
 
-    const projectRepo = getAipProjectRepo("barangay");
-    const rows = await projectRepo.listByAip(aip.id);
-    const unresolvedAiCount = rows.filter(
-      (row) => row.reviewStatus === "ai_flagged"
-    ).length;
-
-    if (unresolvedAiCount > 0) {
-      return failure(
-        `Resolve all AI-flagged projects before submitting. ${unresolvedAiCount} project(s) still need an official response.`,
-        unresolvedAiCount
-      );
-    }
-
     if (aip.status === "for_revision") {
       const latestRequestRevisionCreatedAt =
         await getLatestRequestRevisionCreatedAt(aip.id);
@@ -765,18 +752,6 @@ export async function submitCityAipForPublishAction(input: {
     if (aip.status !== "draft" && aip.status !== "for_revision") {
       return failure(
         "Submit & publish is only allowed when the AIP status is Draft or For Revision."
-      );
-    }
-
-    const projectRepo = getAipProjectRepo("city");
-    const rows = await projectRepo.listByAip(aip.id);
-    const unresolvedAiCount = rows.filter(
-      (row) => row.reviewStatus === "ai_flagged"
-    ).length;
-    if (unresolvedAiCount > 0) {
-      return failure(
-        `Resolve all AI-flagged projects before publishing. ${unresolvedAiCount} project(s) still need an official response.`,
-        unresolvedAiCount
       );
     }
 

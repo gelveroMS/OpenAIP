@@ -2,9 +2,21 @@ import { getAuthenticatedBrowserClient } from "@/lib/supabase/client";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AipMonitoringRepo, AipMonitoringSeedData } from "./repo";
 import type { AipMonitoringDetail } from "@/mocks/fixtures/admin/aip-monitoring/aipMonitoring.mock";
+import {
+  buildProjectTotalsByAipId,
+  fetchAipFileTotalsByAipIds,
+  resolveAipDisplayTotalsByAipId,
+} from "@/lib/repos/_shared/aip-totals";
+import {
+  collectInChunks,
+  collectInChunksPaged,
+  collectPaged,
+  dedupeNonEmptyStrings,
+} from "@/lib/repos/_shared/supabase-batching";
 
 type NameRow = { id: string; name: string };
 type ProfileNameRow = { id: string; full_name: string | null };
+type ProjectBudgetRow = { aip_id: string; total: number | string | null };
 
 function formatIsoDate(value: string | null | undefined): string {
   if (!value) return new Date().toISOString().slice(0, 10);
@@ -16,20 +28,23 @@ async function loadNameMap(
   table: "cities" | "municipalities" | "barangays",
   ids: string[]
 ): Promise<Map<string, string>> {
-  const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
+  const uniqueIds = dedupeNonEmptyStrings(ids);
   const map = new Map<string, string>();
   if (uniqueIds.length === 0) return map;
 
-  const { data, error } = await client
-    .from(table)
-    .select("id,name")
-    .in("id", uniqueIds);
+  const rows = await collectInChunks(uniqueIds, async (idChunk) => {
+    const { data, error } = await client
+      .from(table)
+      .select("id,name")
+      .in("id", idChunk);
 
-  if (error) {
-    throw new Error(error.message);
-  }
+    if (error) {
+      throw new Error(error.message);
+    }
+    return (data ?? []) as NameRow[];
+  });
 
-  for (const row of (data ?? []) as NameRow[]) {
+  for (const row of rows) {
     map.set(row.id, row.name);
   }
 
@@ -69,33 +84,80 @@ function buildFallbackDetails(aip: {
 async function loadSeedData(): Promise<AipMonitoringSeedData> {
   const client = await getAuthenticatedBrowserClient();
 
-  const [aipsResult, reviewsResult, activityResult] = await Promise.all([
-    client
-      .from("aips")
-      .select(
-        "id,fiscal_year,barangay_id,city_id,municipality_id,status,status_updated_at,submitted_at,published_at,created_by,created_at,updated_at"
-      ),
-    client
-      .from("aip_reviews")
-      .select("id,aip_id,action,note,reviewer_id,created_at"),
-    client
-      .from("activity_log")
-      .select(
-        "id,actor_id,actor_role,action,entity_table,entity_id,region_id,province_id,city_id,municipality_id,barangay_id,metadata,created_at"
-      )
-      .order("created_at", { ascending: false }),
+  const [aips, reviews, activity] = await Promise.all([
+    collectPaged(async (from, to) => {
+      const { data, error } = await client
+        .from("aips")
+        .select(
+          "id,fiscal_year,barangay_id,city_id,municipality_id,status,status_updated_at,submitted_at,published_at,created_by,created_at,updated_at"
+        )
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, to);
+
+      if (error) throw new Error(error.message);
+      return (data ?? []) as AipMonitoringSeedData["aips"];
+    }),
+    collectPaged(async (from, to) => {
+      const { data, error } = await client
+        .from("aip_reviews")
+        .select("id,aip_id,action,note,reviewer_id,created_at")
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .range(from, to);
+
+      if (error) throw new Error(error.message);
+      return (data ?? []) as AipMonitoringSeedData["reviews"];
+    }),
+    collectPaged(async (from, to) => {
+      const { data, error } = await client
+        .from("activity_log")
+        .select(
+          "id,actor_id,actor_role,action,entity_table,entity_id,region_id,province_id,city_id,municipality_id,barangay_id,metadata,created_at"
+        )
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .range(from, to);
+
+      if (error) throw new Error(error.message);
+      return (data ?? []) as AipMonitoringSeedData["activity"];
+    }),
   ]);
+  const aipIds = aips.map((aip) => aip.id);
 
-  const firstError = [aipsResult, reviewsResult, activityResult].find(
-    (result) => result.error
-  )?.error;
-  if (firstError) {
-    throw new Error(firstError.message);
+  let budgetTotalByAipId: Record<string, number> = {};
+  if (aipIds.length > 0) {
+    const projectRowsData = await collectInChunksPaged(
+      dedupeNonEmptyStrings(aipIds),
+      async (aipIdChunk, from, to) => {
+        const { data, error } = await client
+          .from("projects")
+          .select("aip_id,total")
+          .in("aip_id", aipIdChunk)
+          .order("aip_id", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to);
+        if (error) throw new Error(error.message);
+        return (data ?? []) as ProjectBudgetRow[];
+      }
+    );
+
+    const projectTotalsByAipId = buildProjectTotalsByAipId(
+      ((projectRowsData ?? []) as ProjectBudgetRow[]).map((row) => ({
+        aip_id: row.aip_id,
+        total: row.total,
+      }))
+    );
+    const fileTotalsByAipId = await fetchAipFileTotalsByAipIds(client, aipIds);
+    const displayTotalsByAipId = resolveAipDisplayTotalsByAipId({
+      aipIds,
+      fileTotalsByAipId,
+      fallbackTotalsByAipId: projectTotalsByAipId,
+    });
+    budgetTotalByAipId = Object.fromEntries(
+      aipIds.map((aipId) => [aipId, displayTotalsByAipId.get(aipId) ?? 0])
+    );
   }
-
-  const aips = (aipsResult.data ?? []) as AipMonitoringSeedData["aips"];
-  const reviews = (reviewsResult.data ?? []) as AipMonitoringSeedData["reviews"];
-  const activity = (activityResult.data ?? []) as AipMonitoringSeedData["activity"];
 
   const [cityMap, municipalityMap, barangayMap] = await Promise.all([
     loadNameMap(
@@ -128,15 +190,21 @@ async function loadSeedData(): Promise<AipMonitoringSeedData> {
   const reviewerIds = Array.from(new Set(reviews.map((row) => row.reviewer_id)));
   let reviewerDirectory: Record<string, { name: string }> = {};
   if (reviewerIds.length > 0) {
-    const { data, error } = await client
-      .from("profiles")
-      .select("id,full_name")
-      .in("id", reviewerIds);
-    if (error) {
-      throw new Error(error.message);
-    }
+    const rows = await collectInChunks(
+      dedupeNonEmptyStrings(reviewerIds),
+      async (reviewerChunk) => {
+        const { data, error } = await client
+          .from("profiles")
+          .select("id,full_name")
+          .in("id", reviewerChunk);
+        if (error) {
+          throw new Error(error.message);
+        }
+        return (data ?? []) as ProfileNameRow[];
+      }
+    );
     reviewerDirectory = Object.fromEntries(
-      ((data ?? []) as ProfileNameRow[]).map((row) => [
+      rows.map((row) => [
         row.id,
         { name: row.full_name?.trim() || row.id },
       ])
@@ -153,6 +221,7 @@ async function loadSeedData(): Promise<AipMonitoringSeedData> {
     reviews,
     activity,
     details,
+    budgetTotalByAipId,
     lguNameByAipId,
     reviewerDirectory,
   };

@@ -13,6 +13,7 @@ from openaip_pipeline.core.clock import now_utc_iso
 from openaip_pipeline.core.resources import read_text
 from openaip_pipeline.services.chunking.context_window import (
     chunk_items_by_token_budget,
+    estimate_tokens_from_json,
     estimate_tokens_from_text,
     is_context_limit_error,
     sum_usage,
@@ -151,7 +152,7 @@ def _validate_total_city(project: dict[str, Any]) -> list[str]:
     expected = float(ps or 0) + float(mooe or 0) + float(co or 0)
     if abs(float(total) - expected) <= 1.0:
         return []
-    return [f"R004 total mismatch: expected {expected:.2f} but got {float(total):.2f}"]
+    return [f"R005 total mismatch: expected {expected:.2f} but got {float(total):.2f}"]
 
 
 def _build_chunk_payload(
@@ -163,6 +164,15 @@ def _build_chunk_payload(
         **static_payload,
         "projects": [flattened_projects[index] for index in chunk_indices],
     }
+
+
+def _split_chunk(chunk_indices: list[int], chunk_queue: deque[list[int]]) -> tuple[list[int], list[int]]:
+    midpoint = len(chunk_indices) // 2
+    left_chunk = chunk_indices[:midpoint]
+    right_chunk = chunk_indices[midpoint:]
+    chunk_queue.appendleft(right_chunk)
+    chunk_queue.appendleft(left_chunk)
+    return left_chunk, right_chunk
 
 
 def validate_projects_json_str(
@@ -209,12 +219,13 @@ def validate_projects_json_str(
         resolved_client = client or build_openai_client()
         system_prompt = read_text("prompts/validation/city_system.txt")
         prompt_tokens = estimate_tokens_from_text(system_prompt)
-        input_budget_tokens = max(
+        usable_context_tokens = max(
             1024,
             validate_context_window_tokens
-            - validate_response_buffer_tokens
             - prompt_tokens,
+            - validate_response_buffer_tokens,
         )
+        input_budget_tokens = max(1024, usable_context_tokens // 2)
         initial_chunks = chunk_items_by_token_budget(
             items=list(range(total_projects)),
             static_payload=static_payload,
@@ -229,6 +240,18 @@ def validate_projects_json_str(
         completed_chunks = 0
         done_projects = 0
 
+        if on_progress:
+            on_progress(
+                0,
+                total_projects,
+                0,
+                total_chunks_planned,
+                (
+                    "Validation preflight: "
+                    f"{total_projects} project(s) planned across {total_chunks_planned} chunk(s)."
+                ),
+            )
+
         overall_start = time.perf_counter()
         chunk_usages: list[dict[str, Any]] = []
         chunk_times: list[float] = []
@@ -242,6 +265,27 @@ def validate_projects_json_str(
             payload_obj = _build_chunk_payload(
                 static_payload, chunk_indices, flattened_projects
             )
+            chunk_input_tokens = estimate_tokens_from_json(payload_obj)
+            remaining_output_budget = (
+                validate_context_window_tokens
+                - prompt_tokens
+                - validate_response_buffer_tokens
+                - chunk_input_tokens
+            )
+            max_output_tokens = max(32, remaining_output_budget)
+            current_chunk_no = completed_chunks + 1
+            if on_progress:
+                on_progress(
+                    min(done_projects, total_projects),
+                    total_projects,
+                    current_chunk_no,
+                    total_chunks_planned,
+                    (
+                        "Validation chunk start: "
+                        f"processing chunk {current_chunk_no}/{total_chunks_planned} "
+                        f"with {chunk_size} project(s)."
+                    ),
+                )
             batch_start = time.perf_counter()
             try:
                 response = resolved_client.responses.create(
@@ -251,6 +295,7 @@ def validate_projects_json_str(
                         {"role": "user", "content": json.dumps(payload_obj, ensure_ascii=False)},
                     ],
                     text={"format": {"type": "json_object"}},
+                    max_output_tokens=max_output_tokens,
                 )
             except Exception as error:
                 if not is_context_limit_error(error):
@@ -265,33 +310,102 @@ def validate_projects_json_str(
                     raise RuntimeError(
                         (
                             "Validation chunk exceeds model context window for a single project. "
-                            f"index={index} aip_ref_code={ref_code or 'unknown'}"
+                            f"index={index} aip_ref_code={ref_code or 'unknown'} "
+                            f"chunk={current_chunk_no}/{total_chunks_planned}"
                         )
                     ) from error
-                midpoint = chunk_size // 2
-                left_chunk = chunk_indices[:midpoint]
-                right_chunk = chunk_indices[midpoint:]
-                chunk_queue.appendleft(right_chunk)
-                chunk_queue.appendleft(left_chunk)
+                left_chunk, right_chunk = _split_chunk(chunk_indices, chunk_queue)
                 total_chunks_planned += 1
+                if on_progress:
+                    on_progress(
+                        min(done_projects, total_projects),
+                        total_projects,
+                        current_chunk_no,
+                        total_chunks_planned,
+                        (
+                            "Validation chunk split (context overflow): "
+                            f"chunk {current_chunk_no} exceeded context and was split into "
+                            f"{len(left_chunk)}+{len(right_chunk)} project(s)."
+                        ),
+                    )
                 continue
 
             batch_elapsed = round(time.perf_counter() - batch_start, 4)
             usage = safe_usage_dict(response)
-            validated_chunk_obj = json.loads(response.output_text)
-            validated_chunk_projects = validated_chunk_obj.get("projects")
-            if not isinstance(validated_chunk_projects, list) or len(validated_chunk_projects) != chunk_size:
-                raise RuntimeError(
-                    (
-                        f"Chunk {completed_chunks + 1}: invalid model output. "
-                        f"expected={chunk_size}, "
-                        f"got={len(validated_chunk_projects) if isinstance(validated_chunk_projects, list) else type(validated_chunk_projects)}"
+            response_status = str(getattr(response, "status", "") or "").strip().lower()
+            incomplete_details = getattr(response, "incomplete_details", None)
+            response_text = getattr(response, "output_text", None)
+            invalid_reason: str | None = None
+            validated_chunk_projects: list[Any] | None = None
+
+            if response_status == "incomplete":
+                invalid_reason = f"response status=incomplete details={incomplete_details!r}"
+            elif not isinstance(response_text, str) or not response_text.strip():
+                invalid_reason = "empty response.output_text"
+            else:
+                try:
+                    validated_chunk_obj = json.loads(response_text)
+                except json.JSONDecodeError as error:
+                    invalid_reason = f"response JSON parse error: {error.msg}"
+                else:
+                    parsed_projects = (
+                        validated_chunk_obj.get("projects")
+                        if isinstance(validated_chunk_obj, dict)
+                        else None
                     )
-                )
+                    if not isinstance(parsed_projects, list):
+                        invalid_reason = (
+                            "missing projects list in model output "
+                            f"(type={type(parsed_projects).__name__})"
+                        )
+                    elif len(parsed_projects) != chunk_size:
+                        invalid_reason = (
+                            "partial projects list in model output "
+                            f"(expected={chunk_size}, got={len(parsed_projects)})"
+                        )
+                    else:
+                        validated_chunk_projects = parsed_projects
+
+            if invalid_reason:
+                chunk_usages.append(usage)
+                chunk_times.append(batch_elapsed)
+                if chunk_size <= 1:
+                    index = chunk_indices[0]
+                    ref_code = (
+                        str(merged_projects[index].get("aip_ref_code") or "").strip()
+                        if isinstance(merged_projects[index], dict)
+                        else ""
+                    )
+                    raise RuntimeError(
+                        (
+                            "Validation chunk returned invalid model output for a single project. "
+                            f"index={index} aip_ref_code={ref_code or 'unknown'} "
+                            f"chunk={current_chunk_no}/{total_chunks_planned} reason={invalid_reason}"
+                        )
+                    )
+                left_chunk, right_chunk = _split_chunk(chunk_indices, chunk_queue)
+                total_chunks_planned += 1
+                if on_progress:
+                    on_progress(
+                        min(done_projects, total_projects),
+                        total_projects,
+                        current_chunk_no,
+                        total_chunks_planned,
+                        (
+                            "Validation chunk split (partial output): "
+                            f"chunk {current_chunk_no} returned invalid output and was split into "
+                            f"{len(left_chunk)}+{len(right_chunk)} project(s). "
+                            f"reason={invalid_reason}"
+                        ),
+                    )
+                continue
 
             for local_idx, original_idx in enumerate(chunk_indices):
-                merged_projects[original_idx]["errors"] = validated_chunk_projects[local_idx].get(
-                    "errors", None
+                candidate = validated_chunk_projects[local_idx]
+                merged_projects[original_idx]["errors"] = (
+                    candidate.get("errors", None)
+                    if isinstance(candidate, dict)
+                    else None
                 )
 
             chunk_usages.append(usage)

@@ -23,6 +23,7 @@ function buildProject(
     kind: "infrastructure",
     year: 2026,
     title: "Infrastructure Project Detail Test",
+    lguLabel: "Brgy. Test",
     status: "proposed",
     imageUrl: "/mock/infra/infra1.jpg",
     description: "Project detail description",

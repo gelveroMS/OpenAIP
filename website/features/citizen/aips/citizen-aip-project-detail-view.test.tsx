@@ -47,7 +47,7 @@ function buildAip(): AipDetails {
   };
 }
 
-function buildProject(aiIssues: string[]): AipProjectDetails {
+function buildProject(aiIssues: string[], hasLguNote = false): AipProjectDetails {
   return {
     aipId: "aip-1",
     projectId: "project-1",
@@ -63,6 +63,7 @@ function buildProject(aiIssues: string[]): AipProjectDetails {
     completionDate: "2026-06-30",
     totalAmount: 500000,
     aiIssues,
+    hasLguNote,
   };
 }
 
@@ -106,11 +107,32 @@ describe("CitizenAipProjectDetailView AI status", () => {
     expect(screen.getByText("AI flagged this project for potential issues.")).toBeInTheDocument();
     expect(screen.getByText("Budget breakdown is missing.")).toBeInTheDocument();
     expect(screen.getByText("Timeline milestone details are incomplete.")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "This AI-flagged project has not been addressed by an LGU feedback note yet."
+      )
+    ).toBeInTheDocument();
   });
 
   it("shows clean state when there are no AI issues", () => {
     render(<CitizenAipProjectDetailView aip={buildAip()} project={buildProject([])} />);
 
     expect(screen.getByText("No AI-detected issues for this project.")).toBeInTheDocument();
+  });
+
+  it("hides unresolved notice when an LGU note already addresses AI issues", () => {
+    render(
+      <CitizenAipProjectDetailView
+        aip={buildAip()}
+        project={buildProject(["Budget breakdown is missing."], true)}
+      />
+    );
+
+    expect(screen.getByText("AI flagged this project for potential issues.")).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "This AI-flagged project has not been addressed by an LGU feedback note yet."
+      )
+    ).not.toBeInTheDocument();
   });
 });

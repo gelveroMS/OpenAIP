@@ -63,6 +63,20 @@ function normalizeMessage(value: string | null | undefined): string | null {
   return message.length > 0 ? message : null;
 }
 
+function toProcessingStage(value: string | null): NonNullable<AipHeader["processing"]>["stage"] {
+  if (value === "scale_amounts") return "validate";
+  if (
+    value === "extract" ||
+    value === "validate" ||
+    value === "summarize" ||
+    value === "categorize" ||
+    value === "embed"
+  ) {
+    return value;
+  }
+  return null;
+}
+
 export function toExtractionRunRealtimeRow(value: unknown): ExtractionRunRealtimeRow | null {
   const row = asRecord(value);
   if (!row) return null;
@@ -107,6 +121,8 @@ export function mapRunToAipCardProcessing(
     overallProgressPct: clampProgress(run.overall_progress_pct, 0),
     message: normalizeMessage(run.progress_message),
     runId: run.id,
+    stage: toProcessingStage(run.stage),
+    status: run.status,
   };
 }
 

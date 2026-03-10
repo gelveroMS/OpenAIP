@@ -39,17 +39,29 @@ npm run dev
   - Optional staging origin allowed by CSRF Origin/Referer checks
   - Leave blank when no staging domain is deployed
 - `AIP_UPLOAD_MAX_BYTES`
-  - Default: `15728640` (15MB)
+  - Default: `26214400` (25MB)
   - Max upload size for barangay/city AIP PDF upload routes
-- `AIP_UPLOAD_FAILURE_THRESHOLD`
-  - Default: `5`
-  - Number of recent failed extraction runs before uploader cooldown applies
-- `AIP_UPLOAD_FAILURE_WINDOW_MINUTES`
-  - Default: `60`
-  - Lookback window used to count failed runs for upload throttling
-- `AIP_UPLOAD_FAILURE_COOLDOWN_MINUTES`
+- `AIP_UPLOAD_MAX_PAGES`
+  - Default: `150`
+  - Hard page-count cap for upload admission
+- `AIP_UPLOAD_MIN_EXTRACTED_TEXT_CHARS`
+  - Default: `500`
+  - Minimum text characters required to consider a PDF native/text-based
+- `AIP_UPLOAD_MAX_TEXTLESS_PAGES_ALLOWED`
+  - Default: `7` (within first text-scan window)
+  - Maximum textless pages allowed before scanned/image-only rejection
+- `AIP_UPLOAD_MIN_REQUIRED_COLUMN_MATCHES`
+  - Default: `6`
+  - Minimum structural AIP column concept matches required for template validation
+- `AIP_UPLOAD_RATE_LIMIT_MAX_ATTEMPTS`
+  - Default: `10`
+  - Maximum rejected upload attempts per user within the configured rate-limit window
+- `AIP_UPLOAD_RATE_LIMIT_WINDOW_MINUTES`
   - Default: `15`
-  - Cooldown period returned as HTTP `429` + `Retry-After` after repeated failures
+  - Window used for per-user upload rejection throttling
+- `AIP_UPLOAD_PDF_PARSE_TIMEOUT_MS`
+  - Default: `15000`
+  - Timeout applied to bounded PDF parse/text extraction steps during gating
 
 Repository selection is centralized in:
 - `lib/config/appEnv.ts`
@@ -128,6 +140,9 @@ node scripts/repo-smoke/run.js
 - Notifications/outbox baseline depends on March 3 SQL patches:
   - `docs/sql/2026-03-03_notifications_outbox_tables_rls.sql`
   - `docs/sql/2026-03-03_notifications_admin_pipeline_outbox_alerts.sql`
+  - `docs/sql/2026-03-10_notifications_aip_embed_terminal_status.sql`
+  - `docs/sql/2026-03-10_notifications_aip_embed_action_url_scoped.sql`
+  - `docs/sql/2026-03-10_realtime_publication_extraction_notifications.sql`
 - Citizen landing/about-us seeded app settings depend on:
   - `docs/sql/2026-03-01_citizen_about_us_content_settings.sql`
   - `docs/sql/2026-03-01_citizen_dashboard_content_settings.sql`
