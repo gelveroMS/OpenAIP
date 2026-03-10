@@ -79,6 +79,17 @@ CREATE EXTENSION IF NOT EXISTS "vector" WITH SCHEMA "extensions";
 
 
 
+CREATE TYPE "public"."aip_chunk_type" AS ENUM (
+    'project',
+    'section_summary',
+    'category_summary',
+    'legacy_category_group'
+);
+
+
+ALTER TYPE "public"."aip_chunk_type" OWNER TO "postgres";
+
+
 CREATE TYPE "public"."aip_status" AS ENUM (
     'draft',
     'pending_review',
@@ -89,17 +100,6 @@ CREATE TYPE "public"."aip_status" AS ENUM (
 
 
 ALTER TYPE "public"."aip_status" OWNER TO "postgres";
-
-
-CREATE TYPE "public"."aip_chunk_type" AS ENUM (
-    'project',
-    'section_summary',
-    'category_summary',
-    'legacy_category_group'
-);
-
-
-ALTER TYPE "public"."aip_chunk_type" OWNER TO "postgres";
 
 
 CREATE TYPE "public"."feedback_kind" AS ENUM (
@@ -1325,6 +1325,8 @@ CREATE OR REPLACE FUNCTION "public"."emit_uploader_extraction_terminal_notificat
     AS $$
 declare
   v_should_emit boolean := false;
+  v_is_embed boolean := false;
+  v_recipient_user_id uuid := null;
   v_profile record;
   v_aip record;
   v_event_type text;
@@ -1357,26 +1359,12 @@ begin
     return new;
   end if;
 
-  if new.created_by is null then
-    return new;
-  end if;
-
-  select
-    p.id,
-    p.role::text as role,
-    p.email,
-    p.is_active
-  into v_profile
-  from public.profiles p
-  where p.id = new.created_by
-  limit 1;
-
-  if not found or coalesce(v_profile.is_active, false) = false then
-    return new;
-  end if;
+  v_is_embed := (new.stage = 'embed');
 
   select
     a.id,
+    a.status,
+    a.created_by,
     a.fiscal_year,
     a.barangay_id,
     a.city_id,
@@ -1387,6 +1375,75 @@ begin
   limit 1;
 
   if not found then
+    return new;
+  end if;
+
+  if v_is_embed and v_aip.status <> 'published' then
+    return new;
+  end if;
+
+  v_recipient_user_id := new.created_by;
+
+  if v_is_embed and v_recipient_user_id is null then
+    select uf.uploaded_by
+    into v_recipient_user_id
+    from public.uploaded_files uf
+    where uf.aip_id = new.aip_id
+      and uf.is_current = true
+    order by uf.created_at desc, uf.id desc
+    limit 1;
+
+    if v_recipient_user_id is null then
+      v_recipient_user_id := v_aip.created_by;
+    end if;
+  end if;
+
+  if v_recipient_user_id is null then
+    return new;
+  end if;
+
+  select
+    p.id,
+    p.role::text as role,
+    p.email,
+    p.is_active
+  into v_profile
+  from public.profiles p
+  where p.id = v_recipient_user_id
+  limit 1;
+
+  if v_is_embed and (not found or coalesce(v_profile.is_active, false) = false) then
+    v_recipient_user_id := null;
+
+    select uf.uploaded_by
+    into v_recipient_user_id
+    from public.uploaded_files uf
+    where uf.aip_id = new.aip_id
+      and uf.is_current = true
+      and uf.uploaded_by is not null
+    order by uf.created_at desc, uf.id desc
+    limit 1;
+
+    if v_recipient_user_id is null then
+      v_recipient_user_id := v_aip.created_by;
+    end if;
+
+    if v_recipient_user_id is null then
+      return new;
+    end if;
+
+    select
+      p.id,
+      p.role::text as role,
+      p.email,
+      p.is_active
+    into v_profile
+    from public.profiles p
+    where p.id = v_recipient_user_id
+    limit 1;
+  end if;
+
+  if not found or coalesce(v_profile.is_active, false) = false then
     return new;
   end if;
 
@@ -1419,23 +1476,42 @@ begin
   end if;
 
   if new.status = 'succeeded' then
-    v_event_type := 'AIP_EXTRACTION_SUCCEEDED';
-    v_template_key := 'aip_extraction_succeeded';
-    v_title := 'AIP processing completed';
-    v_message := 'Your AIP upload was processed successfully.';
-    v_subject := 'OpenAIP - AIP upload processing completed';
-    v_excerpt := 'Extraction and validation completed successfully.';
-    v_dedupe_key := format(
-      'AIP_EXTRACTION_SUCCEEDED:aip:%s:run:%s:status->succeeded',
-      new.aip_id,
-      new.id
-    );
+    if v_is_embed then
+      if v_scope_type = 'barangay' then
+        v_action_url := format('/barangay/aips/%s', new.aip_id);
+      elsif v_scope_type = 'city' then
+        v_action_url := format('/city/aips/%s', new.aip_id);
+      elsif v_scope_type = 'admin' then
+        v_action_url := '/admin/aip-monitoring';
+      else
+        v_action_url := '/notifications';
+      end if;
+
+      v_event_type := 'AIP_EMBED_SUCCEEDED';
+      v_template_key := 'aip_embed_succeeded';
+      v_title := 'AIP embedding completed';
+      v_message := 'Search indexing completed successfully for your published AIP.';
+      v_subject := 'OpenAIP - AIP search indexing completed';
+      v_excerpt := 'Search indexing completed successfully.';
+      v_dedupe_key := format(
+        'AIP_EMBED_SUCCEEDED:aip:%s:run:%s:status->succeeded',
+        new.aip_id,
+        new.id
+      );
+    else
+      v_event_type := 'AIP_EXTRACTION_SUCCEEDED';
+      v_template_key := 'aip_extraction_succeeded';
+      v_title := 'AIP processing completed';
+      v_message := 'Your AIP upload was processed successfully.';
+      v_subject := 'OpenAIP - AIP upload processing completed';
+      v_excerpt := 'Extraction and validation completed successfully.';
+      v_dedupe_key := format(
+        'AIP_EXTRACTION_SUCCEEDED:aip:%s:run:%s:status->succeeded',
+        new.aip_id,
+        new.id
+      );
+    end if;
   else
-    v_event_type := 'AIP_EXTRACTION_FAILED';
-    v_template_key := 'aip_extraction_failed';
-    v_title := 'AIP processing failed';
-    v_message := 'AIP processing failed. Please review and retry.';
-    v_subject := 'OpenAIP - AIP upload processing failed';
     v_error_line := split_part(coalesce(new.error_message, ''), E'\n', 1);
     v_error_line := trim(regexp_replace(v_error_line, '[[:space:]]+', ' ', 'g'));
     if v_error_line = '' then
@@ -1445,11 +1521,40 @@ begin
       v_error_line := rtrim(substr(v_error_line, 1, 117)) || '...';
     end if;
     v_excerpt := coalesce(v_error_line, 'No error details were provided.');
-    v_dedupe_key := format(
-      'AIP_EXTRACTION_FAILED:aip:%s:run:%s:status->failed',
-      new.aip_id,
-      new.id
-    );
+
+    if v_is_embed then
+      if v_scope_type = 'barangay' then
+        v_action_url := format('/barangay/aips/%s', new.aip_id);
+      elsif v_scope_type = 'city' then
+        v_action_url := format('/city/aips/%s', new.aip_id);
+      elsif v_scope_type = 'admin' then
+        v_action_url := '/admin/aip-monitoring';
+      else
+        v_action_url := '/notifications';
+      end if;
+
+      v_event_type := 'AIP_EMBED_FAILED';
+      v_template_key := 'aip_embed_failed';
+      v_title := 'AIP embedding failed';
+      v_message := 'AIP search indexing failed. Please review and retry.';
+      v_subject := 'OpenAIP - AIP search indexing failed';
+      v_dedupe_key := format(
+        'AIP_EMBED_FAILED:aip:%s:run:%s:status->failed',
+        new.aip_id,
+        new.id
+      );
+    else
+      v_event_type := 'AIP_EXTRACTION_FAILED';
+      v_template_key := 'aip_extraction_failed';
+      v_title := 'AIP processing failed';
+      v_message := 'AIP processing failed. Please review and retry.';
+      v_subject := 'OpenAIP - AIP upload processing failed';
+      v_dedupe_key := format(
+        'AIP_EXTRACTION_FAILED:aip:%s:run:%s:status->failed',
+        new.aip_id,
+        new.id
+      );
+    end if;
   end if;
 
   select
@@ -2322,43 +2427,7 @@ $$;
 ALTER FUNCTION "public"."match_published_aip_chunks"("query_embedding" "extensions"."vector", "match_count" integer, "min_similarity" double precision, "scope_mode" "text", "own_barangay_id" "uuid", "scope_targets" "jsonb") OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."match_published_aip_project_chunks_v2"(
-    "query_embedding" "extensions"."vector",
-    "match_count" integer DEFAULT 4,
-    "min_similarity" double precision DEFAULT 0.0,
-    "scope_mode" "text" DEFAULT 'global'::"text",
-    "own_barangay_id" "uuid" DEFAULT NULL::"uuid",
-    "scope_targets" "jsonb" DEFAULT '[]'::"jsonb",
-    "filter_fiscal_year" integer DEFAULT NULL::integer,
-    "filter_scope_type" "text" DEFAULT NULL::"text",
-    "filter_scope_name" "text" DEFAULT NULL::"text",
-    "filter_document_type" "text" DEFAULT NULL::"text",
-    "filter_publication_status" "text" DEFAULT 'published'::"text",
-    "filter_office_name" "text" DEFAULT NULL::"text",
-    "filter_theme_tags" "text"[] DEFAULT NULL::"text"[],
-    "filter_sector_tags" "text"[] DEFAULT NULL::"text"[],
-    "include_summary_chunks" boolean DEFAULT false
-) RETURNS TABLE(
-    "source_id" "text",
-    "chunk_id" "uuid",
-    "content" "text",
-    "similarity" double precision,
-    "aip_id" "uuid",
-    "fiscal_year" integer,
-    "published_at" timestamp with time zone,
-    "scope_type" "text",
-    "scope_id" "uuid",
-    "scope_name" "text",
-    "chunk_type" "text",
-    "document_type" "text",
-    "publication_status" "text",
-    "office_name" "text",
-    "project_ref_code" "text",
-    "source_page" integer,
-    "theme_tags" "text"[],
-    "sector_tags" "text"[],
-    "metadata" "jsonb"
-)
+CREATE OR REPLACE FUNCTION "public"."match_published_aip_project_chunks_v2"("query_embedding" "extensions"."vector", "match_count" integer DEFAULT 4, "min_similarity" double precision DEFAULT 0.0, "scope_mode" "text" DEFAULT 'global'::"text", "own_barangay_id" "uuid" DEFAULT NULL::"uuid", "scope_targets" "jsonb" DEFAULT '[]'::"jsonb", "filter_fiscal_year" integer DEFAULT NULL::integer, "filter_scope_type" "text" DEFAULT NULL::"text", "filter_scope_name" "text" DEFAULT NULL::"text", "filter_document_type" "text" DEFAULT NULL::"text", "filter_publication_status" "text" DEFAULT 'published'::"text", "filter_office_name" "text" DEFAULT NULL::"text", "filter_theme_tags" "text"[] DEFAULT NULL::"text"[], "filter_sector_tags" "text"[] DEFAULT NULL::"text"[], "include_summary_chunks" boolean DEFAULT false) RETURNS TABLE("source_id" "text", "chunk_id" "uuid", "content" "text", "similarity" double precision, "aip_id" "uuid", "fiscal_year" integer, "published_at" timestamp with time zone, "scope_type" "text", "scope_id" "uuid", "scope_name" "text", "chunk_type" "text", "document_type" "text", "publication_status" "text", "office_name" "text", "project_ref_code" "text", "source_page" integer, "theme_tags" "text"[], "sector_tags" "text"[], "metadata" "jsonb")
     LANGUAGE "sql" STABLE SECURITY DEFINER
     SET "search_path" TO 'pg_catalog', 'public', 'extensions'
     AS $$
@@ -2424,7 +2493,7 @@ rows_scoped as (
       else null
     end as scope_id,
     coalesce(nullif(c.scope_name, ''), b.name, ci.name, m.name, 'Unknown Scope') as scope_name,
-    1 - (e.embedding OPERATOR(extensions.<=>) query_embedding) as similarity
+    1 - (e.embedding operator(extensions.<=>) query_embedding) as similarity
   from public.aip_chunks c
   join public.aip_chunk_embeddings e on e.chunk_id = c.id
   join public.aips a on a.id = c.aip_id
@@ -2532,23 +2601,7 @@ from ranked;
 $$;
 
 
-ALTER FUNCTION "public"."match_published_aip_project_chunks_v2"(
-    "query_embedding" "extensions"."vector",
-    "match_count" integer,
-    "min_similarity" double precision,
-    "scope_mode" "text",
-    "own_barangay_id" "uuid",
-    "scope_targets" "jsonb",
-    "filter_fiscal_year" integer,
-    "filter_scope_type" "text",
-    "filter_scope_name" "text",
-    "filter_document_type" "text",
-    "filter_publication_status" "text",
-    "filter_office_name" "text",
-    "filter_theme_tags" "text"[],
-    "filter_sector_tags" "text"[],
-    "include_summary_chunks" boolean
-) OWNER TO "postgres";
+ALTER FUNCTION "public"."match_published_aip_project_chunks_v2"("query_embedding" "extensions"."vector", "match_count" integer, "min_similarity" double precision, "scope_mode" "text", "own_barangay_id" "uuid", "scope_targets" "jsonb", "filter_fiscal_year" integer, "filter_scope_type" "text", "filter_scope_name" "text", "filter_document_type" "text", "filter_publication_status" "text", "filter_office_name" "text", "filter_theme_tags" "text"[], "filter_sector_tags" "text"[], "include_summary_chunks" boolean) OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."notifications_guard_read_update"() RETURNS "trigger"
@@ -3396,6 +3449,7 @@ CREATE TABLE IF NOT EXISTS "public"."aip_chunks" (
     "chunk_index" integer NOT NULL,
     "chunk_text" "text" NOT NULL,
     "metadata" "jsonb" DEFAULT '{}'::"jsonb" NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "chunk_type" "public"."aip_chunk_type" DEFAULT 'legacy_category_group'::"public"."aip_chunk_type" NOT NULL,
     "ingestion_version" smallint DEFAULT 1 NOT NULL,
     "document_type" "text" DEFAULT 'AIP'::"text" NOT NULL,
@@ -3408,7 +3462,6 @@ CREATE TABLE IF NOT EXISTS "public"."aip_chunks" (
     "source_page" integer,
     "theme_tags" "text"[] DEFAULT '{}'::"text"[] NOT NULL,
     "sector_tags" "text"[] DEFAULT '{}'::"text"[] NOT NULL,
-    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     CONSTRAINT "aip_chunks_chunk_index_check" CHECK (("chunk_index" >= 0)),
     CONSTRAINT "aip_chunks_ingestion_version_check" CHECK (("ingestion_version" >= 1))
 );
@@ -4253,7 +4306,7 @@ CREATE INDEX "idx_aip_chunks_aip_id" ON "public"."aip_chunks" USING "btree" ("ai
 
 
 
-CREATE INDEX "idx_aip_chunks_run_id" ON "public"."aip_chunks" USING "btree" ("run_id");
+CREATE INDEX "idx_aip_chunks_doc_office_v2" ON "public"."aip_chunks" USING "btree" ("document_type", "office_name");
 
 
 
@@ -4261,15 +4314,11 @@ CREATE INDEX "idx_aip_chunks_prefilter_v2" ON "public"."aip_chunks" USING "btree
 
 
 
-CREATE INDEX "idx_aip_chunks_doc_office_v2" ON "public"."aip_chunks" USING "btree" ("document_type", "office_name");
-
-
-
 CREATE INDEX "idx_aip_chunks_project_ref_code" ON "public"."aip_chunks" USING "btree" ("project_ref_code") WHERE ("project_ref_code" IS NOT NULL);
 
 
 
-CREATE INDEX "idx_aip_chunks_theme_tags" ON "public"."aip_chunks" USING "gin" ("theme_tags");
+CREATE INDEX "idx_aip_chunks_run_id" ON "public"."aip_chunks" USING "btree" ("run_id");
 
 
 
@@ -4277,7 +4326,7 @@ CREATE INDEX "idx_aip_chunks_sector_tags" ON "public"."aip_chunks" USING "gin" (
 
 
 
-CREATE INDEX "idx_aips_published_fiscal_year" ON "public"."aips" USING "btree" ("fiscal_year") WHERE ("status" = 'published'::"public"."aip_status");
+CREATE INDEX "idx_aip_chunks_theme_tags" ON "public"."aip_chunks" USING "gin" ("theme_tags");
 
 
 
@@ -4362,6 +4411,10 @@ CREATE INDEX "idx_aips_municipality_id" ON "public"."aips" USING "btree" ("munic
 
 
 CREATE INDEX "idx_aips_municipality_scope_order" ON "public"."aips" USING "btree" ("municipality_id", "fiscal_year" DESC, "created_at" DESC, "id" DESC) WHERE ("municipality_id" IS NOT NULL);
+
+
+
+CREATE INDEX "idx_aips_published_fiscal_year" ON "public"."aips" USING "btree" ("fiscal_year") WHERE ("status" = 'published'::"public"."aip_status");
 
 
 
@@ -4461,11 +4514,11 @@ CREATE INDEX "idx_extraction_runs_uploaded_file_id" ON "public"."extraction_runs
 
 
 
-CREATE INDEX "idx_feedback_aip_id" ON "public"."feedback" USING "btree" ("aip_id") WHERE ("aip_id" IS NOT NULL);
-
-
-
 CREATE INDEX "idx_feedback_aip_created_id" ON "public"."feedback" USING "btree" ("aip_id", "created_at", "id") WHERE (("target_type" = 'aip'::"public"."feedback_target_type") AND ("aip_id" IS NOT NULL));
+
+
+
+CREATE INDEX "idx_feedback_aip_id" ON "public"."feedback" USING "btree" ("aip_id") WHERE ("aip_id" IS NOT NULL);
 
 
 
@@ -4485,11 +4538,11 @@ CREATE INDEX "idx_feedback_parent_created_id" ON "public"."feedback" USING "btre
 
 
 
-CREATE INDEX "idx_feedback_project_id" ON "public"."feedback" USING "btree" ("project_id") WHERE ("project_id" IS NOT NULL);
-
-
-
 CREATE INDEX "idx_feedback_project_created_id" ON "public"."feedback" USING "btree" ("project_id", "created_at", "id") WHERE (("target_type" = 'project'::"public"."feedback_target_type") AND ("project_id" IS NOT NULL));
+
+
+
+CREATE INDEX "idx_feedback_project_id" ON "public"."feedback" USING "btree" ("project_id") WHERE ("project_id" IS NOT NULL);
 
 
 
@@ -4549,11 +4602,11 @@ CREATE INDEX "idx_project_update_media_project_id" ON "public"."project_update_m
 
 
 
-CREATE INDEX "idx_project_update_media_update_id" ON "public"."project_update_media" USING "btree" ("update_id");
-
-
-
 CREATE INDEX "idx_project_update_media_update_created_id" ON "public"."project_update_media" USING "btree" ("update_id", "created_at", "id");
+
+
+
+CREATE INDEX "idx_project_update_media_update_id" ON "public"."project_update_media" USING "btree" ("update_id");
 
 
 
@@ -4581,19 +4634,15 @@ CREATE INDEX "idx_project_updates_project_status_created_id" ON "public"."projec
 
 
 
-CREATE INDEX "idx_projects_aip_id" ON "public"."projects" USING "btree" ("aip_id");
-
-
-
 CREATE INDEX "idx_projects_aip_created_id" ON "public"."projects" USING "btree" ("aip_id", "created_at" DESC, "id");
 
 
 
+CREATE INDEX "idx_projects_aip_id" ON "public"."projects" USING "btree" ("aip_id");
+
+
+
 CREATE INDEX "idx_projects_aip_id_id" ON "public"."projects" USING "btree" ("aip_id", "id");
-
-
-
-CREATE INDEX "idx_projects_ref_aip_created_id" ON "public"."projects" USING "btree" ("aip_ref_code", "aip_id", "created_at" DESC, "id" DESC);
 
 
 
@@ -4614,6 +4663,10 @@ CREATE INDEX "idx_projects_human_edited" ON "public"."projects" USING "btree" ("
 
 
 CREATE INDEX "idx_projects_image_url_not_null" ON "public"."projects" USING "btree" ("image_url") WHERE ("image_url" IS NOT NULL);
+
+
+
+CREATE INDEX "idx_projects_ref_aip_created_id" ON "public"."projects" USING "btree" ("aip_ref_code", "aip_id", "created_at" DESC, "id" DESC);
 
 
 
@@ -6454,6 +6507,9 @@ GRANT ALL ON FUNCTION "public"."log_activity"("p_action" "text", "p_entity_table
 
 
 
+
+
+
 GRANT ALL ON FUNCTION "public"."notifications_guard_read_update"() TO "anon";
 GRANT ALL ON FUNCTION "public"."notifications_guard_read_update"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."notifications_guard_read_update"() TO "service_role";
@@ -6799,6 +6855,13 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "anon";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "authenticated";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "service_role";
+
+
+
+
+
+
+
 
 
 
