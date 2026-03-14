@@ -48,6 +48,10 @@ let workerBootstrapPromise: Promise<void> | null = null;
 let pdfJsModulePromise: Promise<PdfJsModule> | null = null;
 let canvasPolyfillPromise: Promise<void> | null = null;
 
+const CANVAS_MODULE_ID = ["@napi-rs", "canvas"].join("/");
+const PDFJS_MODULE_ID = ["pdfjs-dist", "legacy/build/pdf.mjs"].join("/");
+const PDFJS_WORKER_MODULE_ID = ["pdfjs-dist", "build/pdf.worker.mjs"].join("/");
+
 async function ensureCanvasPolyfills(): Promise<void> {
   if (
     typeof globalThis.DOMMatrix !== "undefined" &&
@@ -61,7 +65,7 @@ async function ensureCanvasPolyfills(): Promise<void> {
     canvasPolyfillPromise = (async () => {
       let canvasModule: CanvasPolyfillModule;
       try {
-        canvasModule = (await import("@napi-rs/canvas")) as CanvasPolyfillModule;
+        canvasModule = (await import(CANVAS_MODULE_ID)) as CanvasPolyfillModule;
       } catch (error) {
         throw new PdfInspectError(
           "corrupted",
@@ -109,7 +113,7 @@ async function ensurePdfWorkerHandler(): Promise<void> {
   }
 
   try {
-    const workerModule = await import("pdfjs-dist/build/pdf.worker.mjs");
+    const workerModule = await import(PDFJS_WORKER_MODULE_ID);
     globalWithPdfWorker.pdfjsWorker = {
       ...(globalWithPdfWorker.pdfjsWorker ?? {}),
       WorkerMessageHandler: workerModule.WorkerMessageHandler,
@@ -149,7 +153,7 @@ export async function loadPdfJsModule(): Promise<PdfJsModule> {
   if (!pdfJsModulePromise) {
     pdfJsModulePromise = (async () => {
       await ensureCanvasPolyfills();
-      return import("pdfjs-dist/legacy/build/pdf.mjs") as Promise<PdfJsModule>;
+      return import(PDFJS_MODULE_ID) as Promise<PdfJsModule>;
     })();
   }
 
@@ -174,7 +178,7 @@ export async function ensurePdfWorkerSrc(): Promise<void> {
 
       if (workerSrcConfigured) return;
       try {
-        const workerPath = nodeRequire.resolve("pdfjs-dist/build/pdf.worker.mjs");
+        const workerPath = nodeRequire.resolve(PDFJS_WORKER_MODULE_ID);
         pdfJs.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
         workerSrcConfigured = true;
       } catch {
