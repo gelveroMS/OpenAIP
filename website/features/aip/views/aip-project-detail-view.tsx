@@ -264,19 +264,21 @@ export default function AipProjectDetailView({
   }
 
   return (
-    <div className="space-y-2">
+    <div className="min-w-0 space-y-3 overflow-x-hidden md:space-y-4">
       <BreadcrumbNav items={breadcrumb} />
 
       <Card className="border-slate-200 bg-card">
-        <CardContent className="flex items-center justify-between gap-4 px-6 py-0">
-          <div className="space-y-1">
-            <h1 className="text-2xl font-bold text-slate-900">{project.programProjectDescription}</h1>
+        <CardContent className="flex flex-col items-start justify-between gap-3 px-4 py-4 sm:flex-row sm:items-center sm:px-6">
+          <div className="min-w-0 space-y-1">
+            <h1 className="break-words text-xl font-bold leading-tight text-slate-900 sm:text-2xl">
+              {project.programProjectDescription}
+            </h1>
             <p className="text-xs text-slate-500">Ref code: {project.projectRefCode}</p>
           </div>
 
           <Badge
             variant="outline"
-            className={`rounded-full ${getAipStatusBadgeClass(aip.status)}`}
+            className={`w-fit self-start rounded-full ${getAipStatusBadgeClass(aip.status)}`}
           >
             {aip.status}
           </Badge>
@@ -310,9 +312,9 @@ export default function AipProjectDetailView({
         )}
       </div>
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+      <div className="grid min-w-0 grid-cols-1 gap-4 md:gap-6 md:grid-cols-3">
         <div className="space-y-4 md:col-span-2">
-          <div className="rounded-lg border border-slate-200 bg-card p-4">
+          <div className="min-w-0 rounded-lg border border-slate-200 bg-card p-3 sm:p-4">
             <div className="text-sm font-semibold text-slate-900">Project Information</div>
 
             <div className="mt-4 space-y-4">
@@ -627,7 +629,7 @@ export default function AipProjectDetailView({
           </div>
         </div>
 
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           {shouldShowOfficialCommentPanel ? (
             <div className="rounded-lg border border-slate-200 bg-card p-4">
               <div className="text-sm font-semibold text-slate-900">

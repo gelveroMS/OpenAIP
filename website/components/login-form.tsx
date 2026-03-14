@@ -114,7 +114,7 @@ export function LoginForm({role, baseURL}:AuthParameters) {
                     Sign in to continue to OpenAIP.
                   </CardDescription>
                 </div>
-                <span className="mt-2 inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-semibold text-[#3B7A9D] sm:mt-3">
+                <span className="mx-auto mt-2 inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-semibold text-[#3B7A9D] sm:mt-3">
                   {roleBadgeLabel}
                 </span>
               </CardHeader>

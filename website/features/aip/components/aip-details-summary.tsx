@@ -10,10 +10,12 @@ export function AipDetailsSummary({
 }) {
   return (
     <Card className="border-slate-200">
-      <CardContent className="px-5">
+      <CardContent className="px-4 py-4 sm:px-5">
         <div>
-          <h2 className="text-lg font-bold text-slate-900">Summary</h2>
-          <p className="mt-2 text-sm text-slate-600">{aip.summaryText}</p>
+          <h2 className="text-base font-bold text-slate-900 sm:text-lg">Summary</h2>
+          <p className="mt-2 break-words text-sm leading-7 text-slate-600">
+            {aip.summaryText}
+          </p>
         </div>
       </CardContent>
     </Card>
