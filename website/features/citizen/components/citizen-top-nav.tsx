@@ -116,7 +116,6 @@ export default function CitizenTopNav() {
               width={50}
               height={50}
               className="h-12 w-12"
-              priority
             />
             <span className="text-2xl font-semibold tracking-tight text-[#0B3440]">OpenAIP</span>
           </Link>

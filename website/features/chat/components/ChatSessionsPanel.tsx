@@ -21,6 +21,7 @@ const TITLE_MAX_LENGTH = 200;
 export default function ChatSessionsPanel({
   sessions,
   query,
+  isLoading = false,
   onQueryChange,
   onSelect,
   onNewChat,
@@ -30,6 +31,7 @@ export default function ChatSessionsPanel({
 }: {
   sessions: ChatSessionListItem[];
   query: string;
+  isLoading?: boolean;
   onQueryChange: (value: string) => void;
   onSelect: (id: string) => void;
   onNewChat: () => void;
@@ -118,9 +120,10 @@ export default function ChatSessionsPanel({
           <Button
             className={cn(
               "gap-2 rounded-lg text-xs",
-              compact ? "h-10 px-3" : "h-9 px-3"
+              compact ? "h-9 px-2.5" : "h-8 px-2.5"
             )}
             onClick={onNewChat}
+            disabled={isLoading}
           >
             <Plus className="h-4 w-4" />
             New Chat
@@ -135,110 +138,123 @@ export default function ChatSessionsPanel({
               onChange={(event) => onQueryChange(event.target.value)}
               placeholder="Search chats"
               className="h-10 pl-9 text-[13.5px]"
+              disabled={isLoading}
             />
           </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-          {sessions.map((session) => {
-            const isEditing = editingSessionId === session.id;
-            const isBusy = busySessionId === session.id;
+          {isLoading ? (
+            <div className={cn("space-y-2", compact ? "px-4 py-3" : "px-5 py-4")}>
+              {Array.from({ length: 5 }).map((_, index) => (
+                <div key={`loading-session-${index}`} className="rounded-xl border border-slate-200 p-3">
+                  <div className="h-4 w-2/3 animate-pulse rounded-full bg-slate-200" />
+                  <div className="mt-2 h-3 w-20 animate-pulse rounded-full bg-slate-100" />
+                </div>
+              ))}
+            </div>
+          ) : null}
 
-            return (
-              <div
-                key={session.id}
-                className={cn(
-                  "border-l-2 transition-colors",
-                  compact ? "px-4 py-3" : "px-5 py-4",
-                  session.isActive ? "border-primary bg-muted/50" : "border-transparent hover:bg-muted/50"
-                )}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    {isEditing ? (
-                      <div className="space-y-1">
-                        <Input
-                          value={editingValue}
-                          onChange={(event) => {
-                            setEditingValue(event.target.value);
-                            if (editingError) {
-                              setEditingError(null);
-                            }
-                          }}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                              event.preventDefault();
+          {!isLoading &&
+            sessions.map((session) => {
+              const isEditing = editingSessionId === session.id;
+              const isBusy = busySessionId === session.id;
+
+              return (
+                <div
+                  key={session.id}
+                  className={cn(
+                    "border-l-2 transition-colors",
+                    compact ? "px-4 py-3" : "px-5 py-4",
+                    session.isActive ? "border-primary bg-muted/50" : "border-transparent hover:bg-muted/50"
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      {isEditing ? (
+                        <div className="space-y-1">
+                          <Input
+                            value={editingValue}
+                            onChange={(event) => {
+                              setEditingValue(event.target.value);
+                              if (editingError) {
+                                setEditingError(null);
+                              }
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                void saveRename();
+                              }
+                              if (event.key === "Escape") {
+                                event.preventDefault();
+                                skipBlurSaveRef.current = true;
+                                cancelRename();
+                              }
+                            }}
+                            onBlur={() => {
+                              if (skipBlurSaveRef.current) {
+                                skipBlurSaveRef.current = false;
+                                return;
+                              }
                               void saveRename();
-                            }
-                            if (event.key === "Escape") {
-                              event.preventDefault();
-                              skipBlurSaveRef.current = true;
-                              cancelRename();
-                            }
-                          }}
-                          onBlur={() => {
-                            if (skipBlurSaveRef.current) {
-                              skipBlurSaveRef.current = false;
-                              return;
-                            }
-                            void saveRename();
-                          }}
-                          maxLength={TITLE_MAX_LENGTH}
-                          autoFocus
-                          className="h-8 text-xs"
-                        />
-                        {editingError ? (
-                          <div className="text-destructive text-[11px]">{editingError}</div>
-                        ) : null}
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => onSelect(session.id)}
-                        onDoubleClick={() => beginRename(session)}
-                        className="w-full min-h-10 text-left"
-                      >
-                        <div className="truncate text-sm font-semibold">{session.title}</div>
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    <div className="text-muted-foreground text-[11px]">{session.timeLabel}</div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className={cn(compact ? "h-8 w-8" : "h-7 w-7")}
-                      onClick={() => beginRename(session)}
-                      disabled={isBusy}
-                      aria-label={`Rename ${session.title}`}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className={cn(
-                        compact ? "h-8 w-8 text-rose-700 hover:text-rose-700" : "h-7 w-7 text-rose-700 hover:text-rose-700"
+                            }}
+                            maxLength={TITLE_MAX_LENGTH}
+                            autoFocus
+                            className="h-8 text-xs"
+                          />
+                          {editingError ? (
+                            <div className="text-destructive text-[11px]">{editingError}</div>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => onSelect(session.id)}
+                          onDoubleClick={() => beginRename(session)}
+                          className="w-full min-h-10 text-left"
+                        >
+                          <div className="truncate text-sm font-semibold">{session.title}</div>
+                        </button>
                       )}
-                      onClick={() => {
-                        setDeleteError(null);
-                        setDeleteTarget(session);
-                      }}
-                      disabled={isBusy}
-                      aria-label={`Delete ${session.title}`}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <div className="text-muted-foreground text-[11px]">{session.timeLabel}</div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className={cn(compact ? "h-8 w-8" : "h-7 w-7")}
+                        onClick={() => beginRename(session)}
+                        disabled={isBusy}
+                        aria-label={`Rename ${session.title}`}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className={cn(
+                          compact ? "h-8 w-8 text-rose-700 hover:text-rose-700" : "h-7 w-7 text-rose-700 hover:text-rose-700"
+                        )}
+                        onClick={() => {
+                          setDeleteError(null);
+                          setDeleteTarget(session);
+                        }}
+                        disabled={isBusy}
+                        aria-label={`Delete ${session.title}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
 
-          {!sessions.length && (
+          {!isLoading && !sessions.length && (
             <div className={cn("text-muted-foreground text-sm", compact ? "px-4 pb-4" : "px-5 pb-6")}>
               No conversations found.
             </div>

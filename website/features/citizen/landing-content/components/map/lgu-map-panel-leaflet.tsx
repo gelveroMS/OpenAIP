@@ -10,9 +10,9 @@ import { cn } from "@/lib/ui/utils";
 import { buildDashboardScopeHref } from "./map-scope-query";
 
 const DEFAULT_MARKER_ICON = {
-  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+  iconRetinaUrl: "/leaflet/marker-icon-2x.png",
+  iconUrl: "/leaflet/marker-icon.png",
+  shadowUrl: "/leaflet/marker-shadow.png",
 };
 
 // Next.js + Leaflet marker compatibility.

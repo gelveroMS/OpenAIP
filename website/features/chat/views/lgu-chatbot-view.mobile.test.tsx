@@ -24,6 +24,8 @@ describe("LguChatbotView mobile layout", () => {
       activeSessionId: "session-1",
       query: "",
       messageInput: "",
+      isSessionsLoading: false,
+      isMessagesLoading: false,
       isSending: false,
       error: null,
       sessionListItems: [

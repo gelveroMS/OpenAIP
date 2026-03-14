@@ -37,12 +37,11 @@ export default function CitizenPageHero({
           {imageSrc ? (
             <div className="absolute inset-0">
               <Image
-                src={imageSrc}
-                alt={title}
-                fill
-                className="object-cover object-center"
-                priority
-              />
+              src={imageSrc}
+              alt={title}
+              fill
+              className="object-cover object-center"
+            />
             </div>
           ) : (
             <div className="pointer-events-none absolute inset-0">
@@ -52,7 +51,6 @@ export default function CitizenPageHero({
                 fill
                 className="object-fill"
                 sizes="100vw"
-                priority
               />
             </div>
           )}

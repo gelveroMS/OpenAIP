@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PanelLeft } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -15,10 +15,13 @@ export default function LguChatbotView({
   routePrefix?: string;
 } = {}) {
   const [mobileSessionsOpen, setMobileSessionsOpen] = useState(false);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const {
     activeSessionId,
     query,
     messageInput,
+    isSessionsLoading,
+    isMessagesLoading,
     isSending,
     error,
     sessionListItems,
@@ -34,11 +37,44 @@ export default function LguChatbotView({
   } = useLguChatbot(routePrefix);
 
   const threadRef = useRef<HTMLDivElement | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const previousSessionIdRef = useRef<string | null>(null);
+
+  const isNearBottom = useCallback(() => {
+    const node = scrollContainerRef.current;
+    if (!node) return true;
+    const threshold = 96;
+    return node.scrollHeight - node.scrollTop - node.clientHeight <= threshold;
+  }, []);
+
+  const handleThreadScroll = useCallback(() => {
+    if (isNearBottom()) {
+      setShowJumpToLatest(false);
+    }
+  }, [isNearBottom]);
+
+  const handleJumpToLatest = useCallback(() => {
+    if (!threadRef.current) return;
+    threadRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+    setShowJumpToLatest(false);
+  }, []);
 
   useEffect(() => {
     if (!threadRef.current) return;
-    threadRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [activeSessionId, bubbles.length, isSending]);
+
+    const sessionChanged = previousSessionIdRef.current !== activeSessionId;
+    previousSessionIdRef.current = activeSessionId;
+
+    if (sessionChanged || isNearBottom()) {
+      threadRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+      setShowJumpToLatest(false);
+      return;
+    }
+
+    if (bubbles.length > 0 || isSending) {
+      setShowJumpToLatest(true);
+    }
+  }, [activeSessionId, bubbles.length, isNearBottom, isSending]);
 
   const resolvedActiveTitle = activeSession ? activeSession.title ?? "New Chat" : "New Chat";
 
@@ -80,6 +116,7 @@ export default function LguChatbotView({
           <div data-testid="lgu-chat-sessions-drawer" className="h-full min-h-0">
             <ChatSessionsPanel
               compact
+              isLoading={isSessionsLoading}
               sessions={sessionListItems}
               query={query}
               onQueryChange={setQuery}
@@ -104,6 +141,7 @@ export default function LguChatbotView({
           className="hidden h-full min-h-0 overflow-hidden md:block"
         >
           <ChatSessionsPanel
+            isLoading={isSessionsLoading}
             sessions={sessionListItems}
             query={query}
             onQueryChange={setQuery}
@@ -121,7 +159,12 @@ export default function LguChatbotView({
             messageInput={messageInput}
             onMessageChange={setMessageInput}
             onSend={handleSend}
+            onThreadScroll={handleThreadScroll}
+            onJumpToLatest={handleJumpToLatest}
             threadRef={threadRef}
+            scrollContainerRef={scrollContainerRef}
+            isMessagesLoading={isMessagesLoading}
+            showJumpToLatest={showJumpToLatest}
             isSending={isSending}
           />
         </div>

@@ -14,7 +14,12 @@ export default function ChatThreadPanel({
   messageInput,
   onMessageChange,
   onSend,
+  onThreadScroll,
+  onJumpToLatest,
   threadRef,
+  scrollContainerRef,
+  isMessagesLoading = false,
+  showJumpToLatest = false,
   isSending,
 }: {
   title: string;
@@ -22,7 +27,12 @@ export default function ChatThreadPanel({
   messageInput: string;
   onMessageChange: (value: string) => void;
   onSend: () => void;
+  onThreadScroll?: () => void;
+  onJumpToLatest?: () => void;
   threadRef: RefObject<HTMLDivElement | null>;
+  scrollContainerRef?: RefObject<HTMLDivElement | null>;
+  isMessagesLoading?: boolean;
+  showJumpToLatest?: boolean;
   isSending: boolean;
 }) {
   return (
@@ -31,15 +41,28 @@ export default function ChatThreadPanel({
         <div className="truncate">{title}</div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 md:px-6 md:py-5">
+      <div
+        ref={scrollContainerRef}
+        data-chat-thread-scroll-container
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 md:px-6 md:py-5"
+        onScroll={onThreadScroll}
+      >
         <div className="space-y-3 md:space-y-4">
+          {isMessagesLoading ? (
+            <div className="space-y-3">
+              <div className="h-16 w-[72%] animate-pulse rounded-xl bg-slate-100" />
+              <div className="ml-auto h-16 w-[62%] animate-pulse rounded-xl bg-slate-100" />
+              <div className="h-16 w-[78%] animate-pulse rounded-xl bg-slate-100" />
+            </div>
+          ) : null}
+
           {messages.map((message) => (
             <ChatMessageBubble key={message.id} message={message} />
           ))}
 
           {isSending ? <ChatAssistantLoadingState /> : null}
 
-          {!messages.length && !isSending && (
+          {!messages.length && !isSending && !isMessagesLoading && (
             <div className="text-muted-foreground text-sm">Start a conversation.</div>
           )}
 
@@ -51,6 +74,18 @@ export default function ChatThreadPanel({
         data-testid="chat-thread-composer"
         className="sticky bottom-0 z-10 shrink-0 border-t bg-card px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:static md:px-6 md:py-4 md:pb-4"
       >
+        {showJumpToLatest ? (
+          <div className="mb-2 flex justify-center md:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-8 rounded-full px-3 text-xs"
+              onClick={onJumpToLatest}
+            >
+              New messages
+            </Button>
+          </div>
+        ) : null}
         <div className="flex items-end gap-3">
           <Textarea
             value={messageInput}
@@ -62,6 +97,7 @@ export default function ChatThreadPanel({
               }
             }}
             placeholder="Type a message..."
+            disabled={isSending}
             className="min-h-10 max-h-32 resize-none overflow-y-auto whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[13px] md:min-h-11 md:text-[13.5px]"
           />
           <Button

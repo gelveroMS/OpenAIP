@@ -31,6 +31,10 @@ export default function CitizenChatShell({
   query,
   sessionItems,
   threadRef,
+  scrollContainerRef,
+  showJumpToLatest,
+  onThreadScroll,
+  onJumpToLatest,
   onMessageInputChange,
   onNewChat,
   onDeleteSession,
@@ -57,6 +61,10 @@ export default function CitizenChatShell({
   query: string;
   sessionItems: CitizenChatSessionVM[];
   threadRef: RefObject<HTMLDivElement | null>;
+  scrollContainerRef: RefObject<HTMLDivElement | null>;
+  showJumpToLatest: boolean;
+  onThreadScroll: () => void;
+  onJumpToLatest: () => void;
   onMessageInputChange: (value: string) => void;
   onNewChat: () => void;
   onDeleteSession: (id: string) => Promise<void>;
@@ -135,6 +143,10 @@ export default function CitizenChatShell({
               exampleQueries={exampleQueries}
               onUseExample={onUseExample}
               onUseFollowUp={onUseFollowUp}
+              onScroll={onThreadScroll}
+              onJumpToLatest={onJumpToLatest}
+              scrollContainerRef={scrollContainerRef}
+              showJumpToLatest={showJumpToLatest}
               threadRef={threadRef}
             />
           </>

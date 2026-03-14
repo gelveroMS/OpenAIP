@@ -15,7 +15,9 @@ const CitizenLayout = ({ children }: { children: ReactNode }) => {
 
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-b from-[#D3DBE0] to-[#FFFFFF]">
-      <Suspense fallback={null}>
+      <Suspense
+        fallback={<div className="h-16 border-b border-slate-200 bg-[#D3DBE0]" aria-hidden />}
+      >
         <CitizenTopNav />
       </Suspense>
       <main
@@ -28,7 +30,7 @@ const CitizenLayout = ({ children }: { children: ReactNode }) => {
       >
         <SmartLoadingRegion id="citizen-main">{children}</SmartLoadingRegion>
       </main>
-      <Suspense fallback={null}>
+      <Suspense fallback={<div className="pointer-events-none fixed inset-0" aria-hidden />}>
         <CitizenAuthModalHost />
       </Suspense>
       <CitizenFooter />
