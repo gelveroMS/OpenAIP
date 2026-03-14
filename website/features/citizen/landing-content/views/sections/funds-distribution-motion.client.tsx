@@ -143,19 +143,22 @@ export default function FundsDistributionMotion({ vm }: FundsDistributionMotionP
   return (
     <motion.div
       ref={rootRef}
-      className="mx-auto grid w-full max-w-6xl grid-cols-12 items-start gap-10"
+      data-testid="funds-distribution-root"
+      className="mx-auto grid w-full max-w-6xl min-w-0 grid-cols-12 items-start gap-6 md:gap-10"
       initial="hidden"
       animate={isInView ? "visible" : "hidden"}
     >
-      <div className="col-span-12 space-y-5 lg:col-span-5">
-        <motion.div className="space-y-3 pb-10" variants={headerVariants}>
-          <h2 className="text-6xl font-semibold text-[#F2ECE5]">How Funds Are Distributed</h2>
-          <p className="text-sm text-white/70">
+      <div className="col-span-12 space-y-4 md:space-y-5 lg:col-span-5">
+        <motion.div className="space-y-2.5 pb-4 md:space-y-3 md:pb-10" variants={headerVariants}>
+          <h2 className="break-words text-[clamp(2.05rem,10vw,3.1rem)] font-semibold leading-[0.95] text-[#F2ECE5] md:text-6xl">
+            How Funds Are Distributed
+          </h2>
+          <p className="text-xs leading-6 text-white/70 md:text-sm">
             A clear view of allocations across General, Social, Economic, and Other sectors.
           </p>
         </motion.div>
 
-        <motion.div className="space-y-3" variants={pillsContainerVariants}>
+        <motion.div className="space-y-2.5 md:space-y-3" variants={pillsContainerVariants}>
           {segments.map((sector) => {
             const isActive = activeKey === sector.key;
             const isDimmed = activeKey ? activeKey !== sector.key : false;
@@ -164,7 +167,7 @@ export default function FundsDistributionMotion({ vm }: FundsDistributionMotionP
                 key={sector.key}
                 variants={pillItemVariants}
                 className={cn(
-                  "flex items-center justify-between gap-4 rounded-full border border-white/10 bg-white/5 px-4 py-3 transition-all duration-200",
+                  "flex items-center justify-between gap-3 rounded-full border border-white/10 bg-white/5 px-3 py-2.5 transition-all duration-200 md:gap-4 md:px-4 md:py-3",
                   isActive
                     ? cn("translate-x-1 opacity-100", sector.activeCardClass)
                     : cn("translate-x-0", isDimmed ? "opacity-50" : "opacity-100 hover:bg-white/8")
@@ -174,9 +177,9 @@ export default function FundsDistributionMotion({ vm }: FundsDistributionMotionP
               >
                 <div className="flex items-center gap-3">
                   <span className={cn("h-3 w-3 rounded-full", sector.colorClass.split(" ")[0])} />
-                  <span className="text-sm text-white">{sector.label}</span>
+                  <span className="text-xs text-white md:text-sm">{sector.label}</span>
                 </div>
-                <span className="text-sm font-semibold text-white">{formatCompactPeso(sector.amount)}</span>
+                <span className="text-xs font-semibold text-white md:text-sm">{formatCompactPeso(sector.amount)}</span>
               </motion.div>
             );
           })}
@@ -184,8 +187,25 @@ export default function FundsDistributionMotion({ vm }: FundsDistributionMotionP
       </div>
 
       <motion.div className="col-span-12 lg:col-span-7" variants={donutContainerVariants}>
-        <div className="mx-auto flex w-full max-w-3xl min-h-[460px] items-center justify-center rounded-2xl border border-white/10 bg-[#14141C] p-10 shadow-[0_18px_45px_rgba(8,16,24,0.35)] sm:p-12">
-          <div className="aspect-square w-full max-w-[340px]">
+        <div
+          data-testid="funds-distribution-donut-shell"
+          className="mx-auto flex w-full max-w-3xl min-h-[320px] items-center justify-center rounded-2xl border border-white/10 bg-[#14141C] p-4 shadow-[0_18px_45px_rgba(8,16,24,0.35)] sm:min-h-[380px] sm:p-6 md:min-h-[460px] md:p-10 lg:p-12"
+        >
+          <div className="aspect-square w-full max-w-[240px] md:hidden">
+            <DonutChartCitizenDashboard
+              total={vm.total}
+              unitLabel={vm.unitLabel}
+              segments={segments}
+              size={240}
+              thickness={20}
+              minSizeClass="min-w-[220px] min-h-[220px]"
+              activeKey={activeKey}
+              onHover={setActiveKey}
+              animate={startDraw}
+              hideOuterLabels
+            />
+          </div>
+          <div className="hidden aspect-square w-full max-w-[340px] md:block">
             <DonutChartCitizenDashboard
               total={vm.total}
               unitLabel={vm.unitLabel}

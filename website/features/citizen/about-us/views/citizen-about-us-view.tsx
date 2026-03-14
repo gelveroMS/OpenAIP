@@ -212,24 +212,24 @@ export default function CitizenAboutUsView({
         </motion.div>
 
         <motion.section
-          className="rounded-2xl border border-slate-200 bg-[#F3F5F7] p-6 shadow-sm sm:p-8"
+          className="rounded-2xl border border-slate-200 bg-[#F3F5F7] p-4 shadow-sm sm:p-8"
           variants={sectionReveal}
           initial="hidden"
           whileInView="visible"
           viewport={VIEWPORT_ONCE}
         >
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:gap-10">
-            <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-2 lg:gap-10">
+            <div className="space-y-3 sm:space-y-4">
               <Badge className="bg-[#0247A1] text-white">Transparency Platform</Badge>
-              <h2 className="text-2xl font-semibold text-[#022437] sm:text-3xl">What is OpenAIP?</h2>
-              <p className="text-lg font-bold text-[#0247A1]">Turning AIP PDFs into citizen-readable open data.</p>
-              <p className="text-sm leading-6 text-slate-600">
+              <h2 className="text-xl font-semibold text-[#022437] sm:text-3xl">What is OpenAIP?</h2>
+              <p className="text-base font-bold text-[#0247A1] sm:text-lg">Turning AIP PDFs into citizen-readable open data.</p>
+              <p className="text-xs leading-6 text-slate-600 sm:text-sm">
                 OPENAIP transforms Local Government Unit (LGU) Annual Investment Plans from static PDF documents into structured, searchable, and visual open data.
               </p>
-              <p className="text-sm leading-6 text-slate-600">
+              <p className="text-xs leading-6 text-slate-600 sm:text-sm">
                 By converting complex budget information into accessible formats, we make local government planning transparent and understandable to all citizens.
               </p>
-              <p className="text-sm leading-6 text-slate-600">
+              <p className="text-xs leading-6 text-slate-600 sm:text-sm">
                 The platform provides real-time insights into how public funds are allocated across sectors, programs, and projects-empowering communities to actively participate in local governance.
               </p>
               <div className="flex flex-wrap gap-2 pt-1">
@@ -245,7 +245,7 @@ export default function CitizenAboutUsView({
               </div>
             </div>
 
-            <motion.div className="grid grid-cols-1 gap-4 sm:grid-cols-2" variants={staggerContainer}>
+            <motion.div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4" variants={staggerContainer}>
               {featureCards.map((card) => {
                 const Icon = card.icon;
                 return (
@@ -254,12 +254,12 @@ export default function CitizenAboutUsView({
                       className="rounded-2xl shadow-sm"
                       style={{ backgroundColor: card.tint, borderColor: card.border }}
                     >
-                      <CardContent className="flex min-h-[178px] flex-col space-y-3 p-4">
-                        <div className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 bg-white text-[#0247A1]">
-                          <Icon className="h-4 w-4" />
+                      <CardContent className="flex min-h-[132px] flex-col space-y-2 p-3.5 sm:min-h-[178px] sm:space-y-3 sm:p-4">
+                        <div className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 bg-white text-[#0247A1] sm:h-9 sm:w-9">
+                          <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                         </div>
-                        <h3 className="text-lg font-semibold text-[#022437]">{card.title}</h3>
-                        <p className="text-xs leading-5 text-slate-600">{card.description}</p>
+                        <h3 className="text-base font-semibold text-[#022437] sm:text-lg">{card.title}</h3>
+                        <p className="text-[11px] leading-5 text-slate-600 sm:text-xs">{card.description}</p>
                       </CardContent>
                     </Card>
                   </motion.div>

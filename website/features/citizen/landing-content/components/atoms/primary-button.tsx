@@ -18,7 +18,7 @@ export default function PrimaryButton({
   ariaLabel,
 }: PrimaryButtonProps) {
   const baseClassName =
-    "h-12 rounded-full bg-[#CBECF4] px-8 text-base text-[#001925] hover:bg-[#CBECF4]/90 focus-visible:ring-2 focus-visible:ring-[#67E8F9]";
+    "h-10 rounded-full bg-[#CBECF4] px-6 text-sm text-[#001925] hover:bg-[#CBECF4]/90 focus-visible:ring-2 focus-visible:ring-[#67E8F9] md:h-12 md:px-8 md:text-base";
 
   if (href) {
     return (

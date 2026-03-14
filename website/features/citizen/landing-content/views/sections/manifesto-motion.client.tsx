@@ -84,24 +84,24 @@ export default function ManifestoMotion({
 
   return (
     <motion.div
-      className="w-full text-center"
+      className="mx-auto w-full min-w-0 max-w-[22rem] px-2 text-center sm:max-w-none sm:px-0"
       initial="hidden"
       whileInView="visible"
       viewport={VIEWPORT_ONCE}
       variants={containerVariants}
     >
       <motion.p
-        className="text-center text-xl font-semibold leading-[24px] tracking-[0.7px] text-steelblue"
+        className="text-center text-xs font-semibold leading-5 tracking-[0.5px] text-steelblue sm:text-sm md:text-xl md:leading-[24px]"
         variants={itemFadeIn}
       >
         {eyebrow}
       </motion.p>
 
-      <motion.div className="mt-6 space-y-2" variants={linesContainer}>
+      <motion.div className="mt-3 space-y-1 md:mt-6 md:space-y-2" variants={linesContainer}>
         {lines.map((line, index) => (
           <motion.p
             key={`${line}-${index}`}
-            className="text-center text-6xl font-bold leading-[60px] text-darkslategray"
+            className="break-words text-center text-[clamp(1.95rem,12.5vw,3.2rem)] font-bold leading-[0.96] text-darkslategray sm:text-[clamp(2.25rem,13vw,3.7rem)] md:text-6xl md:leading-[60px]"
             variants={itemFadeUp}
           >
             {line}
@@ -110,7 +110,7 @@ export default function ManifestoMotion({
       </motion.div>
 
       <motion.p
-        className="mt-6 text-center text-8xl font-bold text-[#0B4E7B]"
+        className="mx-auto mt-3 max-w-[10ch] text-center text-[clamp(2.45rem,14vw,3.7rem)] font-bold leading-[0.94] text-[#0B4E7B] sm:text-[clamp(2.8rem,14.5vw,4.4rem)] md:mt-6 md:max-w-none md:text-8xl"
         style={{
           textShadow:
             "0 0 8px rgba(255,255,255,0.8), 0 0 18px rgba(186,230,253,0.7), 0 0 30px rgba(125,211,252,0.45)",
@@ -120,7 +120,7 @@ export default function ManifestoMotion({
         {emphasis}
       </motion.p>
 
-      <motion.p className="mt-4 text-center text-xl leading-7 text-gray" variants={supportFadeIn}>
+      <motion.p className="mx-auto mt-2 max-w-[20ch] text-center text-sm leading-6 text-gray sm:text-base md:mt-4 md:max-w-none md:text-xl md:leading-7" variants={supportFadeIn}>
         {supportingLine}
       </motion.p>
     </motion.div>

@@ -7,7 +7,7 @@ type LguBudgetOverviewSectionProps = {
   vm: LguOverviewVM;
 };
 
-const MAP_PANEL_HEIGHT_CLASS = "h-[420px] lg:h-full";
+const MAP_PANEL_HEIGHT_CLASS = "h-[300px] sm:h-[340px] md:h-[420px] lg:h-full";
 
 export default function LguBudgetOverviewSection({ vm }: LguBudgetOverviewSectionProps) {
   return (

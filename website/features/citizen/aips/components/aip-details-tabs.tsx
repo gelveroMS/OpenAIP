@@ -53,33 +53,35 @@ export default function AipDetailsTabs({ aip }: { aip: AipDetails }) {
         const query = params.toString();
         router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
       }}
-      className="space-y-6"
+      className="space-y-4 md:space-y-6 overflow-x-hidden"
     >
-      <TabsList className="h-10 rounded-full bg-slate-200 p-1">
-        <TabsTrigger
-          data-testid="citizen-aip-tab-overview"
-          value="overview"
-          className="h-8 rounded-full px-4 text-sm data-[state=active]:bg-white data-[state=active]:shadow-sm"
-        >
-          Overview
-        </TabsTrigger>
-        <TabsTrigger
-          data-testid="citizen-aip-tab-accountability"
-          value="accountability"
-          className="h-8 rounded-full px-4 text-sm data-[state=active]:bg-white data-[state=active]:shadow-sm"
-        >
-          Accountability
-        </TabsTrigger>
-        <TabsTrigger
-          data-testid="citizen-aip-tab-feedback"
-          value="feedback"
-          className="h-8 rounded-full px-4 text-sm data-[state=active]:bg-white data-[state=active]:shadow-sm"
-        >
-          Feedback ({aip.feedbackCount})
-        </TabsTrigger>
-      </TabsList>
+      <div className="overflow-x-auto pb-1">
+        <TabsList className="h-10 min-w-max rounded-full bg-slate-200 p-1">
+          <TabsTrigger
+            data-testid="citizen-aip-tab-overview"
+            value="overview"
+            className="h-8 rounded-full px-3 text-xs sm:px-4 sm:text-sm data-[state=active]:bg-white data-[state=active]:shadow-sm"
+          >
+            Overview
+          </TabsTrigger>
+          <TabsTrigger
+            data-testid="citizen-aip-tab-accountability"
+            value="accountability"
+            className="h-8 rounded-full px-3 text-xs sm:px-4 sm:text-sm data-[state=active]:bg-white data-[state=active]:shadow-sm"
+          >
+            Accountability
+          </TabsTrigger>
+          <TabsTrigger
+            data-testid="citizen-aip-tab-feedback"
+            value="feedback"
+            className="h-8 rounded-full px-3 text-xs sm:px-4 sm:text-sm data-[state=active]:bg-white data-[state=active]:shadow-sm"
+          >
+            Feedback ({aip.feedbackCount})
+          </TabsTrigger>
+        </TabsList>
+      </div>
 
-      <TabsContent value="overview" className="space-y-6">
+      <TabsContent value="overview" className="space-y-4 md:space-y-6">
         <AipOverviewDocumentCard aip={aip} />
         <AipSummaryCard aip={aip} />
         <AipProjectsTable aip={aip} />

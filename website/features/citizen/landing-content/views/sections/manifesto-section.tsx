@@ -11,8 +11,8 @@ export default function ManifestoSection({ vm }: ManifestoSectionProps) {
   const emphasis = "Fully Transparent.";
 
   return (
-    <FullScreenSection id="manifesto" className="relative overflow-hidden bg-[#EAF1F5] font-inter">
-      <div className="relative mx-auto flex min-h-screen max-w-[900px] items-center justify-center">
+    <FullScreenSection id="manifesto" className="relative min-h-[88svh] overflow-hidden bg-[#EAF1F5] font-inter md:min-h-screen">
+      <div className="relative mx-auto flex min-h-[72svh] max-w-[900px] items-center justify-center py-3 md:min-h-screen">
         <ManifestoMotion
           eyebrow={eyebrow}
           lines={vm.lines}

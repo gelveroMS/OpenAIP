@@ -135,4 +135,13 @@ describe("CitizenAipProjectDetailView AI status", () => {
       )
     ).not.toBeInTheDocument();
   });
+
+  it("applies wrap-safe classes to project meta badges for mobile", () => {
+    render(<CitizenAipProjectDetailView aip={buildAip()} project={buildProject([])} />);
+
+    const refBadge = screen.getByText("1000-001-000-001");
+    const sectorBadge = screen.getByText("General Sector");
+    expect(refBadge.className).toContain("break-words");
+    expect(sectorBadge.className).toContain("break-words");
+  });
 });
