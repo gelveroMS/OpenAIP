@@ -52,7 +52,7 @@ export function DashboardHeader({
 
   return (
     <div className="w-full space-y-4 sm:space-y-5">
-      <h1 className="break-words text-2xl font-bold leading-tight text-foreground sm:text-3xl lg:text-4xl xl:text-5xl">
+      <h1 className="break-words text-xl font-bold leading-tight text-foreground sm:text-3xl lg:text-4xl xl:text-5xl">
         {title}
       </h1>
       <form

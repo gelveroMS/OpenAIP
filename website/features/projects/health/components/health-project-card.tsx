@@ -61,10 +61,10 @@ export default function HealthProjectCard({
 
   return (
     <Card className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <CardContent className="px-5">
+      <CardContent className="px-4 py-4 sm:px-5">
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[420px_1fr] lg:items-stretch">
           {/* Left image */}
-          <div className="relative h-[260px] w-full overflow-hidden rounded-xl bg-slate-100 lg:h-full">
+          <div className="relative h-44 w-full overflow-hidden rounded-xl bg-slate-100 sm:h-[220px] lg:h-full">
             {imageSrc ? (
               <Image
                 src={imageSrc}
@@ -90,13 +90,13 @@ export default function HealthProjectCard({
           </div>
           {/* Right details */}
           <div className="flex min-w-0 flex-col">
-              <div className="rounded-xl border border-slate-200 px-5 py-3">
+              <div className="rounded-xl border border-slate-200 px-4 py-3 sm:px-5">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 flex-1">
                   <h3 className="break-words text-lg font-semibold leading-snug text-slate-900">
                     {project.title}
                   </h3>
-                  <p className="mt-3 break-words text-sm leading-6 text-slate-600">
+                  <p className="mt-2 break-words text-sm leading-6 text-slate-600">
                     {project.description}
                   </p>
                 </div>
@@ -109,7 +109,7 @@ export default function HealthProjectCard({
                 </Badge>
               </div>
 
-              <div className="mt-4 flex flex-col gap-2.5 text-sm text-slate-700">
+              <div className="mt-3 flex flex-col gap-2 text-sm text-slate-700 sm:mt-4 sm:gap-2.5">
                 <div className="flex items-start gap-2">
                   <Users className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
                   <div className="min-w-0 flex-1 break-words">
@@ -166,7 +166,7 @@ export default function HealthProjectCard({
               </div>
             </div>
 
-            {actionSlot ? <div className="mt-2 flex justify-end pt-1">{actionSlot}</div> : null}
+            {actionSlot ? <div className="mt-2 flex pt-1 sm:justify-end">{actionSlot}</div> : null}
           </div>
         </div>
       </CardContent>

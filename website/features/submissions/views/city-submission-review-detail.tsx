@@ -240,12 +240,12 @@ export default function CitySubmissionReviewDetail({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-4 overflow-x-hidden md:space-y-6">
       <BreadcrumbNav items={breadcrumbItems} />
 
-      <Card className="border-slate-200">
-        <CardContent className="p-6 flex items-center justify-between gap-4">
-          <h1 className="text-2xl font-bold text-slate-900">{aipDisplayLabel}</h1>
+      <Card className="min-w-0 border-slate-200">
+        <CardContent className="flex flex-col items-start justify-between gap-3 p-4 sm:flex-row sm:items-center sm:p-6">
+          <h1 className="break-words text-xl font-bold text-slate-900 sm:text-2xl">{aipDisplayLabel}</h1>
           <Badge
             data-testid="city-submission-status-badge"
             variant="outline"
@@ -256,8 +256,8 @@ export default function CitySubmissionReviewDetail({
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="space-y-6">
+      <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-6">
+        <div className="min-w-0 space-y-4 md:space-y-6">
           <AipPdfContainer aip={aip} />
           <AipDetailsSummary aip={aip} />
           <AipDetailsTableView
@@ -272,7 +272,7 @@ export default function CitySubmissionReviewDetail({
           <AipUploaderInfo aip={aip} />
         </div>
 
-        <div className="lg:sticky lg:top-6 h-fit space-y-6">
+        <div className="h-fit space-y-4 lg:sticky lg:top-6 lg:space-y-6">
 
           {effectiveCanReview ? (
             <Card className="border-slate-200">

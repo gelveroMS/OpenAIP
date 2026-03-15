@@ -111,7 +111,7 @@ export function BudgetAllocationTable({
 }) {
   return (
     <Card className="min-w-0 border-slate-200">
-      <CardContent className="px-4 py-4 sm:px-5">
+      <CardContent className="px-3 py-4 sm:px-5">
         <div>
           <h3 className="text-base font-bold text-slate-900 sm:text-lg">
             Budget Allocation Table
@@ -119,8 +119,8 @@ export function BudgetAllocationTable({
           <p className="mt-2 text-xs text-slate-500">Breakdown by project category</p>
         </div>
 
-        <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200 bg-white">
-          <Table className="min-w-[640px]">
+        <div className="mt-3 max-w-full overflow-x-auto rounded-lg border border-slate-200 bg-white [scrollbar-width:thin]">
+          <Table className="min-w-[620px] sm:min-w-[640px]">
             <TableHeader>
               <TableRow className="bg-slate-50 hover:bg-slate-50">
                 <TableHead className="text-xs text-slate-600 font-semibold">Category</TableHead>

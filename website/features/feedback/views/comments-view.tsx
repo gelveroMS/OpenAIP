@@ -43,9 +43,9 @@ export default function CommentsView({
   } = useCommentsView({ scope, lguId });
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-slate-900">Feedback</h1>
+    <div className="min-w-0 space-y-4 overflow-x-hidden md:space-y-6">
+      <div className="min-w-0">
+        <h1 className="break-words text-2xl font-bold text-slate-900 md:text-3xl">Feedback</h1>
         <p className="mt-2 text-sm text-slate-600">
           Review citizen feedback and respond to feedback related to published
           AIPs and projects.
@@ -54,8 +54,8 @@ export default function CommentsView({
 
       {!loading && !error ? <FeedbackKpiRow counts={kpiCounts} /> : null}
 
-      <div className="rounded-2xl p-5">
-        <div className="grid grid-cols-1 gap-4 lg:ml-auto lg:w-fit lg:grid-cols-[120px_160px_120px_120px_420px] lg:items-end">
+      <div className="rounded-2xl px-0 py-1 sm:py-2">
+        <div className="grid grid-cols-1 gap-3 lg:ml-auto lg:w-fit lg:grid-cols-[120px_160px_120px_120px_420px] lg:items-end lg:gap-4">
           <div className="space-y-2">
             <div className="text-xs text-slate-500">Year</div>
             <Select value={year} onValueChange={setYear}>
@@ -125,7 +125,7 @@ export default function CommentsView({
               </SelectContent>
             </Select>
           </div>
-          <div className="w-full space-y-2 lg:w-[420px]">
+          <div className="w-full min-w-0 space-y-2 lg:w-[420px]">
             <div className="text-xs text-slate-500">Search</div>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -142,7 +142,15 @@ export default function CommentsView({
 
       <div className="space-y-5">
         {loading ? (
-          <div className="text-sm text-slate-500">Loading inbox...</div>
+          <div className="space-y-3" role="status" aria-live="polite" aria-busy="true">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <div key={`feedback-loading-${index}`} className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                <div className="h-4 w-48 animate-pulse rounded-full bg-slate-200" />
+                <div className="mt-3 h-3 w-full animate-pulse rounded-full bg-slate-100" />
+                <div className="mt-2 h-3 w-5/6 animate-pulse rounded-full bg-slate-100" />
+              </div>
+            ))}
+          </div>
         ) : error ? (
           <div className="text-sm text-rose-600">{error}</div>
         ) : (

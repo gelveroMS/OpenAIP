@@ -114,14 +114,14 @@ export function AipDetailsTableCard({
               Annual Investment Plan {year} Details
             </h3>
 
-            <div className="mt-3 min-w-0 overflow-x-auto">
+            <div className="-mx-1 mt-3 min-w-0 overflow-x-auto px-1 [scrollbar-width:thin]">
               <Tabs value={activeSector} onValueChange={(v) => setActiveSector(v as typeof SECTOR_TABS[number])}>
-                <TabsList className="h-8 w-max min-w-full rounded-full bg-slate-100 p-1">
+                <TabsList className="h-10 w-max min-w-max rounded-full bg-slate-100 p-1">
                   {SECTOR_TABS.map((s) => (
                     <TabsTrigger
                       key={s}
                       value={s}
-                      className="h-6 shrink-0 rounded-full px-2.5 text-[10px] sm:px-3 sm:text-[11px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
+                      className="h-8 shrink-0 rounded-full px-3 text-xs leading-none sm:h-7 sm:px-3 sm:text-[11px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
                     >
                       {s}
                     </TabsTrigger>
@@ -145,9 +145,9 @@ export function AipDetailsTableCard({
 
         <div
           data-testid="aip-details-table"
-          className="mt-4 overflow-x-auto rounded-lg border border-slate-200 bg-white"
+          className="mt-4 max-w-full overflow-x-auto rounded-lg border border-slate-200 bg-white [scrollbar-width:thin]"
         >
-          <Table className="min-w-[700px]">
+          <Table className="min-w-[680px] md:min-w-[700px]">
             <TableHeader>
               <TableRow className="bg-slate-50 hover:bg-slate-50">
                 <TableHead className="text-xs text-slate-600 font-semibold">AIP Reference Code</TableHead>
@@ -177,7 +177,7 @@ export function AipDetailsTableCard({
                     onClick={() => onRowClick(r)}
                   >
                     <TableCell className="text-xs text-slate-700">{r.projectRefCode}</TableCell>
-                    <TableCell className="min-w-[300px] whitespace-normal text-xs text-slate-700">
+                    <TableCell className="min-w-[280px] whitespace-normal text-xs text-slate-700">
                       {r.aipDescription}
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-xs text-slate-700 text-right tabular-nums">

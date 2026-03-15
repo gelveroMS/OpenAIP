@@ -1557,7 +1557,7 @@ export default function AipDetailView({
                 <div className="min-w-0 space-y-4 md:space-y-6">
                   <AipPdfContainer aip={aip} />
 
-              <div className="flex min-w-0 items-center overflow-x-auto">
+              <div className="-mx-1 flex min-w-0 items-center overflow-x-auto px-1 [scrollbar-width:thin]">
                 <Tabs
                   value={activeTab}
                   onValueChange={(value) => {
@@ -1578,16 +1578,16 @@ export default function AipDetailView({
                     });
                   }}
                 >
-                  <TabsList className="h-9 gap-2 bg-transparent p-0">
+                  <TabsList className="h-10 w-max min-w-max gap-2 bg-transparent p-0">
                     <TabsTrigger
                       value="summary"
-                      className="h-8 rounded-lg px-3 text-xs font-medium text-slate-500 data-[state=active]:border data-[state=active]:border-slate-200 data-[state=active]:bg-slate-100 data-[state=active]:text-slate-900 data-[state=active]:shadow-sm sm:h-9 sm:px-4 sm:text-sm"
+                      className="h-9 shrink-0 rounded-lg px-3 text-xs font-medium text-slate-500 data-[state=active]:border data-[state=active]:border-slate-200 data-[state=active]:bg-slate-100 data-[state=active]:text-slate-900 data-[state=active]:shadow-sm sm:px-4 sm:text-sm"
                     >
                       Summary
                     </TabsTrigger>
                     <TabsTrigger
                       value="comments"
-                      className="h-8 rounded-lg px-3 text-xs font-medium text-slate-500 data-[state=active]:border data-[state=active]:border-slate-200 data-[state=active]:bg-slate-100 data-[state=active]:text-slate-900 data-[state=active]:shadow-sm sm:h-9 sm:px-4 sm:text-sm"
+                      className="h-9 shrink-0 rounded-lg px-3 text-xs font-medium text-slate-500 data-[state=active]:border data-[state=active]:border-slate-200 data-[state=active]:bg-slate-100 data-[state=active]:text-slate-900 data-[state=active]:shadow-sm sm:px-4 sm:text-sm"
                       onClick={() => {
                         if (activeTab !== "comments") return;
                         const params = new URLSearchParams(searchParams.toString());

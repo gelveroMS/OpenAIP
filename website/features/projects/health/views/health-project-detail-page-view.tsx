@@ -80,15 +80,15 @@ export default function HealthProjectDetailPageView({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-stretch justify-between gap-4">
+      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-stretch sm:gap-4">
         <div className="min-w-0">
           <BreadcrumbNav items={breadcrumb} />
 
-          <h1 className="mt-2 text-3xl font-bold text-slate-900">{project.title}</h1>
+          <h1 className="mt-2 break-words text-2xl font-bold text-slate-900 md:text-3xl">{project.title}</h1>
         </div>
 
-        <div className="flex flex-col items-end">
-          <Badge variant="outline" className={`mt-auto rounded-full ${getProjectStatusBadgeClass(project.status)}`}>
+        <div className="flex flex-col items-start sm:items-end">
+          <Badge variant="outline" className={`rounded-full ${getProjectStatusBadgeClass(project.status)} sm:mt-auto`}>
             {project.status}
           </Badge>
         </div>
@@ -102,42 +102,44 @@ export default function HealthProjectDetailPageView({
       />
 
       {/* ✅ Shared updates UI (timeline + form) */}
-      <div className="flex items-center gap-3">
-        <Tabs
-          value={activeTab}
-          onValueChange={(value) => {
-            const params = new URLSearchParams(searchParams.toString());
-            if (value === "feedback") {
-              params.set("tab", "feedback");
-              params.delete("thread");
-              params.delete("comment");
-              params.delete("update");
-            } else {
-              params.set("tab", "updates");
-              params.delete("thread");
-              params.delete("comment");
-            }
-            const query = params.toString();
-            router.replace(query ? `${pathname}?${query}` : pathname, {
-              scroll: false,
-            });
-          }}
-        >
-          <TabsList className="h-10 gap-2 bg-transparent p-0">
-            <TabsTrigger
-              value="updates"
-              className="h-9 rounded-lg px-4 text-sm font-medium text-slate-500 data-[state=active]:border data-[state=active]:border-slate-200 data-[state=active]:bg-slate-100 data-[state=active]:text-slate-900 data-[state=active]:shadow-sm"
-            >
-              Updates Timeline
-            </TabsTrigger>
-            <TabsTrigger
-              value="feedback"
-              className="h-9 rounded-lg px-4 text-sm font-medium text-slate-500 data-[state=active]:border data-[state=active]:border-slate-200 data-[state=active]:bg-slate-100 data-[state=active]:text-slate-900 data-[state=active]:shadow-sm"
-            >
-              Feedback
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+      <div className="min-w-0">
+        <div className="-mx-1 overflow-x-auto px-1 [scrollbar-width:thin]">
+          <Tabs
+            value={activeTab}
+            onValueChange={(value) => {
+              const params = new URLSearchParams(searchParams.toString());
+              if (value === "feedback") {
+                params.set("tab", "feedback");
+                params.delete("thread");
+                params.delete("comment");
+                params.delete("update");
+              } else {
+                params.set("tab", "updates");
+                params.delete("thread");
+                params.delete("comment");
+              }
+              const query = params.toString();
+              router.replace(query ? `${pathname}?${query}` : pathname, {
+                scroll: false,
+              });
+            }}
+          >
+            <TabsList className="h-10 w-max min-w-max gap-2 bg-transparent p-0">
+              <TabsTrigger
+                value="updates"
+                className="h-9 shrink-0 rounded-lg px-3 text-xs font-medium text-slate-500 data-[state=active]:border data-[state=active]:border-slate-200 data-[state=active]:bg-slate-100 data-[state=active]:text-slate-900 data-[state=active]:shadow-sm sm:px-4 sm:text-sm"
+              >
+                Updates Timeline
+              </TabsTrigger>
+              <TabsTrigger
+                value="feedback"
+                className="h-9 shrink-0 rounded-lg px-3 text-xs font-medium text-slate-500 data-[state=active]:border data-[state=active]:border-slate-200 data-[state=active]:bg-slate-100 data-[state=active]:text-slate-900 data-[state=active]:shadow-sm sm:px-4 sm:text-sm"
+              >
+                Feedback
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
       </div>
 
       {activeTab === "updates" ? (

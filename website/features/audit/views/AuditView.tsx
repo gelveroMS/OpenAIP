@@ -138,18 +138,18 @@ export default function AuditView({ logs }: { logs: ActivityLogRow[] }) {
   const showingTo = filtered.length === 0 ? 0 : startIndex + pagedRows.length;
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-4 overflow-x-hidden md:space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-slate-900">Audit and Accountability</h1>
-        <p className="mt-2 text-sm text-slate-600">
+      <div className="min-w-0">
+        <h1 className="break-words text-2xl font-bold text-slate-900 md:text-3xl">Audit and Accountability</h1>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
           Review recorded actions and events for transparency, compliance tracking, and accountability.
         </p>
       </div>
 
       {/* Filters bar */}
-      <div className="rounded-xl p-5">
-        <div className="grid grid-cols-1 gap-4 md:ml-auto md:w-fit md:grid-cols-[140px_180px_420px] md:items-end">
+      <div className="rounded-xl px-0 py-1 sm:px-0 sm:py-2">
+        <div className="grid grid-cols-1 gap-3 md:ml-auto md:w-fit md:grid-cols-[140px_180px_minmax(0,420px)] md:items-end md:gap-4">
           <div className="space-y-2">
             <div className="text-xs text-slate-500">Year</div>
             <Select value={year} onValueChange={setYear}>
@@ -184,7 +184,7 @@ export default function AuditView({ logs }: { logs: ActivityLogRow[] }) {
             </Select>
           </div>
 
-          <div className="w-full space-y-2 md:w-[420px]">
+          <div className="w-full min-w-0 space-y-2 md:w-[420px]">
             <div className="text-xs text-slate-500">Search</div>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
@@ -204,8 +204,8 @@ export default function AuditView({ logs }: { logs: ActivityLogRow[] }) {
       </div>
 
       {/* Table */}
-      <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-        <Table>
+      <div className="max-w-full overflow-x-auto rounded-xl border border-slate-200 bg-white [scrollbar-width:thin]">
+        <Table className="min-w-[860px]">
           <TableHeader>
             <TableRow className="bg-slate-50">
               <TableHead className="w-[170px] pl-4">NAME</TableHead>
@@ -242,7 +242,7 @@ export default function AuditView({ logs }: { logs: ActivityLogRow[] }) {
         </Table>
       </div>
 
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <Button
           variant="outline"
           size="sm"

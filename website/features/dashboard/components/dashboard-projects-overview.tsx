@@ -237,8 +237,8 @@ export function TopProjectsTable({
   };
 
   return (
-    <div className="max-h-[353.8px] overflow-auto rounded-xl border border-border">
-      <table className="w-full min-w-[640px] text-sm text-foreground md:min-w-[780px]">
+    <div className="max-h-[353.8px] max-w-full overflow-auto rounded-xl border border-border [scrollbar-width:thin]">
+      <table className="w-full min-w-[620px] text-xs text-foreground sm:text-sm md:min-w-[780px]">
         <thead className="sticky top-0 z-10 bg-secondary text-left text-xs font-medium text-muted-foreground">
           <tr>
             <th className="px-3 py-2">#</th>
@@ -257,7 +257,7 @@ export function TopProjectsTable({
               <tr key={project.id} className="border-b border-border text-sm hover:bg-accent">
                 <td className="px-3 py-2 text-muted-foreground">{index + 1}</td>
                 <td className="px-3 py-2">
-                  <div className="max-w-[220px] truncate sm:max-w-[280px] md:max-w-[300px]">
+                  <div className="max-w-[180px] truncate sm:max-w-[280px] md:max-w-[300px]">
                     {project.programProjectDescription}
                   </div>
                 </td>

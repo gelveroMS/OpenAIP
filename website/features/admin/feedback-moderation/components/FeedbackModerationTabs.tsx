@@ -13,20 +13,25 @@ export default function FeedbackModerationTabs({
 }) {
   return (
     <Tabs value={value} onValueChange={(v) => onChange(v as FeedbackModerationTab)}>
-      <TabsList className="h-12 w-full justify-start gap-6 rounded-none bg-transparent p-0 border-b border-slate-200">
-        <TabsTrigger
-          value="feedback"
-          className="flex-none h-12 rounded-none px-6 text-[15px] font-medium text-slate-500 data-[state=active]:text-slate-900 data-[state=active]:border-b-2 data-[state=active]:border-teal-700 data-[state=active]:shadow-none data-[state=active]:bg-transparent"
+      <div className="w-full overflow-x-auto whitespace-nowrap" data-testid="feedback-moderation-tabs-scroll">
+        <TabsList
+          className="h-12 min-w-max w-max justify-start gap-2 rounded-none border-b border-slate-200 bg-transparent p-0 md:w-full md:gap-6"
+          data-testid="feedback-moderation-tabs-list"
         >
-          Feedback
-        </TabsTrigger>
-        <TabsTrigger
-          value="updates"
-          className="flex-none h-12 rounded-none px-6 text-[15px] font-medium text-slate-500 data-[state=active]:text-slate-900 data-[state=active]:border-b-2 data-[state=active]:border-teal-700 data-[state=active]:shadow-none data-[state=active]:bg-transparent"
-        >
-          Projects Updates & Media
-        </TabsTrigger>
-      </TabsList>
+          <TabsTrigger
+            value="feedback"
+            className="flex-none h-12 whitespace-nowrap rounded-none px-4 text-[15px] font-medium text-slate-500 data-[state=active]:border-b-2 data-[state=active]:border-teal-700 data-[state=active]:bg-transparent data-[state=active]:text-slate-900 data-[state=active]:shadow-none md:px-6"
+          >
+            Feedback
+          </TabsTrigger>
+          <TabsTrigger
+            value="updates"
+            className="flex-none h-12 whitespace-nowrap rounded-none px-4 text-[15px] font-medium text-slate-500 data-[state=active]:border-b-2 data-[state=active]:border-teal-700 data-[state=active]:bg-transparent data-[state=active]:text-slate-900 data-[state=active]:shadow-none md:px-6"
+          >
+            Projects Updates & Media
+          </TabsTrigger>
+        </TabsList>
+      </div>
     </Tabs>
   );
 }

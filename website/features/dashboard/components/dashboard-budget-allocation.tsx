@@ -30,12 +30,12 @@ export function BudgetBreakdownSection({
           Budget Breakdown
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3 px-4 pb-4 pt-3 sm:px-5 sm:pb-5">
+      <CardContent className="space-y-3 px-3 pb-4 pt-3 sm:px-5 sm:pb-5">
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.05fr_1fr] lg:items-start">
           <DonutChart
             data={chartData}
             centerLabel="Budget Allocation"
-            chartHeightClassName="h-52 sm:h-60 lg:h-72"
+            chartHeightClassName="h-48 sm:h-60 lg:h-72"
             className="mx-auto w-full lg:mx-0"
           />
           <div className="space-y-4 pt-1 sm:space-y-5">
