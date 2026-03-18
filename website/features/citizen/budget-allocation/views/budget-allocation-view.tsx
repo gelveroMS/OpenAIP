@@ -5,6 +5,7 @@ import { DBV2_SECTOR_CODES, getSectorLabel, type DashboardSectorCode } from "@/l
 import type {
   AipDetailsRowVM,
   BudgetAllocationLguOptionVM,
+  BudgetAllocationScopeLevel,
   BudgetCategoryKey,
 } from "@/lib/domain/citizen-budget-allocation";
 import CitizenExplainerCard from "@/features/citizen/components/citizen-explainer-card";
@@ -42,14 +43,18 @@ const CATEGORY_COLOR_BY_KEY: Record<BudgetCategoryKey, string> = {
 
 type FiltersPayload = {
   has_data: boolean;
+  scope_level: BudgetAllocationScopeLevel;
   years: number[];
   lgus: Array<{
     scope_type: "city" | "barangay";
     scope_id: string;
     label: string;
+    city_scope_id: string | null;
+    city_scope_label: string | null;
   }>;
   selected: {
     fiscal_year: number;
+    scope_level: BudgetAllocationScopeLevel;
     scope_type: "city" | "barangay";
     scope_id: string;
   } | null;
@@ -117,6 +122,8 @@ function toLguOptions(
     id: option.scope_id,
     label: option.label,
     scopeType: option.scope_type,
+    cityScopeId: option.city_scope_id,
+    cityScopeLabel: option.city_scope_label,
   }));
 }
 
@@ -136,6 +143,9 @@ export default function CitizenBudgetAllocationView({
   const [detailsSearch, setDetailsSearch] = useState<string>('');
   const [selectedYear, setSelectedYear] = useState<number | null>(
     initialSelected?.fiscal_year ?? null
+  );
+  const [selectedScopeLevel, setSelectedScopeLevel] = useState<BudgetAllocationScopeLevel>(
+    initialSelected?.scope_level ?? initialFilters?.scope_level ?? "both"
   );
   const [selectedScopeType, setSelectedScopeType] = useState<"city" | "barangay" | null>(
     initialSelected?.scope_type ?? null
@@ -172,10 +182,49 @@ export default function CitizenBudgetAllocationView({
     (option) => option.scopeType === selectedScopeType && option.id === selectedScopeId
   );
   const selectedLguLabel = selectedLgu?.label ?? 'Selected LGU';
+  const availableCities = useMemo(() => {
+    const map = new Map<string, { id: string; label: string }>();
+    for (const option of availableLGUs) {
+      if (option.scopeType === "city") {
+        map.set(option.id, { id: option.id, label: option.label });
+        continue;
+      }
+      if (option.cityScopeId && option.cityScopeLabel) {
+        map.set(option.cityScopeId, {
+          id: option.cityScopeId,
+          label: option.cityScopeLabel,
+        });
+      }
+    }
+
+    return Array.from(map.values()).sort((left, right) =>
+      left.label.localeCompare(right.label)
+    );
+  }, [availableLGUs]);
+
+  const selectedCityScopeId = useMemo(() => {
+    if (selectedScopeType === "city" && selectedScopeId) return selectedScopeId;
+    if (selectedScopeType === "barangay" && selectedLgu?.cityScopeId) {
+      return selectedLgu.cityScopeId;
+    }
+    return availableCities[0]?.id ?? "";
+  }, [availableCities, selectedLgu?.cityScopeId, selectedScopeId, selectedScopeType]);
+
+  const availableBarangays = useMemo(() => {
+    const scoped = availableLGUs.filter((option) => option.scopeType === "barangay");
+    if (!selectedCityScopeId) return scoped;
+    return scoped.filter((option) => option.cityScopeId === selectedCityScopeId);
+  }, [availableLGUs, selectedCityScopeId]);
+
+  const selectedBarangayScopeId = useMemo(() => {
+    if (selectedScopeType === "barangay" && selectedScopeId) return selectedScopeId;
+    return availableBarangays[0]?.id ?? "";
+  }, [availableBarangays, selectedScopeId, selectedScopeType]);
 
   const syncFilters = useCallback(
     async (input?: {
       fiscalYear?: number;
+      scopeLevel?: BudgetAllocationScopeLevel;
       scopeType?: "city" | "barangay";
       scopeId?: string;
       prefer?: "year" | "lgu";
@@ -183,6 +232,9 @@ export default function CitizenBudgetAllocationView({
       const params = new URLSearchParams();
       if (typeof input?.fiscalYear === "number") {
         params.set("fiscal_year", String(input.fiscalYear));
+      }
+      if (input?.scopeLevel) {
+        params.set("scope_level", input.scopeLevel);
       }
       if (input?.scopeType && input.scopeId) {
         params.set("scope_type", input.scopeType);
@@ -197,6 +249,8 @@ export default function CitizenBudgetAllocationView({
       if (!response.ok) {
         throw new Error("Failed to load budget allocation filters.");
       }
+
+      setSelectedScopeLevel(payload.selected?.scope_level ?? payload.scope_level ?? "both");
 
       if (!payload.has_data || !payload.selected) {
         setHasPublishedData(false);
@@ -445,9 +499,24 @@ export default function CitizenBudgetAllocationView({
               ...vm.filters,
               selectedYear: selectedYear ?? availableYears[0] ?? vm.filters.selectedYear,
               availableYears,
+              selectedScopeLevel,
               selectedScopeType: selectedScopeType ?? availableLGUs[0]?.scopeType ?? vm.filters.selectedScopeType,
               selectedScopeId: selectedScopeId || availableLGUs[0]?.id || vm.filters.selectedScopeId,
+              selectedCityScopeId:
+                selectedCityScopeId ||
+                availableCities[0]?.id ||
+                vm.filters.selectedCityScopeId,
+              selectedBarangayScopeId:
+                selectedBarangayScopeId ||
+                availableBarangays[0]?.id ||
+                vm.filters.selectedBarangayScopeId,
               availableLGUs,
+              availableCities,
+              availableBarangays: availableBarangays.map((option) => ({
+                id: option.id,
+                label: option.label,
+                cityScopeId: option.cityScopeId,
+              })),
             }}
             onYearChange={(year) => {
               setProjectPage(1);
@@ -456,6 +525,7 @@ export default function CitizenBudgetAllocationView({
               skipInitialProjectsFetch.current = false;
               syncFilters({
                 fiscalYear: year,
+                scopeLevel: selectedScopeLevel,
                 scopeType: selectedScopeType ?? undefined,
                 scopeId: selectedScopeId || undefined,
                 prefer: "year",
@@ -464,15 +534,59 @@ export default function CitizenBudgetAllocationView({
                 setFiltersError("Unable to load published budget allocation filters.");
               });
             }}
-            onLguChange={(scopeType, scopeId) => {
+            onScopeLevelChange={(scopeLevel) => {
               setProjectPage(1);
               setFiltersError(null);
               skipInitialSummaryFetch.current = false;
               skipInitialProjectsFetch.current = false;
               syncFilters({
-                scopeType,
-                scopeId,
+                scopeLevel,
                 fiscalYear: typeof selectedYear === "number" ? selectedYear : undefined,
+                scopeType: selectedScopeType ?? undefined,
+                scopeId: selectedScopeId || undefined,
+                prefer: "lgu",
+              }).catch(() => {
+                setHasPublishedData(false);
+                setFiltersError("Unable to load published budget allocation filters.");
+              });
+            }}
+            onCityChange={(scopeId) => {
+              setProjectPage(1);
+              setFiltersError(null);
+              skipInitialSummaryFetch.current = false;
+              skipInitialProjectsFetch.current = false;
+
+              const fallbackBarangay = availableLGUs.find(
+                (option) =>
+                  option.scopeType === "barangay" && option.cityScopeId === scopeId
+              );
+              syncFilters({
+                scopeLevel: selectedScopeLevel,
+                fiscalYear: typeof selectedYear === "number" ? selectedYear : undefined,
+                scopeType:
+                  selectedScopeLevel === "barangay" && fallbackBarangay
+                    ? "barangay"
+                    : "city",
+                scopeId:
+                  selectedScopeLevel === "barangay" && fallbackBarangay
+                    ? fallbackBarangay.id
+                    : scopeId,
+                prefer: "lgu",
+              }).catch(() => {
+                setHasPublishedData(false);
+                setFiltersError("Unable to load published budget allocation filters.");
+              });
+            }}
+            onBarangayChange={(scopeId) => {
+              setProjectPage(1);
+              setFiltersError(null);
+              skipInitialSummaryFetch.current = false;
+              skipInitialProjectsFetch.current = false;
+              syncFilters({
+                scopeLevel: selectedScopeLevel,
+                fiscalYear: typeof selectedYear === "number" ? selectedYear : undefined,
+                scopeType: "barangay",
+                scopeId,
                 prefer: "lgu",
               }).catch(() => {
                 setHasPublishedData(false);

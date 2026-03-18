@@ -3,6 +3,7 @@ import { CITIZEN_DASHBOARD_REVALIDATE_SECONDS } from "@/lib/cache/citizen-dashbo
 import {
   getCitizenBudgetAllocationFilters,
   isCitizenBudgetAllocationRepoError,
+  type BudgetAllocationScopeLevel,
   type BudgetAllocationScopeType,
 } from "@/lib/repos/citizen-budget-allocation/repo.server";
 
@@ -11,6 +12,7 @@ const UUID_PATTERN =
 
 type ParsedParams = {
   fiscalYear: number | null;
+  scopeLevel: BudgetAllocationScopeLevel;
   prefer: "year" | "lgu" | null;
   requestedScope: {
     scopeType: BudgetAllocationScopeType;
@@ -32,6 +34,7 @@ function errorResponse(status: number, code: string, message: string) {
 
 function parseParams(searchParams: URLSearchParams): ParsedParams | null {
   const fiscalYearRaw = searchParams.get("fiscal_year");
+  const scopeLevelRaw = searchParams.get("scope_level");
   const preferRaw = searchParams.get("prefer");
   const scopeTypeRaw = searchParams.get("scope_type");
   const scopeIdRaw = searchParams.get("scope_id")?.trim() ?? "";
@@ -40,6 +43,18 @@ function parseParams(searchParams: URLSearchParams): ParsedParams | null {
   const hasScopeId = scopeIdRaw.length > 0;
 
   if (hasScopeType !== hasScopeId) return null;
+
+  let scopeLevel: BudgetAllocationScopeLevel = "both";
+  if (scopeLevelRaw) {
+    if (
+      scopeLevelRaw !== "city" &&
+      scopeLevelRaw !== "barangay" &&
+      scopeLevelRaw !== "both"
+    ) {
+      return null;
+    }
+    scopeLevel = scopeLevelRaw;
+  }
 
   let fiscalYear: number | null = null;
   if (typeof fiscalYearRaw === "string" && fiscalYearRaw.trim().length > 0) {
@@ -51,6 +66,7 @@ function parseParams(searchParams: URLSearchParams): ParsedParams | null {
   if (!hasScopeType || !hasScopeId) {
     return {
       fiscalYear,
+      scopeLevel,
       prefer: preferRaw === "year" || preferRaw === "lgu" ? preferRaw : null,
       requestedScope: null,
     };
@@ -61,6 +77,7 @@ function parseParams(searchParams: URLSearchParams): ParsedParams | null {
 
   return {
     fiscalYear,
+    scopeLevel,
     prefer: preferRaw === "year" || preferRaw === "lgu" ? preferRaw : null,
     requestedScope: {
       scopeType: scopeTypeRaw,
@@ -75,13 +92,14 @@ export async function GET(request: Request) {
     return errorResponse(
       400,
       "BAD_REQUEST",
-      "Invalid query params. Optional: fiscal_year, and paired scope_type (city|barangay) + scope_id (UUID)."
+      "Invalid query params. Optional: fiscal_year, scope_level (city|barangay|both), and paired scope_type (city|barangay) + scope_id (UUID)."
     );
   }
 
   try {
     const payload = await getCitizenBudgetAllocationFilters({
       fiscalYear: parsed.fiscalYear,
+      scopeLevel: parsed.scopeLevel,
       requestedScope: parsed.requestedScope,
       prefer: parsed.prefer,
     });

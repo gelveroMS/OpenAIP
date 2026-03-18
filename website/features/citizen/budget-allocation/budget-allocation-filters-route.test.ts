@@ -15,6 +15,13 @@ type MockScopeRow = {
   psgc_code?: string | null;
 };
 
+type MockBarangayRow = {
+  id: string;
+  name: string | null;
+  city_id?: string | null;
+  municipality_id?: string | null;
+};
+
 const mocksupabasePublicServer = vi.fn();
 
 vi.mock("@/lib/supabase/public-server", () => ({
@@ -73,7 +80,8 @@ function createAipQueryBuilder(rows: MockAipRow[]) {
 function createMockClient(input: {
   aips: MockAipRow[];
   cities: MockScopeRow[];
-  barangays: MockScopeRow[];
+  barangays: MockBarangayRow[];
+  municipalities?: MockScopeRow[];
 }) {
   return {
     from: (table: string) => {
@@ -99,6 +107,17 @@ function createMockClient(input: {
           select: () => ({
             in: async (_field: string, ids: string[]) => ({
               data: input.barangays.filter((row) => ids.includes(row.id)),
+              error: null,
+            }),
+          }),
+        };
+      }
+
+      if (table === "municipalities") {
+        return {
+          select: () => ({
+            in: async (_field: string, ids: string[]) => ({
+              data: (input.municipalities ?? []).filter((row) => ids.includes(row.id)),
               error: null,
             }),
           }),
@@ -158,7 +177,7 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
           { id: CITY_A, name: "City of Alpha", psgc_code: CABUYAO_PSGC },
           { id: CITY_B, name: "City of Beta", psgc_code: OTHER_CITY_PSGC },
         ],
-        barangays: [{ id: BRGY_A, name: "Brgy. One" }],
+        barangays: [{ id: BRGY_A, name: "Brgy. One", city_id: CITY_A }],
       })
     );
 
@@ -168,10 +187,20 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
 
     expect(response.status).toBe(200);
     expect(body.has_data).toBe(true);
+    expect(body.scope_level).toBe("both");
     expect(body.years).toEqual([2026]);
-    expect(body.lgus).toEqual([{ scope_type: "city", scope_id: CITY_A, label: "City of Alpha" }]);
+    expect(body.lgus).toEqual([
+      {
+        scope_type: "city",
+        scope_id: CITY_A,
+        label: "City of Alpha",
+        city_scope_id: CITY_A,
+        city_scope_label: "City of Alpha",
+      },
+    ]);
     expect(body.selected).toEqual({
       fiscal_year: 2026,
+      scope_level: "both",
       scope_type: "city",
       scope_id: CITY_A,
     });
@@ -218,7 +247,7 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
           { id: CITY_A, name: "City of Cabuyao", psgc_code: CABUYAO_PSGC },
           { id: CITY_B, name: "City of Beta", psgc_code: OTHER_CITY_PSGC },
         ],
-        barangays: [{ id: BRGY_A, name: "Brgy. One" }],
+        barangays: [{ id: BRGY_A, name: "Brgy. One", city_id: CITY_A }],
       })
     );
 
@@ -229,6 +258,7 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
     expect(response.status).toBe(200);
     expect(body.selected).toEqual({
       fiscal_year: 2026,
+      scope_level: "both",
       scope_type: "city",
       scope_id: CITY_A,
     });
@@ -266,8 +296,8 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
         ],
         cities: [{ id: CITY_B, name: "City of Beta", psgc_code: OTHER_CITY_PSGC }],
         barangays: [
-          { id: BRGY_A, name: "Brgy. One" },
-          { id: BRGY_B, name: "Brgy. Two" },
+          { id: BRGY_A, name: "Brgy. One", city_id: CITY_B },
+          { id: BRGY_B, name: "Brgy. Two", city_id: CITY_B },
         ],
       })
     );
@@ -279,6 +309,7 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
     expect(response.status).toBe(200);
     expect(body.selected).toEqual({
       fiscal_year: 2025,
+      scope_level: "both",
       scope_type: "barangay",
       scope_id: BRGY_B,
     });
@@ -295,6 +326,109 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
 
     expect(response.status).toBe(400);
     expect(mocksupabasePublicServer).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 for invalid scope_level", async () => {
+    const { GET } = await import("@/app/api/citizen/budget-allocation/filters/route");
+    const response = await GET(
+      new Request("http://localhost/api/citizen/budget-allocation/filters?scope_level=invalid")
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocksupabasePublicServer).not.toHaveBeenCalled();
+  });
+
+  it("constrains LGU options by scope_level", async () => {
+    mocksupabasePublicServer.mockReturnValue(
+      createMockClient({
+        aips: [
+          {
+            id: "aip-city-2026",
+            status: "published",
+            fiscal_year: 2026,
+            city_id: CITY_A,
+            barangay_id: null,
+            created_at: "2026-01-10T00:00:00.000Z",
+          },
+          {
+            id: "aip-brgy-2026",
+            status: "published",
+            fiscal_year: 2026,
+            city_id: null,
+            barangay_id: BRGY_A,
+            created_at: "2026-01-09T00:00:00.000Z",
+          },
+        ],
+        cities: [{ id: CITY_A, name: "City of Alpha", psgc_code: CABUYAO_PSGC }],
+        barangays: [{ id: BRGY_A, name: "Brgy. One", city_id: CITY_A }],
+      })
+    );
+
+    const { GET } = await import("@/app/api/citizen/budget-allocation/filters/route");
+    const response = await GET(
+      new Request("http://localhost/api/citizen/budget-allocation/filters?scope_level=city")
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.scope_level).toBe("city");
+    expect((body.lgus as Array<{ scope_type: string }>).every((row) => row.scope_type === "city")).toBe(true);
+    expect(body.selected.scope_type).toBe("city");
+  });
+
+  it("falls back to barangay under requested city when scope_level=barangay", async () => {
+    mocksupabasePublicServer.mockReturnValue(
+      createMockClient({
+        aips: [
+          {
+            id: "aip-city-2026",
+            status: "published",
+            fiscal_year: 2026,
+            city_id: CITY_A,
+            barangay_id: null,
+            created_at: "2026-01-11T00:00:00.000Z",
+          },
+          {
+            id: "aip-brgy-a-2026",
+            status: "published",
+            fiscal_year: 2026,
+            city_id: null,
+            barangay_id: BRGY_A,
+            created_at: "2026-01-10T00:00:00.000Z",
+          },
+          {
+            id: "aip-brgy-b-2025",
+            status: "published",
+            fiscal_year: 2025,
+            city_id: null,
+            barangay_id: BRGY_B,
+            created_at: "2025-01-10T00:00:00.000Z",
+          },
+        ],
+        cities: [{ id: CITY_A, name: "City of Alpha", psgc_code: CABUYAO_PSGC }],
+        barangays: [
+          { id: BRGY_A, name: "Brgy. One", city_id: CITY_A },
+          { id: BRGY_B, name: "Brgy. Two", city_id: CITY_A },
+        ],
+      })
+    );
+
+    const { GET } = await import("@/app/api/citizen/budget-allocation/filters/route");
+    const response = await GET(
+      new Request(
+        `http://localhost/api/citizen/budget-allocation/filters?scope_level=barangay&fiscal_year=2026&scope_type=city&scope_id=${CITY_A}`
+      )
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.scope_level).toBe("barangay");
+    expect(body.selected).toEqual({
+      fiscal_year: 2026,
+      scope_level: "barangay",
+      scope_type: "barangay",
+      scope_id: BRGY_A,
+    });
   });
 
   it("auto-selects a valid LGU for a valid year when requested LGU is invalid for that year", async () => {
@@ -328,8 +462,8 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
         ],
         cities: [{ id: CITY_A, name: "City of Alpha", psgc_code: CABUYAO_PSGC }],
         barangays: [
-          { id: BRGY_A, name: "Brgy. One" },
-          { id: BRGY_B, name: "Brgy. Two" },
+          { id: BRGY_A, name: "Brgy. One", city_id: CITY_A },
+          { id: BRGY_B, name: "Brgy. Two", city_id: CITY_A },
         ],
       })
     );
@@ -345,12 +479,25 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
     expect(response.status).toBe(200);
     expect(body.selected).toEqual({
       fiscal_year: 2026,
+      scope_level: "both",
       scope_type: "city",
       scope_id: CITY_A,
     });
     expect(body.lgus).toEqual([
-      { scope_type: "city", scope_id: CITY_A, label: "City of Alpha" },
-      { scope_type: "barangay", scope_id: BRGY_A, label: "Brgy. One" },
+      {
+        scope_type: "city",
+        scope_id: CITY_A,
+        label: "City of Alpha",
+        city_scope_id: CITY_A,
+        city_scope_label: "City of Alpha",
+      },
+      {
+        scope_type: "barangay",
+        scope_id: BRGY_A,
+        label: "Brgy. One",
+        city_scope_id: CITY_A,
+        city_scope_label: "City of Alpha",
+      },
     ]);
   });
 
@@ -376,7 +523,7 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
           },
         ],
         cities: [{ id: CITY_A, name: "City of Alpha", psgc_code: CABUYAO_PSGC }],
-        barangays: [{ id: BRGY_B, name: "Brgy. Two" }],
+        barangays: [{ id: BRGY_B, name: "Brgy. Two", city_id: CITY_A }],
       })
     );
 
@@ -391,6 +538,7 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
     expect(response.status).toBe(200);
     expect(body.selected).toEqual({
       fiscal_year: 2025,
+      scope_level: "both",
       scope_type: "barangay",
       scope_id: BRGY_B,
     });
@@ -413,6 +561,7 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
     expect(response.status).toBe(200);
     expect(body).toEqual({
       has_data: false,
+      scope_level: "both",
       years: [],
       lgus: [],
       selected: null,
@@ -469,9 +618,9 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
           { id: CITY_C, name: "City of Cabuyao", psgc_code: OTHER_CITY_PSGC },
         ],
         barangays: [
-          { id: BRGY_A, name: "Mamatid" },
-          { id: BRGY_B, name: "Brgy. Banay-banay" },
-          { id: BRGY_C, name: "Barangay Pulo" },
+          { id: BRGY_A, name: "Mamatid", city_id: CITY_A },
+          { id: BRGY_B, name: "Brgy. Banay-banay", city_id: CITY_C },
+          { id: BRGY_C, name: "Barangay Pulo", city_id: CITY_C },
         ],
       })
     );

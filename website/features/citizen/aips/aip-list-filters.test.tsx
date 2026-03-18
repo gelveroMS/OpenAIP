@@ -12,6 +12,13 @@ describe("AipListFilters mobile layout", () => {
         ]}
         yearValue="all"
         onYearChange={() => {}}
+        scopeLevelOptions={[
+          { value: "both", label: "Both" },
+          { value: "city", label: "City Only" },
+          { value: "barangay", label: "Barangay Only" },
+        ]}
+        scopeLevelValue="both"
+        onScopeLevelChange={() => {}}
         cityOptions={[
           { value: "all", label: "All Cities" },
           { value: "city-1", label: "City of Cabuyao" },
@@ -30,10 +37,10 @@ describe("AipListFilters mobile layout", () => {
     expect(screen.getByText("Filters")).toBeInTheDocument();
     const grid = container.querySelector("div.grid");
     expect(grid).not.toBeNull();
-    expect(grid?.className).toContain("md:grid-cols-3");
+    expect(grid?.className).toContain("md:grid-cols-4");
 
     const triggers = container.querySelectorAll("[data-slot='select-trigger']");
-    expect(triggers.length).toBe(3);
+    expect(triggers.length).toBe(4);
     for (const trigger of triggers) {
       expect(trigger.className).toContain("h-10");
       expect(trigger.className).toContain("md:h-11");

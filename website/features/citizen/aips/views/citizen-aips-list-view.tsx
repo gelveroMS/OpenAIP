@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import AipListCard from "@/features/citizen/aips/components/aip-list-card";
-import AipListFilters from "@/features/citizen/aips/components/aip-list-filters";
+import AipListFilters, {
+  type AipScopeLevel,
+} from "@/features/citizen/aips/components/aip-list-filters";
 import CitizenExplainerCard from "@/features/citizen/components/citizen-explainer-card";
 import CitizenPageHero from "@/features/citizen/components/citizen-page-hero";
 import type { AipListItem } from "@/features/citizen/aips/types";
@@ -15,6 +17,11 @@ const ALL_YEARS = "all-years";
 const ALL_CITIES = "all-cities";
 const ALL_BARANGAYS = "all-barangays";
 const UNKNOWN_CITY_ID = "unknown-city";
+const SCOPE_LEVEL_OPTIONS: Array<{ value: AipScopeLevel; label: string }> = [
+  { value: "both", label: "Both" },
+  { value: "city", label: "City Only" },
+  { value: "barangay", label: "Barangay Only" },
+];
 
 function sortItems(input: AipListItem[]): AipListItem[] {
   return [...input].sort((left, right) => {
@@ -73,6 +80,7 @@ function getBarangayScope(item: AipListItem): { id: string; label: string; cityI
 export default function CitizenAipsListView({ items }: Props) {
   const sortedItems = useMemo(() => sortItems(items), [items]);
   const [selectedYear, setSelectedYear] = useState<string>(ALL_YEARS);
+  const [selectedScopeLevel, setSelectedScopeLevel] = useState<AipScopeLevel>("both");
   const [selectedCity, setSelectedCity] = useState<string>(ALL_CITIES);
   const [selectedBarangay, setSelectedBarangay] = useState<string>(ALL_BARANGAYS);
 
@@ -86,9 +94,14 @@ export default function CitizenAipsListView({ items }: Props) {
     return sortedItems.filter((item) => item.fiscalYear === year);
   }, [selectedYear, sortedItems]);
 
+  const levelScopedItems = useMemo(() => {
+    if (selectedScopeLevel === "both") return yearScopedItems;
+    return yearScopedItems.filter((item) => item.scopeType === selectedScopeLevel);
+  }, [selectedScopeLevel, yearScopedItems]);
+
   const cityOptions = useMemo(() => {
     const map = new Map<string, { value: string; label: string }>();
-    for (const item of yearScopedItems) {
+    for (const item of levelScopedItems) {
       const cityScope = getCityScope(item);
       if (map.has(cityScope.id)) continue;
       map.set(cityScope.id, {
@@ -101,12 +114,12 @@ export default function CitizenAipsListView({ items }: Props) {
       { value: ALL_CITIES, label: "All Cities" },
       ...Array.from(map.values()).sort((left, right) => left.label.localeCompare(right.label)),
     ];
-  }, [yearScopedItems]);
+  }, [levelScopedItems]);
 
   const barangayOptions = useMemo(() => {
     const map = new Map<string, { value: string; label: string; cityId: string }>();
 
-    for (const item of yearScopedItems) {
+    for (const item of levelScopedItems) {
       const barangayScope = getBarangayScope(item);
       if (!barangayScope) continue;
 
@@ -126,7 +139,7 @@ export default function CitizenAipsListView({ items }: Props) {
         .sort((left, right) => left.label.localeCompare(right.label))
         .map((option) => ({ value: option.value, label: option.label })),
     ];
-  }, [selectedCity, yearScopedItems]);
+  }, [levelScopedItems, selectedCity]);
 
   useEffect(() => {
     if (selectedCity === ALL_CITIES) return;
@@ -135,14 +148,28 @@ export default function CitizenAipsListView({ items }: Props) {
   }, [cityOptions, selectedCity]);
 
   useEffect(() => {
+    if (selectedScopeLevel === "city") {
+      setSelectedBarangay(ALL_BARANGAYS);
+    }
+  }, [selectedScopeLevel]);
+
+  useEffect(() => {
     if (selectedBarangay === ALL_BARANGAYS) return;
+    if (selectedScopeLevel === "city") {
+      setSelectedBarangay(ALL_BARANGAYS);
+      return;
+    }
     if (barangayOptions.some((option) => option.value === selectedBarangay)) return;
     setSelectedBarangay(ALL_BARANGAYS);
-  }, [barangayOptions, selectedBarangay]);
+  }, [barangayOptions, selectedBarangay, selectedScopeLevel]);
 
   const filteredAips = useMemo(() => {
     return sortedItems.filter((item) => {
       if (selectedYear !== ALL_YEARS && item.fiscalYear !== Number(selectedYear)) {
+        return false;
+      }
+
+      if (selectedScopeLevel !== "both" && item.scopeType !== selectedScopeLevel) {
         return false;
       }
 
@@ -151,7 +178,7 @@ export default function CitizenAipsListView({ items }: Props) {
         return false;
       }
 
-      if (selectedBarangay !== ALL_BARANGAYS) {
+      if (selectedScopeLevel !== "city" && selectedBarangay !== ALL_BARANGAYS) {
         const barangayScope = getBarangayScope(item);
         if (!barangayScope) return false;
         return barangayScope.id === selectedBarangay;
@@ -159,7 +186,7 @@ export default function CitizenAipsListView({ items }: Props) {
 
       return true;
     });
-  }, [selectedBarangay, selectedCity, selectedYear, sortedItems]);
+  }, [selectedBarangay, selectedCity, selectedScopeLevel, selectedYear, sortedItems]);
 
   const yearOptions = useMemo(
     () => [
@@ -194,6 +221,9 @@ export default function CitizenAipsListView({ items }: Props) {
         yearOptions={yearOptions}
         yearValue={selectedYear}
         onYearChange={setSelectedYear}
+        scopeLevelOptions={SCOPE_LEVEL_OPTIONS}
+        scopeLevelValue={selectedScopeLevel}
+        onScopeLevelChange={setSelectedScopeLevel}
         cityOptions={cityOptions}
         cityValue={selectedCity}
         onCityChange={setSelectedCity}

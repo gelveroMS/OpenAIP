@@ -1,17 +1,36 @@
 export type BudgetCategoryKey = "general" | "social" | "economic" | "other";
+export type BudgetAllocationScopeLevel = "city" | "barangay" | "both";
 
 export type BudgetAllocationLguOptionVM = {
   id: string;
   label: string;
   scopeType: "city" | "barangay";
+  cityScopeId: string | null;
+  cityScopeLabel: string | null;
+};
+
+export type BudgetAllocationScopeOptionVM = {
+  id: string;
+  label: string;
+};
+
+export type BudgetAllocationBarangayOptionVM = {
+  id: string;
+  label: string;
+  cityScopeId: string | null;
 };
 
 export type BudgetAllocationFiltersVM = {
   selectedYear: number;
   availableYears: number[];
+  selectedScopeLevel: BudgetAllocationScopeLevel;
   selectedScopeType: "city" | "barangay";
   selectedScopeId: string;
+  selectedCityScopeId: string;
+  selectedBarangayScopeId: string;
   availableLGUs: BudgetAllocationLguOptionVM[];
+  availableCities: BudgetAllocationScopeOptionVM[];
+  availableBarangays: BudgetAllocationBarangayOptionVM[];
   searchText: string;
 };
 

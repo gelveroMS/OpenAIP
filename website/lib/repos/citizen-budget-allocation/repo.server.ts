@@ -30,9 +30,11 @@ export const BUDGET_ALLOCATION_DEFAULT_PAGE_SIZE = 10;
 export const BUDGET_ALLOCATION_DEFAULT_SECTOR_CODE: DashboardSectorCode = "1000";
 
 export type BudgetAllocationScopeType = "city" | "barangay";
+export type BudgetAllocationScopeLevel = "city" | "barangay" | "both";
 
 export type BudgetAllocationFiltersInput = {
   fiscalYear?: number | null;
+  scopeLevel?: BudgetAllocationScopeLevel | null;
   prefer?: "year" | "lgu" | null;
   requestedScope?: {
     scopeType: BudgetAllocationScopeType;
@@ -59,14 +61,18 @@ export type BudgetAllocationProjectsInput = {
 
 export type BudgetAllocationFiltersPayload = {
   has_data: boolean;
+  scope_level: BudgetAllocationScopeLevel;
   years: number[];
   lgus: Array<{
     scope_type: BudgetAllocationScopeType;
     scope_id: string;
     label: string;
+    city_scope_id: string | null;
+    city_scope_label: string | null;
   }>;
   selected: {
     fiscal_year: number;
+    scope_level: BudgetAllocationScopeLevel;
     scope_type: BudgetAllocationScopeType;
     scope_id: string;
   } | null;
@@ -151,10 +157,17 @@ type CityScopeRow = ScopeNameRow & {
   psgc_code: string | null;
 };
 
+type BarangayScopeRow = ScopeNameRow & {
+  city_id: string | null;
+  municipality_id: string | null;
+};
+
 type LguOption = {
   scope_type: BudgetAllocationScopeType;
   scope_id: string;
   label: string;
+  city_scope_id: string | null;
+  city_scope_label: string | null;
 };
 
 type AipScopeCandidate = {
@@ -226,6 +239,21 @@ function parseLguKey(
   };
 }
 
+function isScopeTypeAllowedByLevel(
+  scopeType: BudgetAllocationScopeType,
+  scopeLevel: BudgetAllocationScopeLevel
+): boolean {
+  if (scopeLevel === "both") return true;
+  return scopeType === scopeLevel;
+}
+
+function resolveScopeLevel(
+  scopeLevel: BudgetAllocationScopeLevel | null | undefined
+): BudgetAllocationScopeLevel {
+  if (scopeLevel === "city" || scopeLevel === "barangay") return scopeLevel;
+  return "both";
+}
+
 function sortYearsDesc(values: number[]): number[] {
   return [...values].sort((a, b) => b - a);
 }
@@ -264,6 +292,13 @@ function normalizeLguLabel(
     return `Brgy. ${name}`;
   }
 
+  if (/\bcity\b/i.test(name)) return name;
+  return `City of ${name}`;
+}
+
+function normalizeCityLabel(rawName: string, scopeId: string): string {
+  const name = rawName.trim();
+  if (!name) return buildFallbackLabel("city", scopeId);
   if (/\bcity\b/i.test(name)) return name;
   return `City of ${name}`;
 }
@@ -388,6 +423,7 @@ async function loadFiltersUncached(
   input: BudgetAllocationFiltersInput
 ): Promise<BudgetAllocationFiltersPayload> {
   const client = supabasePublicServer();
+  const requestedScopeLevel = resolveScopeLevel(input.scopeLevel);
 
   const { data: aipRows, error: aipsError } = await client
     .from("aips")
@@ -457,25 +493,55 @@ async function loadFiltersUncached(
   if (allLguKeys.size === 0 || allYears.size === 0) {
     return {
       has_data: false,
+      scope_level: requestedScopeLevel,
       years: [],
       lgus: [],
       selected: null,
     };
   }
 
-  const [citiesResult, barangaysResult] = await Promise.all([
-    cityIds.size > 0
-      ? client
-          .from("cities")
-          .select("id,name,psgc_code")
-          .in("id", [...cityIds])
-      : Promise.resolve({ data: [], error: null }),
+  const barangaysResult =
     barangayIds.size > 0
-      ? client.from("barangays").select("id,name").in("id", [...barangayIds])
+      ? await client
+          .from("barangays")
+          .select("id,name,city_id,municipality_id")
+          .in("id", [...barangayIds])
+      : { data: [], error: null };
+
+  if (barangaysResult.error) {
+    throw toRepoError(
+      500,
+      "INTERNAL_ERROR",
+      "Failed to resolve LGU names for budget allocation filters."
+    );
+  }
+
+  const barangayRows = (barangaysResult.data ?? []) as BarangayScopeRow[];
+  const parentCityIdsFromBarangays = new Set(
+    barangayRows
+      .map((row) => row.city_id)
+      .filter((value): value is string => typeof value === "string" && value.length > 0)
+  );
+  const municipalityIdsFromBarangays = new Set(
+    barangayRows
+      .map((row) => row.city_id ? null : row.municipality_id)
+      .filter((value): value is string => typeof value === "string" && value.length > 0)
+  );
+
+  const cityLookupIds = Array.from(new Set([...cityIds, ...parentCityIdsFromBarangays]));
+  const [citiesResult, municipalitiesResult] = await Promise.all([
+    cityLookupIds.length > 0
+      ? client.from("cities").select("id,name,psgc_code").in("id", cityLookupIds)
+      : Promise.resolve({ data: [], error: null }),
+    municipalityIdsFromBarangays.size > 0
+      ? client
+          .from("municipalities")
+          .select("id,name")
+          .in("id", [...municipalityIdsFromBarangays])
       : Promise.resolve({ data: [], error: null }),
   ]);
 
-  if (citiesResult.error || barangaysResult.error) {
+  if (citiesResult.error || municipalitiesResult.error) {
     throw toRepoError(
       500,
       "INTERNAL_ERROR",
@@ -485,16 +551,39 @@ async function loadFiltersUncached(
 
   const cityRows = (citiesResult.data ?? []) as CityScopeRow[];
   const cityNameById = new Map(cityRows.map((row) => [row.id, row.name?.trim() ?? ""]));
+  const municipalityNameById = new Map(
+    ((municipalitiesResult.data ?? []) as ScopeNameRow[]).map((row) => [
+      row.id,
+      row.name?.trim() ?? "",
+    ])
+  );
   const cabuyaoCityIds = new Set(
     cityRows
       .filter((row) => (row.psgc_code ?? "").trim() === CABUYAO_CITY_PSGC)
       .map((row) => row.id)
   );
-  const barangayNameById = new Map(
-    ((barangaysResult.data ?? []) as ScopeNameRow[]).map((row) => [
-      row.id,
-      row.name?.trim() ?? "",
-    ])
+  const barangayNameById = new Map(barangayRows.map((row) => [row.id, row.name?.trim() ?? ""]));
+  const parentCityByBarangayId = new Map<
+    string,
+    { city_scope_id: string | null; city_scope_label: string | null }
+  >(
+    barangayRows.map((row) => {
+      const parentScopeId = row.city_id ?? row.municipality_id ?? null;
+      const parentRawName = row.city_id
+        ? cityNameById.get(row.city_id) ?? ""
+        : row.municipality_id
+          ? municipalityNameById.get(row.municipality_id) ?? ""
+          : "";
+      return [
+        row.id,
+        {
+          city_scope_id: parentScopeId,
+          city_scope_label: parentScopeId
+            ? normalizeCityLabel(parentRawName, parentScopeId)
+            : null,
+        },
+      ];
+    })
   );
 
   const optionByKey = new Map<string, LguOption>();
@@ -502,47 +591,103 @@ async function loadFiltersUncached(
     const parsedKey = parseLguKey(key);
     if (!parsedKey) continue;
 
-    let label = "";
     if (parsedKey.scopeType === "city") {
-      label = cityNameById.get(parsedKey.scopeId) ?? "";
-    } else {
-      label = barangayNameById.get(parsedKey.scopeId) ?? "";
+      const label = normalizeLguLabel(
+        parsedKey.scopeType,
+        cityNameById.get(parsedKey.scopeId) ?? "",
+        parsedKey.scopeId
+      );
+      optionByKey.set(key, {
+        scope_type: parsedKey.scopeType,
+        scope_id: parsedKey.scopeId,
+        label,
+        city_scope_id: parsedKey.scopeId,
+        city_scope_label: label,
+      });
+      continue;
     }
 
+    const label = normalizeLguLabel(
+      parsedKey.scopeType,
+      barangayNameById.get(parsedKey.scopeId) ?? "",
+      parsedKey.scopeId
+    );
+    const parentScope = parentCityByBarangayId.get(parsedKey.scopeId);
     optionByKey.set(key, {
       scope_type: parsedKey.scopeType,
       scope_id: parsedKey.scopeId,
-      label: normalizeLguLabel(parsedKey.scopeType, label, parsedKey.scopeId),
+      label,
+      city_scope_id: parentScope?.city_scope_id ?? null,
+      city_scope_label: parentScope?.city_scope_label ?? null,
     });
   }
 
-  const allYearsSorted = sortYearsDesc([...allYears]);
-  const allLgusSorted = sortLguOptions(
-    [...allLguKeys]
-      .map((key) => optionByKey.get(key))
-      .filter((value): value is LguOption => !!value)
-  );
+  const sortedYears = sortYearsDesc([...allYears]);
+  let resolvedScopeLevel = requestedScopeLevel;
 
-  const getYearsForLgu = (lguKey: string): number[] =>
-    sortYearsDesc([...(yearsByLgu.get(lguKey) ?? new Set<number>())]);
-
-  const getLgusForYear = (year: number): LguOption[] => {
+  const getLgusForYearByLevel = (
+    year: number,
+    scopeLevel: BudgetAllocationScopeLevel
+  ): LguOption[] => {
     const keys = [...(lgusByYear.get(year) ?? new Set<string>())];
     return sortLguOptions(
       keys
         .map((key) => optionByKey.get(key))
-        .filter((value): value is LguOption => !!value)
+        .filter(
+          (value): value is LguOption =>
+            !!value && isScopeTypeAllowedByLevel(value.scope_type, scopeLevel)
+        )
     );
   };
 
+  const getLgusByLevel = (scopeLevel: BudgetAllocationScopeLevel): LguOption[] =>
+    sortLguOptions(
+      [...allLguKeys]
+        .map((key) => optionByKey.get(key))
+        .filter(
+          (value): value is LguOption =>
+            !!value && isScopeTypeAllowedByLevel(value.scope_type, scopeLevel)
+        )
+    );
+
+  if (getLgusByLevel(resolvedScopeLevel).length === 0 && resolvedScopeLevel !== "both") {
+    resolvedScopeLevel = "both";
+  }
+
+  const allLgusByLevel = getLgusByLevel(resolvedScopeLevel);
+  if (allLgusByLevel.length === 0) {
+    return {
+      has_data: false,
+      scope_level: resolvedScopeLevel,
+      years: [],
+      lgus: [],
+      selected: null,
+    };
+  }
+
+  const getYearsForLgu = (lguKey: string): number[] =>
+    sortYearsDesc([...(yearsByLgu.get(lguKey) ?? new Set<number>())]);
+
+  const getLatestYearForLgu = (option: LguOption): number | null => {
+    const key = toLguKey(option.scope_type, option.scope_id);
+    return getYearsForLgu(key)[0] ?? null;
+  };
+
   const requestedYear =
-    typeof input.fiscalYear === "number" && allYears.has(input.fiscalYear)
+    typeof input.fiscalYear === "number" &&
+    allYears.has(input.fiscalYear) &&
+    getLgusForYearByLevel(input.fiscalYear, resolvedScopeLevel).length > 0
       ? input.fiscalYear
       : null;
-  const requestedLguKey = input.requestedScope
-    ? toLguKey(input.requestedScope.scopeType, input.requestedScope.scopeId)
+  const requestedScope = input.requestedScope ?? null;
+  const requestedLguKey = requestedScope
+    ? toLguKey(requestedScope.scopeType, requestedScope.scopeId)
     : null;
-  const hasRequestedLgu = requestedLguKey ? optionByKey.has(requestedLguKey) : false;
+  const requestedLguOption = requestedLguKey ? optionByKey.get(requestedLguKey) : null;
+  const hasRequestedLgu = Boolean(
+    requestedLguOption &&
+      isScopeTypeAllowedByLevel(requestedLguOption.scope_type, resolvedScopeLevel)
+  );
   const hasRequestedCombination =
     !!requestedLguKey &&
     hasRequestedLgu &&
@@ -553,33 +698,105 @@ async function loadFiltersUncached(
     scopeCandidates
       .filter(
         (candidate) =>
-          candidate.scope_type === "city" && cabuyaoCityIds.has(candidate.scope_id)
+          candidate.scope_type === "city" &&
+          cabuyaoCityIds.has(candidate.scope_id) &&
+          isScopeTypeAllowedByLevel(candidate.scope_type, resolvedScopeLevel)
       )
       .sort(compareCabuyaoCandidates)[0] ?? null;
   const defaultBarangayCandidate =
     scopeCandidates
-      .filter((candidate) => candidate.scope_type === "barangay")
+      .filter(
+        (candidate) =>
+          candidate.scope_type === "barangay" &&
+          isScopeTypeAllowedByLevel(candidate.scope_type, resolvedScopeLevel)
+      )
       .sort(compareByUploadDescThenId)[0] ?? null;
 
+  const getSpecialScopeFallback = (): { lgu: LguOption; year: number } | null => {
+    if (!requestedScope) return null;
+
+    if (resolvedScopeLevel === "barangay" && requestedScope.scopeType === "city") {
+      const byRequestedYear =
+        requestedYear === null
+          ? []
+          : getLgusForYearByLevel(requestedYear, resolvedScopeLevel).filter(
+              (option) =>
+                option.scope_type === "barangay" &&
+                option.city_scope_id === requestedScope.scopeId
+            );
+
+      if (byRequestedYear.length > 0 && requestedYear !== null) {
+        return { lgu: byRequestedYear[0], year: requestedYear };
+      }
+
+      const fallbackBarangay = allLgusByLevel.find(
+        (option) =>
+          option.scope_type === "barangay" &&
+          option.city_scope_id === requestedScope.scopeId
+      );
+      if (!fallbackBarangay) return null;
+
+      const fallbackYear = getLatestYearForLgu(fallbackBarangay);
+      if (typeof fallbackYear !== "number") return null;
+      return { lgu: fallbackBarangay, year: fallbackYear };
+    }
+
+    if (resolvedScopeLevel === "city" && requestedScope.scopeType === "barangay") {
+      const requestedBarangay = optionByKey.get(
+        toLguKey(requestedScope.scopeType, requestedScope.scopeId)
+      );
+      const parentCityScopeId = requestedBarangay?.city_scope_id ?? null;
+      if (!parentCityScopeId) return null;
+
+      if (requestedYear !== null) {
+        const cityForRequestedYear = getLgusForYearByLevel(
+          requestedYear,
+          resolvedScopeLevel
+        ).find(
+          (option) =>
+            option.scope_type === "city" && option.scope_id === parentCityScopeId
+        );
+        if (cityForRequestedYear) {
+          return { lgu: cityForRequestedYear, year: requestedYear };
+        }
+      }
+
+      const fallbackCity = allLgusByLevel.find(
+        (option) => option.scope_type === "city" && option.scope_id === parentCityScopeId
+      );
+      if (!fallbackCity) return null;
+
+      const fallbackYear = getLatestYearForLgu(fallbackCity);
+      if (typeof fallbackYear !== "number") return null;
+      return { lgu: fallbackCity, year: fallbackYear };
+    }
+
+    return null;
+  };
+
   const defaultSelection = (() => {
-    if (defaultCabuyaoCandidate) {
+    if (defaultCabuyaoCandidate && resolvedScopeLevel !== "barangay") {
       const option = optionByKey.get(toLguKey("city", defaultCabuyaoCandidate.scope_id));
       if (option) {
+        const latestYear = getLatestYearForLgu(option);
+        if (typeof latestYear !== "number") return null;
         return {
           lgu: option,
-          year: defaultCabuyaoCandidate.fiscal_year,
+          year: latestYear,
         };
       }
     }
 
-    if (defaultBarangayCandidate) {
+    if (defaultBarangayCandidate && resolvedScopeLevel !== "city") {
       const option = optionByKey.get(
         toLguKey("barangay", defaultBarangayCandidate.scope_id)
       );
       if (option) {
+        const latestYear = getLatestYearForLgu(option);
+        if (typeof latestYear !== "number") return null;
         return {
           lgu: option,
-          year: defaultBarangayCandidate.fiscal_year,
+          year: latestYear,
         };
       }
     }
@@ -587,12 +804,17 @@ async function loadFiltersUncached(
     return null;
   })();
 
-  const fallbackLgu = defaultSelection?.lgu ?? allLgusSorted[0] ?? null;
-  const fallbackYear = defaultSelection?.year ?? allYearsSorted[0] ?? null;
+  const fallbackLgu = defaultSelection?.lgu ?? allLgusByLevel[0] ?? null;
+  const fallbackYear =
+    defaultSelection?.year ??
+    (fallbackLgu ? getLatestYearForLgu(fallbackLgu) : null) ??
+    sortedYears.find((year) => getLgusForYearByLevel(year, resolvedScopeLevel).length > 0) ??
+    null;
 
   if (!fallbackLgu || typeof fallbackYear !== "number") {
     return {
       has_data: false,
+      scope_level: resolvedScopeLevel,
       years: [],
       lgus: [],
       selected: null,
@@ -601,38 +823,74 @@ async function loadFiltersUncached(
 
   let selectedYear = fallbackYear;
   let selectedLgu = fallbackLgu;
+  const specialScopeFallback = getSpecialScopeFallback();
 
-  if (hasRequestedCombination && requestedLguKey && typeof requestedYear === "number") {
+  if (
+    hasRequestedCombination &&
+    requestedLguOption &&
+    requestedLguKey &&
+    typeof requestedYear === "number"
+  ) {
     selectedYear = requestedYear;
-    selectedLgu = optionByKey.get(requestedLguKey) ?? fallbackLgu;
+    selectedLgu = requestedLguOption;
   } else if (
     typeof requestedYear === "number" &&
-    requestedLguKey &&
+    requestedLguOption &&
     hasRequestedLgu &&
     input.prefer === "lgu"
   ) {
-    const yearsForLgu = getYearsForLgu(requestedLguKey);
-    selectedLgu = optionByKey.get(requestedLguKey) ?? fallbackLgu;
+    const requestedKey = toLguKey(
+      requestedLguOption.scope_type,
+      requestedLguOption.scope_id
+    );
+    const yearsForLgu = getYearsForLgu(requestedKey);
+    selectedLgu = optionByKey.get(requestedKey) ?? fallbackLgu;
     selectedYear = yearsForLgu[0] ?? fallbackYear;
+  } else if (
+    typeof requestedYear === "number" &&
+    specialScopeFallback &&
+    specialScopeFallback.year === requestedYear
+  ) {
+    selectedYear = specialScopeFallback.year;
+    selectedLgu = specialScopeFallback.lgu;
   } else if (typeof requestedYear === "number") {
-    const optionsForYear = getLgusForYear(requestedYear);
-    selectedYear = requestedYear;
-    selectedLgu = optionsForYear[0] ?? fallbackLgu;
-  } else if (requestedLguKey && hasRequestedLgu) {
-    const yearsForLgu = getYearsForLgu(requestedLguKey);
-    selectedLgu = optionByKey.get(requestedLguKey) ?? fallbackLgu;
+    const optionsForYear = getLgusForYearByLevel(requestedYear, resolvedScopeLevel);
+    if (optionsForYear[0]) {
+      selectedYear = requestedYear;
+      selectedLgu = optionsForYear[0];
+    } else if (specialScopeFallback) {
+      selectedYear = specialScopeFallback.year;
+      selectedLgu = specialScopeFallback.lgu;
+    }
+  } else if (requestedLguOption && hasRequestedLgu) {
+    const requestedKey = toLguKey(
+      requestedLguOption.scope_type,
+      requestedLguOption.scope_id
+    );
+    const yearsForLgu = getYearsForLgu(requestedKey);
+    selectedLgu = optionByKey.get(requestedKey) ?? fallbackLgu;
     selectedYear = yearsForLgu[0] ?? fallbackYear;
+  } else if (specialScopeFallback) {
+    selectedLgu = specialScopeFallback.lgu;
+    selectedYear = specialScopeFallback.year;
   }
 
-  const years = getYearsForLgu(toLguKey(selectedLgu.scope_type, selectedLgu.scope_id));
-  const lgus = getLgusForYear(selectedYear);
+  const selectedKey = toLguKey(selectedLgu.scope_type, selectedLgu.scope_id);
+  if (!(yearsByLgu.get(selectedKey)?.has(selectedYear) ?? false)) {
+    selectedYear = getLatestYearForLgu(selectedLgu) ?? fallbackYear;
+  }
+
+  const years = getYearsForLgu(selectedKey);
+  const lgus = getLgusForYearByLevel(selectedYear, resolvedScopeLevel);
 
   return {
     has_data: true,
+    scope_level: resolvedScopeLevel,
     years,
     lgus,
     selected: {
       fiscal_year: selectedYear,
+      scope_level: resolvedScopeLevel,
       scope_type: selectedLgu.scope_type,
       scope_id: selectedLgu.scope_id,
     },
@@ -1121,12 +1379,14 @@ const getBudgetAllocationFiltersCached = ENABLE_NEXT_CACHE
   ? unstable_cache(
       async (
         fiscalYear: number | null,
+        scopeLevel: BudgetAllocationScopeLevel | null,
         scopeType: BudgetAllocationScopeType | null,
         scopeId: string | null,
         prefer: "year" | "lgu" | null
       ) =>
         loadFiltersUncached({
           fiscalYear,
+          scopeLevel,
           requestedScope:
             scopeType && scopeId
               ? {
@@ -1136,7 +1396,7 @@ const getBudgetAllocationFiltersCached = ENABLE_NEXT_CACHE
               : null,
           prefer,
         }),
-      ["citizen-budget-allocation:filters:v1"],
+      ["citizen-budget-allocation:filters:v2"],
       {
         revalidate: CITIZEN_DASHBOARD_REVALIDATE_SECONDS,
         tags: [CITIZEN_DASHBOARD_CACHE_TAGS.budgetFilters],
@@ -1144,12 +1404,14 @@ const getBudgetAllocationFiltersCached = ENABLE_NEXT_CACHE
     )
   : async (
       fiscalYear: number | null,
+      scopeLevel: BudgetAllocationScopeLevel | null,
       scopeType: BudgetAllocationScopeType | null,
       scopeId: string | null,
       prefer: "year" | "lgu" | null
     ) =>
       loadFiltersUncached({
         fiscalYear,
+        scopeLevel,
         requestedScope:
           scopeType && scopeId
             ? {
@@ -1237,6 +1499,7 @@ export async function getCitizenBudgetAllocationFilters(
     label: "budget-allocation.filters",
     meta: {
       fiscalYear: input.fiscalYear ?? null,
+      scopeLevel: input.scopeLevel ?? null,
       scopeType: input.requestedScope?.scopeType ?? null,
       hasScopeId: Boolean(input.requestedScope?.scopeId),
       prefer: input.prefer ?? null,
@@ -1244,6 +1507,7 @@ export async function getCitizenBudgetAllocationFilters(
     run: async () =>
       getBudgetAllocationFiltersCached(
         input.fiscalYear ?? null,
+        input.scopeLevel ?? null,
         input.requestedScope?.scopeType ?? null,
         input.requestedScope?.scopeId ?? null,
         input.prefer ?? null
@@ -1308,6 +1572,7 @@ export async function getCitizenBudgetAllocationInitialPayload(
     label: "budget-allocation.initial-payload",
     meta: {
       fiscalYear: input.fiscalYear ?? null,
+      scopeLevel: input.scopeLevel ?? null,
       scopeType: input.requestedScope?.scopeType ?? null,
       hasScopeId: Boolean(input.requestedScope?.scopeId),
     },

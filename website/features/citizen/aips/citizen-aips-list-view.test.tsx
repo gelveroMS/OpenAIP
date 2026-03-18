@@ -21,22 +21,28 @@ vi.mock("@/features/citizen/aips/components/aip-list-card", () => ({
 vi.mock("@/features/citizen/aips/components/aip-list-filters", () => ({
   default: ({
     yearOptions,
+    scopeLevelOptions,
+    scopeLevelValue,
     cityOptions,
     barangayOptions,
     yearValue,
     cityValue,
     barangayValue,
     onYearChange,
+    onScopeLevelChange,
     onCityChange,
     onBarangayChange,
   }: {
     yearOptions: Array<{ value: string; label: string }>;
+    scopeLevelOptions: Array<{ value: "both" | "city" | "barangay"; label: string }>;
+    scopeLevelValue: "both" | "city" | "barangay";
     cityOptions: Array<{ value: string; label: string }>;
     barangayOptions: Array<{ value: string; label: string }>;
     yearValue: string;
     cityValue: string;
     barangayValue: string;
     onYearChange: (value: string) => void;
+    onScopeLevelChange: (value: "both" | "city" | "barangay") => void;
     onCityChange: (value: string) => void;
     onBarangayChange: (value: string) => void;
   }) => {
@@ -50,11 +56,18 @@ vi.mock("@/features/citizen/aips/components/aip-list-filters", () => ({
       barangayOptions.find((option) => option.label === "All Barangays")?.value ?? "";
     const barangayAlpha =
       barangayOptions.find((option) => option.label.includes("Brgy. Alpha"))?.value ?? "";
+    const scopeBoth = scopeLevelOptions.find((option) => option.value === "both")?.value ?? "both";
+    const scopeCity = scopeLevelOptions.find((option) => option.value === "city")?.value ?? "city";
+    const scopeBarangay =
+      scopeLevelOptions.find((option) => option.value === "barangay")?.value ?? "barangay";
 
     return (
       <div data-testid="filters">
         <button onClick={() => onYearChange(yearAll)}>year-all</button>
         <button onClick={() => onYearChange(year2026)}>year-2026</button>
+        <button onClick={() => onScopeLevelChange(scopeBoth)}>scope-both</button>
+        <button onClick={() => onScopeLevelChange(scopeCity)}>scope-city</button>
+        <button onClick={() => onScopeLevelChange(scopeBarangay)}>scope-barangay</button>
         <button onClick={() => onCityChange(cityAll)}>city-all</button>
         <button onClick={() => onCityChange(cityA)}>city-a</button>
         <button onClick={() => onCityChange(cityB)}>city-b</button>
@@ -62,6 +75,7 @@ vi.mock("@/features/citizen/aips/components/aip-list-filters", () => ({
         <button onClick={() => onBarangayChange(barangayAll)}>barangay-all</button>
         <button onClick={() => onBarangayChange(barangayAlpha)}>barangay-alpha</button>
         <div data-testid="selected-year">{yearValue}</div>
+        <div data-testid="selected-scope-level">{scopeLevelValue}</div>
         <div data-testid="selected-city">{cityValue}</div>
         <div data-testid="selected-barangay">{barangayValue}</div>
         <div data-testid="city-options">{cityOptions.map((option) => option.label).join("|")}</div>
@@ -246,5 +260,31 @@ describe("CitizenAipsListView", () => {
     expect(screen.getByTestId("selected-city").textContent).toBe("all-cities");
     expect(screen.getByTestId("city-options").textContent).not.toContain("City C");
     expect(screen.getByTestId("barangay-options").textContent).not.toContain("Brgy. Gamma");
+  });
+
+  it("applies AIP level filtering and resets barangay when switching to city mode", () => {
+    render(<CitizenAipsListView items={ITEMS} />);
+
+    fireEvent.click(screen.getByText("scope-city"));
+    expect(screen.getByTestId("selected-scope-level").textContent).toBe("city");
+    expect(screen.getByText(/Showing 4 results/)).toBeInTheDocument();
+    expect(screen.queryByText("AIP Brgy Alpha 2026")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("scope-barangay"));
+    expect(screen.getByTestId("selected-scope-level").textContent).toBe("barangay");
+    expect(screen.getByText(/Showing 4 results/)).toBeInTheDocument();
+    expect(screen.queryByText("AIP City A 2026")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("city-a"));
+    expect(screen.getByText(/Showing 2 results/)).toBeInTheDocument();
+    expect(screen.getByText("AIP Brgy Alpha 2026")).toBeInTheDocument();
+    expect(screen.queryByText("AIP Brgy Beta 2026")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("barangay-alpha"));
+    expect(screen.getByText(/Showing 2 results/)).toBeInTheDocument();
+    expect(screen.getByTestId("selected-barangay").textContent).not.toBe("all-barangays");
+
+    fireEvent.click(screen.getByText("scope-city"));
+    expect(screen.getByTestId("selected-barangay").textContent).toBe("all-barangays");
   });
 });
