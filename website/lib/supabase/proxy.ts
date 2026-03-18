@@ -46,6 +46,10 @@ function isApiRoute(pathname: string): boolean {
   return pathname.startsWith("/api/");
 }
 
+function isAuthRoute(pathname: string): boolean {
+  return pathname.startsWith("/auth/");
+}
+
 function buildForwardedHeaders(request: NextRequest, extraHeaders?: Headers): Headers {
   const headers = new Headers(request.headers);
   if (extraHeaders) {
@@ -153,6 +157,7 @@ export async function updateSession(request: NextRequest, options?: UpdateSessio
     request.nextUrl.pathname.endsWith("/forgot-password") ||
     request.nextUrl.pathname.endsWith("/update-password") ||
     request.nextUrl.pathname.endsWith("/confirm");
+  const isAuthPath = isAuthRoute(pathname);
 
   const isCitizenProtectedRoute =
     pathRole === "citizen" && (pathname === "/account" || pathname.startsWith("/account/"));
@@ -171,7 +176,7 @@ export async function updateSession(request: NextRequest, options?: UpdateSessio
     return response;
   }
 
-  if (userId && !userRole && pathRole !== "citizen") {
+  if (userId && !userRole && pathRole !== "citizen" && !isAuthPath) {
     const unauthorizedPath = `/${pathRole}/unauthorized`;
     if (pathname !== unauthorizedPath) {
       const url = request.nextUrl.clone();
@@ -180,7 +185,7 @@ export async function updateSession(request: NextRequest, options?: UpdateSessio
     }
   }
 
-  if (userId && userRole && pathRole !== userRole && !isCitizenPublicRoute) {
+  if (userId && userRole && pathRole !== userRole && !isCitizenPublicRoute && !isAuthPath) {
     const url = request.nextUrl.clone();
     url.pathname = `${userRole === "citizen" ? "" : `/${userRole}`}/unauthorized`;
     return NextResponse.redirect(url);

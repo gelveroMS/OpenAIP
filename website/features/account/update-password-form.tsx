@@ -31,6 +31,7 @@ import {
   validatePasswordWithPolicy,
   type PasswordPolicyLike,
 } from '@/lib/security/password-policy'
+import type { EmailOtpType } from '@supabase/supabase-js'
 
 function readTokensFromHash() {
   if (typeof window === "undefined" || !window.location.hash) return null
@@ -46,14 +47,25 @@ function readCodeFromQuery() {
   return new URLSearchParams(window.location.search).get("code")
 }
 
+function readTokenHashFromQuery() {
+  if (typeof window === "undefined") return null
+  const params = new URLSearchParams(window.location.search)
+  const tokenHash = params.get("token_hash")
+  const type = params.get("type") as EmailOtpType | null
+  if (!tokenHash || !type) return null
+  return { tokenHash, type }
+}
+
 function scrubSensitiveAuthParams() {
   if (typeof window === "undefined") return
   const searchParams = new URLSearchParams(window.location.search)
   const hadCode = searchParams.has("code")
   const hadType = searchParams.has("type")
+  const hadTokenHash = searchParams.has("token_hash")
   if (hadCode) searchParams.delete("code")
   if (hadType) searchParams.delete("type")
-  if (!hadCode && !hadType) return
+  if (hadTokenHash) searchParams.delete("token_hash")
+  if (!hadCode && !hadType && !hadTokenHash) return
   const nextSearch = searchParams.toString()
   const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`
   window.history.replaceState(null, "", nextUrl)
@@ -97,9 +109,6 @@ export function UpdatePasswordForm({role}:AuthParameters) {
     policyErrors.length === 0
 
   const ensureInviteSession = useCallback(async () => {
-    const { data } = await supabase.auth.getSession()
-    if (data.session) return
-
     const code = readCodeFromQuery()
     if (code) {
       const { error } = await supabase.auth.exchangeCodeForSession(code)
@@ -108,17 +117,32 @@ export function UpdatePasswordForm({role}:AuthParameters) {
       return
     }
 
+    const tokenHash = readTokenHashFromQuery()
+    if (tokenHash) {
+      const { error } = await supabase.auth.verifyOtp({
+        token_hash: tokenHash.tokenHash,
+        type: tokenHash.type,
+      })
+      if (error) throw error
+      scrubSensitiveAuthParams()
+      return
+    }
+
     const tokens = readTokensFromHash()
-    if (!tokens) return
+    if (tokens) {
+      const { error } = await supabase.auth.setSession({
+        access_token: tokens.accessToken,
+        refresh_token: tokens.refreshToken,
+      })
+      if (error) throw error
 
-    const { error } = await supabase.auth.setSession({
-      access_token: tokens.accessToken,
-      refresh_token: tokens.refreshToken,
-    })
-    if (error) throw error
+      // Drop sensitive tokens from the URL once session cookies are set.
+      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`)
+      return
+    }
 
-    // Drop sensitive tokens from the URL once session cookies are set.
-    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`)
+    const { data } = await supabase.auth.getSession()
+    if (data.session) return
   }, [supabase])
 
   useEffect(() => {
@@ -171,7 +195,7 @@ export function UpdatePasswordForm({role}:AuthParameters) {
       const payload = (await response.json().catch(() => null)) as
         | { ok?: boolean; error?: { message?: string } }
         | null;
-      if (!response.ok || payload?.ok === false) {
+      if (!response.ok || payload?.ok !== true) {
         throw new Error(payload?.error?.message ?? "Unable to update password.");
       }
       // Update this route to redirect to an authenticated route. The user already has an active session.
