@@ -1,5 +1,5 @@
-import AdminRouteLoading from "@/app/admin/(authenticated)/admin-route-loading";
+import SmartFullPageLoader from "@/components/ui/SmartFullPageLoader";
 
-export default function WorkflowOversightLoading() {
-  return <AdminRouteLoading />;
+export default function RouteLoading() {
+  return <SmartFullPageLoader target="admin-main" />;
 }

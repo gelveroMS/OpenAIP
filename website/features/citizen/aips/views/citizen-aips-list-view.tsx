@@ -170,7 +170,7 @@ export default function CitizenAipsListView({ items }: Props) {
   );
 
   return (
-    <section className="space-y-6">
+    <section className="space-y-4 md:space-y-6 overflow-x-hidden">
       <CitizenPageHero
         title="Annual Investment Plans"
         subtitle="Explore how your city or barangay plans to use public funds for programs, projects, and community development throughout the year."
@@ -202,11 +202,11 @@ export default function CitizenAipsListView({ items }: Props) {
         onBarangayChange={setSelectedBarangay}
       />
 
-      <p className="text-sm text-slate-500">
+      <p className="text-xs text-slate-500 md:text-sm">
         Showing {filteredAips.length} result{filteredAips.length !== 1 ? "s" : ""}
       </p>
 
-      <div className="space-y-4">
+      <div className="space-y-3 md:space-y-4">
         {filteredAips.map((item) => (
           <AipListCard key={item.id} item={item} />
         ))}

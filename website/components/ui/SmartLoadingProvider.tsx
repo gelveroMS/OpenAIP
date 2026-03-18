@@ -64,7 +64,6 @@ function LoadingIndicator({ label }: { label: string }) {
           width={64}
           height={64}
           className="relative z-10 h-11 w-11 sm:h-14 sm:w-14 lg:h-16 lg:w-16"
-          priority
         />
       </div>
       <p className="max-w-[18rem] text-sm font-semibold tracking-tight text-[#0B3440] sm:text-base">

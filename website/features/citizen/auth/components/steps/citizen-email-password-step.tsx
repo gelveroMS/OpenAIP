@@ -44,8 +44,8 @@ export default function CitizenEmailPasswordStep({
   const isLogin = mode === "login";
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto bg-white p-8 md:p-10">
-      <div className="m-auto w-full max-w-md space-y-8">
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-white px-5 py-6 sm:px-6 sm:py-7 md:p-10">
+      <div className="m-auto w-full max-w-[380px] space-y-6 md:max-w-md md:space-y-8">
         <CitizenAuthHeader
           titleId={titleId}
           descriptionId={descriptionId}
@@ -62,7 +62,7 @@ export default function CitizenEmailPasswordStep({
             event.preventDefault();
             onSubmit();
           }}
-          className="space-y-5"
+          className="space-y-4 md:space-y-5"
         >
           <div className="space-y-2">
             <Label htmlFor="citizen-auth-email" className="text-sm font-medium text-slate-800">

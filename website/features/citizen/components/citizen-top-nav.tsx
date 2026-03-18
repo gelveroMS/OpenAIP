@@ -106,7 +106,7 @@ export default function CitizenTopNav() {
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200 bg-[#D3DBE0]">
       {/* FULL-WIDTH BAR; center nav items via absolute centering */}
-      <div className="relative flex h-16 w-full items-center px-20 md:px-15 sm:px-4">
+      <div className="relative flex h-16 w-full items-center px-3 sm:px-4 md:px-15 lg:px-20">
         {/* LEFT: Logo */}
         <div className="flex items-center">
           <Link href="/" className="flex items-center gap-2" aria-label="OpenAIP home">
@@ -116,7 +116,6 @@ export default function CitizenTopNav() {
               width={50}
               height={50}
               className="h-12 w-12"
-              priority
             />
             <span className="text-2xl font-semibold tracking-tight text-[#0B3440]">OpenAIP</span>
           </Link>
@@ -201,15 +200,50 @@ export default function CitizenTopNav() {
         <div className="ml-auto md:hidden">
           <Sheet>
             <SheetTrigger asChild>
-              <Button variant="outline" size="icon" aria-label="Open menu" aria-controls={mobileSheetId}>
-                <Menu className="h-5 w-5" />
-              </Button>
+              <button
+                type="button"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700"
+                aria-label="Open menu"
+                aria-controls={mobileSheetId}
+              >
+                <Menu className="h-4 w-4" />
+              </button>
             </SheetTrigger>
 
             <SheetContent id={mobileSheetId} side="right" className="w-[280px]">
               <SheetTitle className="sr-only">Citizen navigation</SheetTitle>
 
-              <div className="mt-8 flex flex-col gap-2">
+              <div className="mt-8 mb-5 border-b border-slate-200 pb-5">
+                {isSignedIn ? (
+                  <div className="flex items-center justify-between gap-4 px-2 py-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-slate-900">{profile?.fullName}</p>
+                      <p className="truncate text-xs text-slate-500">{profile?.barangay}</p>
+                    </div>
+                    <div className="flex items-center gap-2.5">
+                      <button
+                        type="button"
+                        className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#0B3440]"
+                        aria-label="Open account"
+                        aria-haspopup="dialog"
+                        aria-expanded={accountModalOpen}
+                        onClick={() => setAccountModalOpen(true)}
+                      >
+                        <User className="h-4 w-4 text-white" />
+                      </button>
+                      <NotificationsBell href="/notifications" className="h-9 w-9" />
+                    </div>
+                  </div>
+                ) : (
+                  <Button asChild className="w-full bg-[#0E7490] text-white hover:bg-[#0C6078]">
+                    <Link href={signInHref} onClick={handleSignInClick}>
+                      Sign In
+                    </Link>
+                  </Button>
+                )}
+              </div>
+
+              <div className="flex flex-col gap-2">
                 {CITIZEN_NAV.map((item) => {
                   const active = isActivePath(pathname, item.href);
 
@@ -270,36 +304,6 @@ export default function CitizenTopNav() {
                     </Link>
                   );
                 })}
-              </div>
-
-              <div className="mt-6 border-t border-slate-200 pt-6">
-                {isSignedIn ? (
-                  <div className="space-y-3 rounded-lg border border-slate-200 bg-white px-3 py-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-slate-900">{profile?.fullName}</p>
-                      <p className="truncate text-xs text-slate-500">{profile?.barangay}</p>
-                    </div>
-                    <button
-                      type="button"
-                      className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#0B3440]"
-                      aria-label="Open account"
-                      aria-haspopup="dialog"
-                      aria-expanded={accountModalOpen}
-                      onClick={() => setAccountModalOpen(true)}
-                    >
-                      <User className="h-4 w-4 text-white" />
-                    </button>
-                    <NotificationsBell href="/notifications" className="h-9 w-9" />
-                  </div>
-                </div>
-                ) : (
-                  <Button asChild className="w-full bg-[#0E7490] text-white hover:bg-[#0C6078]">
-                    <Link href={signInHref} onClick={handleSignInClick}>
-                      Sign In
-                    </Link>
-                  </Button>
-                )}
               </div>
             </SheetContent>
           </Sheet>

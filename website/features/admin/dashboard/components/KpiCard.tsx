@@ -47,21 +47,21 @@ export default function KpiCard({
   const ctaButton = onCtaClick ? (
     <Button
       variant="outline"
-      className="h-8.5 w-full justify-between rounded-[10px] border-slate-300 text-[13px]"
+      className="h-9 w-full justify-between rounded-[10px] border-slate-300 text-xs sm:text-[13px]"
       type="button"
       onClick={onCtaClick}
     >
-      <span>{ctaLabel}</span>
+      <span className="truncate">{ctaLabel}</span>
       <ArrowRight className="h-3.5 w-3.5" />
     </Button>
   ) : (
     <Button
       variant="outline"
-      className="h-8.5 w-full justify-between rounded-[10px] border-slate-300 text-[13px]"
+      className="h-9 w-full justify-between rounded-[10px] border-slate-300 text-xs sm:text-[13px]"
       asChild
     >
       <Link href={ctaHref ?? "#"}>
-        <span>{ctaLabel}</span>
+        <span className="truncate">{ctaLabel}</span>
         <ArrowRight className="h-3.5 w-3.5" />
       </Link>
     </Button>
@@ -88,7 +88,7 @@ export default function KpiCard({
         ) : undefined
       }
       meta={ctaButton}
-      className="p-5"
+      className="p-4 sm:p-5"
     />
   );
 }

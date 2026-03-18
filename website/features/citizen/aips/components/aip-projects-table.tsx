@@ -63,24 +63,26 @@ export default function AipProjectsTable({ aip }: { aip: AipDetails }) {
 
   return (
     <Card data-testid="citizen-aip-projects-table" className="border-slate-200">
-      <CardHeader>
-        <CardTitle className="text-2xl text-slate-900">{aip.title} Details</CardTitle>
+      <CardHeader className="px-4 pb-3 pt-4 sm:px-6 sm:pb-4 sm:pt-6">
+        <CardTitle className="text-xl text-slate-900 sm:text-2xl">{aip.title} Details</CardTitle>
       </CardHeader>
 
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 px-4 pb-4 sm:px-6 sm:pb-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <Tabs value={activeSector} onValueChange={(value) => setActiveSector(value as AipProjectSector)}>
-            <TabsList className="h-8 gap-2 rounded-full bg-slate-100 p-1">
+            <div className="overflow-x-auto pb-1">
+            <TabsList className="h-8 min-w-max gap-1.5 rounded-full bg-slate-100 p-1">
               {SECTOR_TABS.map((sector) => (
                 <TabsTrigger
                   key={sector}
                   value={sector}
-                  className="h-6 rounded-full px-3 text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm"
+                  className="h-6 rounded-full px-2.5 text-[11px] sm:px-3 sm:text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm"
                 >
                   {sector}
                 </TabsTrigger>
               ))}
             </TabsList>
+            </div>
           </Tabs>
 
           <div className="w-full md:w-[280px]">
@@ -91,7 +93,7 @@ export default function AipProjectsTable({ aip }: { aip: AipDetails }) {
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search by project name or keyword"
-                className="h-9 bg-white pl-9 text-xs"
+                className="h-9 bg-white pl-9 text-xs sm:text-sm"
               />
             </div>
           </div>
@@ -109,8 +111,8 @@ export default function AipProjectsTable({ aip }: { aip: AipDetails }) {
           </div>
         ) : null}
 
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-          <Table>
+        <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+          <Table className="min-w-[640px]">
             <TableHeader>
               <TableRow className="bg-slate-50 hover:bg-slate-50">
                 <TableHead className="text-xs font-semibold text-slate-700">AIP Reference Code</TableHead>
@@ -133,9 +135,9 @@ export default function AipProjectsTable({ aip }: { aip: AipDetails }) {
                     router.push(`/aips/${encodeURIComponent(aip.id)}/${encodeURIComponent(row.id)}`);
                   }}
                 >
-                  <TableCell className="text-sm text-slate-700">{row.projectRefCode}</TableCell>
-                  <TableCell className="text-sm text-slate-700">{row.programDescription}</TableCell>
-                  <TableCell className="text-right text-sm text-slate-700">{formatCurrency(row.totalAmount)}</TableCell>
+                  <TableCell className="text-sm text-slate-700 break-words">{row.projectRefCode}</TableCell>
+                  <TableCell className="text-sm text-slate-700 break-words">{row.programDescription}</TableCell>
+                  <TableCell className="text-right text-sm text-slate-700 whitespace-nowrap">{formatCurrency(row.totalAmount)}</TableCell>
                 </TableRow>
               ))}
               {visibleRows.length === 0 && (
@@ -150,7 +152,7 @@ export default function AipProjectsTable({ aip }: { aip: AipDetails }) {
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-slate-600">
+          <p className="text-xs text-slate-600 sm:text-sm">
             Showing {showingStart}-{showingEnd} of {filteredRows.length} projects
           </p>
           <div className="flex items-center gap-2">
@@ -175,7 +177,7 @@ export default function AipProjectsTable({ aip }: { aip: AipDetails }) {
           </div>
         </div>
 
-        <div className="flex flex-wrap justify-end gap-5 pt-2 text-xs text-slate-600">
+        <div className="flex flex-wrap gap-3 pt-1 text-[11px] text-slate-600 sm:justify-end sm:gap-5 sm:pt-2 sm:text-xs">
           <div className="inline-flex items-center gap-2">
             <span className="inline-block h-3.5 w-3.5 rounded-sm bg-rose-500" aria-hidden="true" />
             AI-flagged with no LGU feedback note

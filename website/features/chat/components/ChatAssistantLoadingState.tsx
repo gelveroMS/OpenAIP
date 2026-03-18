@@ -5,7 +5,7 @@ import { FileSearch } from "lucide-react";
 export default function ChatAssistantLoadingState() {
   return (
     <div className="flex w-full justify-start">
-      <div className="w-full max-w-[280px] rounded-xl bg-[#E8ECEF] px-4 py-3 text-[#1E3A4A] shadow-sm">
+      <div className="w-full max-w-[90%] rounded-xl bg-[#E8ECEF] px-4 py-3 text-[#1E3A4A] shadow-sm sm:max-w-[280px]">
         <div className="flex items-center gap-2.5">
           <div className="flex h-7 w-7 items-center justify-center rounded-md bg-[#D9E7ED] text-[#0E7490]">
             <FileSearch className="h-4 w-4" />

@@ -144,15 +144,15 @@ export default function AipCard({
         data-testid={`aip-card-${aip.id}`}
         className="cursor-pointer border-slate-200 py-0 transition-all hover:border-slate-300 hover:shadow-md"
       >
-        <CardContent className="p-5">
-          <div className="flex items-start justify-between gap-4">
+        <CardContent className="p-4 sm:p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
             <div className="min-w-0">
-              <h3 className="text-xl font-semibold text-slate-900 hover:text-[#022437] transition-colors">
+              <h3 className="break-words text-xl font-semibold leading-tight text-slate-900 transition-colors hover:text-[#022437]">
                 {aip.title}
               </h3>
               {isProcessingCard ? (
                 <div className="mt-2 space-y-3">
-                  <p className="flex flex-wrap items-center gap-1 text-sm text-slate-500">
+                  <p className="flex flex-wrap items-center gap-1 break-words text-sm text-slate-500">
                     <span>Uploaded: {uploadedDateLabel}</span>
                     <span className="text-slate-300">•</span>
                     <span>File: {aip.fileName}</span>
@@ -175,14 +175,14 @@ export default function AipCard({
                 </div>
               ) : (
                 <>
-                  <p className="mt-2 text-sm text-slate-600">
+                  <p className="mt-2 break-words text-sm leading-6 text-slate-600">
                     {aip.description}
                     {isSummaryTruncated ? (
                       <span className="ml-1 text-xs font-medium text-slate-500">...See More</span>
                     ) : null}
                   </p>
 
-                  <div className="mt-4 flex flex-wrap items-center gap-x-10 gap-y-2 text-sm text-slate-600">
+                  <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-600 sm:gap-x-8">
                     <div className="flex items-center gap-2">
                       <CalendarDays className="h-4 w-4 text-slate-400" />
                       <span>AIP Year: {aip.year}</span>
@@ -229,7 +229,7 @@ export default function AipCard({
               <Badge
                 data-testid={`aip-processing-badge-${aip.id}`}
                 variant="outline"
-                className="h-8 gap-1.5 rounded-full border-[#022437] bg-[#022437] px-3 text-white"
+                className="h-8 w-fit shrink-0 gap-1.5 self-start rounded-full border-[#022437] bg-[#022437] px-3 text-white"
               >
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 {processingStageLabel}
@@ -238,7 +238,9 @@ export default function AipCard({
               <Badge
                 data-testid={`aip-status-badge-${aip.id}`}
                 variant="outline"
-                className={`rounded-full ${getAipStatusBadgeClass(aip.status)}`}
+                className={`w-fit shrink-0 self-start rounded-full ${getAipStatusBadgeClass(
+                  aip.status
+                )}`}
               >
                 {aip.status}
               </Badge>

@@ -658,7 +658,12 @@ export default function AipFeedbackTab({ aipId, feedbackCount }: Props) {
             />
           )}
 
-          {loading ? <p className="text-sm text-slate-500">Loading feedback...</p> : null}
+          {loading ? (
+            <div className="space-y-3" role="status" aria-live="polite" aria-busy="true">
+              <div className="h-20 animate-pulse rounded-xl bg-slate-100" />
+              <div className="h-20 animate-pulse rounded-xl bg-slate-100" />
+            </div>
+          ) : null}
           {!loading && loadError ? <p className="text-sm text-rose-600">{loadError}</p> : null}
 
           {!loading && !loadError && citizenThreads.length === 0 ? (
@@ -698,7 +703,12 @@ export default function AipFeedbackTab({ aipId, feedbackCount }: Props) {
             Official workflow feedback from the AIP submission and review process.
           </p>
 
-          {loading ? <p className="text-sm text-slate-500">Loading feedback...</p> : null}
+          {loading ? (
+            <div className="space-y-3" role="status" aria-live="polite" aria-busy="true">
+              <div className="h-20 animate-pulse rounded-xl bg-slate-100" />
+              <div className="h-20 animate-pulse rounded-xl bg-slate-100" />
+            </div>
+          ) : null}
           {!loading && loadError ? <p className="text-sm text-rose-600">{loadError}</p> : null}
 
           {!loading && !loadError && workflowThreads.length === 0 ? (

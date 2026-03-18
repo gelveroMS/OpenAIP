@@ -68,12 +68,28 @@ describe("ChatSessionsPanel", () => {
       />
     );
 
-    fireEvent.pointerDown(screen.getByLabelText("Conversation actions for Budget Review"));
-    fireEvent.click(await screen.findByRole("menuitem", { name: /delete/i }));
+    fireEvent.click(screen.getByRole("button", { name: /delete budget review/i }));
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
     await waitFor(() => {
       expect(onDelete).toHaveBeenCalledWith("session-1");
     });
+  });
+
+  it("opens inline rename from the rename icon", async () => {
+    render(
+      <ChatSessionsPanel
+        sessions={baseSessions}
+        query=""
+        onQueryChange={() => {}}
+        onSelect={() => {}}
+        onNewChat={() => {}}
+        onRename={async () => {}}
+        onDelete={async () => {}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /rename budget review/i }));
+    expect(screen.getByDisplayValue("Budget Review")).toBeInTheDocument();
   });
 });

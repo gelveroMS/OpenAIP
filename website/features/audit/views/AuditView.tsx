@@ -12,6 +12,7 @@
 
 import * as React from "react";
 import { useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -31,6 +32,8 @@ import {
 import type { ActivityLogRow } from "@/lib/repos/audit/repo";
 import { getAuditActionLabel, getAuditRoleLabel } from "@/features/audit/types/audit";
 import { Search } from "lucide-react";
+
+const PAGE_SIZE = 15;
 
 /**
  * Formats an ISO datetime string to a human-readable format
@@ -103,6 +106,7 @@ export default function AuditView({ logs }: { logs: ActivityLogRow[] }) {
   const [year, setYear] = useState<string>(String(years[0] ?? "all"));
   const [event, setEvent] = useState<string>("all");
   const [query, setQuery] = useState<string>("");
+  const [page, setPage] = useState<number>(1);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -122,19 +126,30 @@ export default function AuditView({ logs }: { logs: ActivityLogRow[] }) {
       .sort((a, b) => (a.row.createdAt < b.row.createdAt ? 1 : -1));
   }, [displayRows, year, event, query]);
 
+  React.useEffect(() => {
+    setPage(1);
+  }, [year, event, query]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.max(1, Math.min(page, totalPages));
+  const startIndex = (currentPage - 1) * PAGE_SIZE;
+  const pagedRows = filtered.slice(startIndex, startIndex + PAGE_SIZE);
+  const showingFrom = filtered.length === 0 ? 0 : startIndex + 1;
+  const showingTo = filtered.length === 0 ? 0 : startIndex + pagedRows.length;
+
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-4 overflow-x-hidden md:space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-slate-900">Audit and Accountability</h1>
-        <p className="mt-2 text-sm text-slate-600">
+      <div className="min-w-0">
+        <h1 className="break-words text-2xl font-bold text-slate-900 md:text-3xl">Audit and Accountability</h1>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
           Review recorded actions and events for transparency, compliance tracking, and accountability.
         </p>
       </div>
 
       {/* Filters bar */}
-      <div className="rounded-xl p-5">
-        <div className="grid grid-cols-1 gap-4 md:ml-auto md:w-fit md:grid-cols-[140px_180px_420px] md:items-end">
+      <div className="rounded-xl px-0 py-1 sm:px-0 sm:py-2">
+        <div className="grid grid-cols-1 gap-3 md:ml-auto md:w-fit md:grid-cols-[140px_180px_minmax(0,420px)] md:items-end md:gap-4">
           <div className="space-y-2">
             <div className="text-xs text-slate-500">Year</div>
             <Select value={year} onValueChange={setYear}>
@@ -169,7 +184,7 @@ export default function AuditView({ logs }: { logs: ActivityLogRow[] }) {
             </Select>
           </div>
 
-          <div className="w-full space-y-2 md:w-[420px]">
+          <div className="w-full min-w-0 space-y-2 md:w-[420px]">
             <div className="text-xs text-slate-500">Search</div>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
@@ -184,11 +199,13 @@ export default function AuditView({ logs }: { logs: ActivityLogRow[] }) {
         </div>
       </div>
 
-      <div className="text-sm text-slate-500">Showing {filtered.length} events</div>
+      <div className="text-sm text-slate-500">
+        {`Showing ${showingFrom}-${showingTo} of ${filtered.length} events`}
+      </div>
 
       {/* Table */}
-      <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-        <Table>
+      <div className="max-w-full overflow-x-auto rounded-xl border border-slate-200 bg-white [scrollbar-width:thin]">
+        <Table className="min-w-[860px]">
           <TableHeader>
             <TableRow className="bg-slate-50">
               <TableHead className="w-[170px] pl-4">NAME</TableHead>
@@ -200,7 +217,7 @@ export default function AuditView({ logs }: { logs: ActivityLogRow[] }) {
           </TableHeader>
 
           <TableBody>
-            {filtered.map(({ row, name, position, event: eventLabel, details }) => (
+            {pagedRows.map(({ row, name, position, event: eventLabel, details }) => (
               <TableRow key={row.id} className="border-slate-200">
                 <TableCell className="p-4 font-medium text-slate-900 whitespace-normal break-words align-top">
                   {name}
@@ -214,7 +231,7 @@ export default function AuditView({ logs }: { logs: ActivityLogRow[] }) {
               </TableRow>
             ))}
 
-            {filtered.length === 0 && (
+            {pagedRows.length === 0 && (
               <TableRow>
                 <TableCell colSpan={5} className="py-10 text-center text-slate-500">
                   No events found.
@@ -223,6 +240,26 @@ export default function AuditView({ logs }: { logs: ActivityLogRow[] }) {
             )}
           </TableBody>
         </Table>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={currentPage <= 1}
+          onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+        >
+          Previous
+        </Button>
+        <span className="text-xs text-slate-600">{`Page ${currentPage} of ${totalPages}`}</span>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={currentPage >= totalPages}
+          onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+        >
+          Next
+        </Button>
       </div>
     </div>
   );

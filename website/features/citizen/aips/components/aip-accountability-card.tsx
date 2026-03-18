@@ -53,14 +53,14 @@ const PersonRow = ({
 export default function AipAccountabilityCard({ accountability }: Props) {
   return (
     <Card className="border-slate-200">
-      <CardHeader>
-        <CardTitle className="text-3xl text-slate-900">Accountability Information</CardTitle>
-        <CardDescription className="text-base">
+      <CardHeader className="px-4 pb-3 pt-4 sm:px-6 sm:pb-4 sm:pt-6">
+        <CardTitle className="text-2xl text-slate-900 sm:text-3xl">Accountability Information</CardTitle>
+        <CardDescription className="text-sm sm:text-base">
           Officials responsible for this AIP submission and approval
         </CardDescription>
       </CardHeader>
 
-      <CardContent className="space-y-6">
+      <CardContent className="space-y-5 px-4 pb-4 sm:space-y-6 sm:px-6 sm:pb-6">
         <div className="space-y-6 divide-y divide-slate-200">
           <div className="space-y-6 pb-6">
             <PersonRow label="Uploaded by:" person={accountability.uploadedBy ?? null} />

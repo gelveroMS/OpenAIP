@@ -27,22 +27,21 @@ export default function CitizenPageHero({
       )}
     >
       {/* ✅ This creates the “x-axis margin” from the viewport edges */}
-      <div className="px-4 sm:px-6 lg:px-8">
+      <div className="px-3 sm:px-6 lg:px-8">
         {/* ✅ Actual hero box (background + border + shadow) */}
         <div
           className={cn(
-            "relative h-[255px] overflow-hidden text-white shadow-sm"
+            "relative h-[210px] overflow-hidden text-white shadow-sm sm:h-[255px]"
           )}
         >
           {imageSrc ? (
             <div className="absolute inset-0">
               <Image
-                src={imageSrc}
-                alt={title}
-                fill
-                className="object-cover object-center"
-                priority
-              />
+              src={imageSrc}
+              alt={title}
+              fill
+              className="object-cover object-center"
+            />
             </div>
           ) : (
             <div className="pointer-events-none absolute inset-0">
@@ -52,7 +51,6 @@ export default function CitizenPageHero({
                 fill
                 className="object-fill"
                 sizes="100vw"
-                priority
               />
             </div>
           )}
@@ -63,19 +61,19 @@ export default function CitizenPageHero({
             aria-hidden
           />
 
-          <div className="relative z-10 mx-auto flex h-full max-w-6xl flex-col justify-center px-4 text-center sm:px-6 lg:px-8">
+          <div className="relative z-10 mx-auto flex h-full max-w-6xl flex-col justify-center px-3 text-center sm:px-6 lg:px-8">
             {eyebrow ? (
               <p className="text-xs uppercase tracking-[0.2em] text-slate-100/80">
                 {eyebrow}
               </p>
             ) : null}
             <h1
-              className="text-4xl font-normal uppercase tracking-[0.06em] text-white md:text-6xl"
+              className="text-[1.95rem] font-normal uppercase tracking-[0.06em] text-white sm:text-4xl md:text-6xl"
               style={{ fontFamily: "var(--font-baskervville-sc), Georgia, serif" }}
             >
               {title}
             </h1>
-            <p className="mx-auto mt-4 max-w-4xl text-xs md:text-base">
+            <p className="mx-auto mt-3 max-w-4xl text-xs leading-relaxed sm:mt-4 md:text-base">
               {subtitle}
             </p>
           </div>
@@ -84,4 +82,3 @@ export default function CitizenPageHero({
     </section>
   );
 }
-

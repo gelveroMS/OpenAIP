@@ -40,7 +40,7 @@ export function BarangayDashboardPage({
   const projectBreakdownText = `Health: ${healthProjectsCount} | Infra: ${infraProjectsCount}`;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 sm:space-y-6">
       <DashboardHeader
         title="Welcome to OpenAIP"
         q={queryState.q}
@@ -70,8 +70,8 @@ export function BarangayDashboardPage({
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <div className="space-y-4">
+      <div className="grid min-w-0 gap-4 xl:grid-cols-2">
+        <div className="min-w-0 space-y-4">
           <div className="flex items-center gap-2">
             <Building2 className="h-5 w-5 text-[#0B6477]" />
             <h2 className="text-xl font-semibold text-slate-900">Barangay AIP Status</h2>
@@ -85,7 +85,9 @@ export function BarangayDashboardPage({
           <AipsByYearTable rows={data.allAips} basePath="/barangay" />
           <RecentActivityFeed logs={recentActivityLogs} auditHref="/barangay/audit" compact />
         </div>
-        <CitizenEngagementPulseColumn selectedFiscalYear={data.selectedFiscalYear} newThisWeek={vm.newThisWeek} awaitingReply={vm.awaitingReplyCount} lguNotesPosted={vm.lguNotesPosted} feedbackCategorySummary={vm.feedbackCategorySummary} feedbackTargets={vm.feedbackTargets} recentFeedback={vm.recentCitizenFeedback} replyAction={replyBarangayFeedbackAction} />
+        <div className="min-w-0">
+          <CitizenEngagementPulseColumn selectedFiscalYear={data.selectedFiscalYear} newThisWeek={vm.newThisWeek} awaitingReply={vm.awaitingReplyCount} lguNotesPosted={vm.lguNotesPosted} feedbackCategorySummary={vm.feedbackCategorySummary} feedbackTargets={vm.feedbackTargets} recentFeedback={vm.recentCitizenFeedback} replyAction={replyBarangayFeedbackAction} />
+        </div>
       </div>
     </div>
   );

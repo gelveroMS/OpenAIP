@@ -124,7 +124,7 @@ export default function AccountAdministrationView() {
               {`Showing ${rows.length} of ${total} accounts`}
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <div className="flex items-center gap-2">
                 <span className="text-xs text-slate-500">Rows</span>
                 <Select
@@ -144,7 +144,7 @@ export default function AccountAdministrationView() {
                 </Select>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"

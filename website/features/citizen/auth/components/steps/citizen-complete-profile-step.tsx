@@ -68,8 +68,8 @@ export default function CitizenCompleteProfileStep({
     isLoading || isGeoLoading || !cityOrMunicipalityId || barangayOptions.length === 0;
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto bg-white p-8 md:p-10">
-      <div className="m-auto w-full max-w-md space-y-7">
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-white px-5 py-6 sm:px-6 sm:py-7 md:p-10">
+      <div className="m-auto w-full max-w-[420px] space-y-6 md:max-w-md md:space-y-7">
         <CitizenAuthHeader
           titleId={titleId}
           descriptionId={descriptionId}
@@ -82,7 +82,7 @@ export default function CitizenCompleteProfileStep({
             event.preventDefault();
             onSubmit();
           }}
-          className="space-y-5"
+          className="space-y-4 md:space-y-5"
         >
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">

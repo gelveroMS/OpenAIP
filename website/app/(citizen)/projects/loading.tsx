@@ -1,5 +1,5 @@
 import SmartFullPageLoader from "@/components/ui/SmartFullPageLoader";
 
-export default function CitizenProjectsLoading() {
+export default function RouteLoading() {
   return <SmartFullPageLoader target="citizen-main" />;
 }

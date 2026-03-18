@@ -13,7 +13,7 @@ export default function ChatbotUsageLineChart({ metrics }: { metrics: UsageMetri
   return (
     <Card className="border-slate-200 py-3 shadow-none">
       <CardHeader className="space-y-1 pb-0">
-        <CardTitle className="text-[18px]">Chatbot Usage Over Time</CardTitle>
+        <CardTitle className="text-base sm:text-[18px]">Chatbot Usage Over Time</CardTitle>
         <div className="text-[12px] text-slate-500">
           Daily chatbot request volume showing usage trends and patterns.
         </div>
@@ -24,7 +24,7 @@ export default function ChatbotUsageLineChart({ metrics }: { metrics: UsageMetri
           xKey="label"
           series={[{ key: "value", label: "Requests", color: "var(--chart-1)" }]}
           className="rounded-none border-0 bg-transparent p-0"
-          heightClass="h-[250px]"
+          heightClass="h-[210px] sm:h-[250px]"
           showTooltip={false}
         />
       </CardContent>

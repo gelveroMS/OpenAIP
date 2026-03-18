@@ -40,7 +40,7 @@ export function CityDashboardPage({
   const projectBreakdownText = `Health: ${healthProjectsCount} | Infra: ${infraProjectsCount}`;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 sm:space-y-6">
       <DashboardHeader
         title="Welcome to OpenAIP"
         q={queryState.q}
@@ -54,21 +54,27 @@ export function CityDashboardPage({
 
       <KpiRow selectedAip={data.selectedAip} totalProjects={vm.projects.length} totalBudget={toCurrency(vm.totalBudget)} citizenFeedbackCount={vm.citizenFeedbackCount} awaitingReplyCount={vm.awaitingReplyCount} hiddenCount={vm.lguNotesPosted} pendingReviewCount={pendingReviewCount} underReviewCount={underReviewCount} forRevisionCount={forRevisionCount} oldestPendingDays={vm.oldestPendingDays} fiscalYear={data.selectedFiscalYear} projectBreakdownText={projectBreakdownText} scope="city" />
 
-      <div className="grid gap-4 xl:grid-cols-[3fr_1fr]">
-        <BudgetBreakdownSection totalBudget={toCurrency(vm.totalBudget)} items={vm.budgetBySector} detailsHref={data.selectedAip ? `/city/aips/${data.selectedAip.id}` : undefined} />
-        <div className="space-y-4"><DateCard label={today} /><WorkingOnCard items={vm.workingOnItems} /></div>
+      <div className="grid min-w-0 gap-4 xl:grid-cols-[3fr_1fr]">
+        <div className="min-w-0">
+          <BudgetBreakdownSection totalBudget={toCurrency(vm.totalBudget)} items={vm.budgetBySector} detailsHref={data.selectedAip ? `/city/aips/${data.selectedAip.id}` : undefined} />
+        </div>
+        <div className="min-w-0 space-y-4"><DateCard label={today} /><WorkingOnCard items={vm.workingOnItems} /></div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1.95fr_1fr]">
-        <TopFundedProjectsSection queryState={queryState} sectors={data.sectors} projects={vm.projects} />
-        <AipStatusColumn statusDistribution={vm.statusDistribution} pendingReviewAging={vm.pendingReviewAging} />
+      <div className="grid min-w-0 gap-4 xl:grid-cols-[1.95fr_1fr]">
+        <div className="min-w-0">
+          <TopFundedProjectsSection queryState={queryState} sectors={data.sectors} projects={vm.projects} />
+        </div>
+        <div className="min-w-0">
+          <AipStatusColumn statusDistribution={vm.statusDistribution} pendingReviewAging={vm.pendingReviewAging} />
+        </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <div className="space-y-4">
+      <div className="grid min-w-0 gap-4 xl:grid-cols-2">
+        <div className="min-w-0 space-y-4">
           <div className="flex items-center gap-2">
-            <Building2 className="h-7 w-7 text-[#0B6477]" />
-            <h2 className="text-4xl font-semibold text-slate-900">City AIP Status</h2>
+            <Building2 className="h-5 w-5 text-[#0B6477] sm:h-6 sm:w-6" />
+            <h2 className="text-xl font-semibold text-slate-900 sm:text-2xl lg:text-3xl">City AIP Status</h2>
           </div>
           <AipCoverageCard
             selectedAip={data.selectedAip}
@@ -79,7 +85,9 @@ export function CityDashboardPage({
           <AipsByYearTable rows={data.allAips} basePath="/city" />
           <RecentActivityFeed logs={recentActivityLogs} auditHref="/city/audit" compact />
         </div>
-        <CitizenEngagementPulseColumn selectedFiscalYear={data.selectedFiscalYear} newThisWeek={vm.newThisWeek} awaitingReply={vm.awaitingReplyCount} lguNotesPosted={vm.lguNotesPosted} feedbackCategorySummary={vm.feedbackCategorySummary} feedbackTargets={vm.feedbackTargets} recentFeedback={vm.recentCitizenFeedback} replyAction={replyCityFeedbackAction} />
+        <div className="min-w-0">
+          <CitizenEngagementPulseColumn selectedFiscalYear={data.selectedFiscalYear} newThisWeek={vm.newThisWeek} awaitingReply={vm.awaitingReplyCount} lguNotesPosted={vm.lguNotesPosted} feedbackCategorySummary={vm.feedbackCategorySummary} feedbackTargets={vm.feedbackTargets} recentFeedback={vm.recentCitizenFeedback} replyAction={replyCityFeedbackAction} />
+        </div>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">

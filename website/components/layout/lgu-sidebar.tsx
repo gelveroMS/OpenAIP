@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Building2, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/ui/utils";
 import type { LguVariant } from "@/types/navigation";
@@ -12,6 +12,9 @@ import { BARANGAY_NAV, CITY_NAV } from "@/constants/lgu-nav";
 type Props = {
   variant: LguVariant;
   scopeDisplayName?: string;
+  mode?: "desktop" | "mobile";
+  className?: string;
+  onNavigate?: () => void;
 };
 
 function isActive(pathname: string, href: string) {
@@ -59,13 +62,20 @@ function toSidebarTestId(variant: LguVariant, label: string): string {
   return `${variant}-sidebar-${slug}`;
 }
 
-export default function LguSidebar({ variant, scopeDisplayName }: Props) {
+export default function LguSidebar({
+  variant,
+  scopeDisplayName,
+  mode = "desktop",
+  className,
+  onNavigate,
+}: Props) {
   const pathname = usePathname();
   const nav = variant === "barangay" ? BARANGAY_NAV : CITY_NAV;
 
   const [openDropdowns, setOpenDropdowns] = useState<string[]>([]);
   const headerLabel = formatHeaderLabel(variant, scopeDisplayName);
   const headerSubtext = formatHeaderSubtext(variant, scopeDisplayName);
+  const isMobile = mode === "mobile";
 
   const toggleDropdown = (href: string) => {
     setOpenDropdowns((prev) =>
@@ -73,136 +83,115 @@ export default function LguSidebar({ variant, scopeDisplayName }: Props) {
     );
   };
 
+  useEffect(() => {
+    const activeParents = nav
+      .filter((item) => item.children?.some((child) => isActive(pathname, child.href)))
+      .map((item) => item.href);
+
+    if (activeParents.length === 0) return;
+    setOpenDropdowns((prev) => Array.from(new Set([...prev, ...activeParents])));
+  }, [nav, pathname]);
+
   return (
     <aside
       data-testid={`${variant}-sidebar`}
       className={cn(
-        // ✅ Width collapses on small screens, full on md+
-        "shrink-0 sticky top-0 bg-[#022437] text-white flex flex-col",
-        "w-16 md:w-72",
-
-        // ✅ Use dvh for better mobile sizing, prevent sidebar scrollbar by default
-        "h-dvh overflow-hidden"
+        "bg-[#022437] text-white flex h-full flex-col",
+        isMobile ? "w-full max-w-[17rem] overflow-y-auto" : "sticky top-0 h-dvh w-72 overflow-hidden",
+        className
       )}
     >
-      {/* Brand */}
-      <div className="pt-4 md:pt-8 pb-2 md:pb-3 px-2 md:px-6">
-        <div className="flex flex-col items-center gap-2 md:gap-3">
+      <div className="px-6 pb-3 pt-6">
+        <div className="flex flex-col items-center gap-3">
           <Image
             src="/brand/logo3.svg"
             alt="OpenAIP Logo"
             width={100}
             height={100}
-            className="h-10 w-10 md:h-20 md:w-20"
+            className="h-16 w-16"
           />
-
-          {/* ✅ Hide text on small screens to avoid overflow */}
-          <div className="hidden md:block text-3xl font-semibold leading-none">OpenAIP</div>
+          <div className="text-2xl font-semibold leading-none">OpenAIP</div>
         </div>
 
-        {/* ✅ Hide the big header card on small screens (it causes overflow) */}
-        <div className="hidden md:flex mt-5 items-center gap-3 rounded-3xl border border-white/10 bg-[#0A5A6C33] px-3 py-3 shadow-[0_10px_24px_rgba(0,0,0,0.2)] backdrop-blur-sm">
+        <div className="mt-5 flex items-center gap-3 rounded-3xl border border-white/10 bg-[#0A5A6C33] px-3 py-3 shadow-[0_10px_24px_rgba(0,0,0,0.2)] backdrop-blur-sm">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/5">
             <Building2 className="h-7 w-7 text-white/90" />
           </div>
           <div className="min-w-0">
-            <div className="truncate text-[15px] font-semibold leading-tight text-white">
-              {headerLabel}
-            </div>
-            <div className="mt-1 truncate text-sm text-white/65">
-              {headerSubtext}
-            </div>
+            <div className="truncate text-[15px] font-semibold leading-tight text-white">{headerLabel}</div>
+            <div className="mt-1 truncate text-sm text-white/65">{headerSubtext}</div>
           </div>
         </div>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 px-1 md:px-4 pb-3 md:py-5">
-        <ul className="space-y-1 md:space-y-1.5">
+      <nav className="flex-1 overflow-y-auto px-3 pb-6 pt-3">
+        <ul className="space-y-1.5">
           {nav.map((item) => {
             const Icon = item.icon;
             const hasChildren = Boolean(item.children && item.children.length > 0);
             const active = isParentActive(pathname, item.href, hasChildren);
             const isOpen = openDropdowns.includes(item.href);
-
-            // ✅ Common link/button styles (compact on small, roomy on md+)
             const baseRowClass = cn(
-              "w-full flex items-center rounded-xl transition-colors",
+              "w-full flex h-10 items-center gap-3 rounded-xl px-3 text-sm transition-colors",
               "hover:bg-white/10",
-              active && "bg-[#2E6F7A] hover:bg-[#2E6F7A]",
-              // sizing
-              "h-9 md:h-10",
-              // padding
-              "px-2 md:px-3",
-              // text
-              "text-[11px] md:text-xs"
+              active && "bg-[#2E6F7A] hover:bg-[#2E6F7A]"
             );
 
             return (
               <li key={item.href}>
                 {hasChildren ? (
                   <div>
-                    {/* ✅ On small screens: keep it simple (no dropdown expansion) */}
                     <button
                       type="button"
                       data-testid={toSidebarTestId(variant, item.label)}
                       onClick={() => toggleDropdown(item.href)}
-                      className={cn(baseRowClass, "gap-0 md:gap-3")}
+                      className={baseRowClass}
                     >
-                      <Icon className="h-4.5 w-4.5 md:h-4 md:w-4 mx-auto md:mx-0" />
-
-                      {/* ✅ Label only on md+ */}
-                      <span className="hidden md:block font-medium flex-1 text-left">
-                        {item.label}
-                      </span>
-
-                      {/* ✅ Chevron only on md+ */}
-                      <span className="hidden md:block">
-                        {isOpen ? (
-                          <ChevronDown className="h-4 w-4" />
-                        ) : (
-                          <ChevronRight className="h-4 w-4" />
-                        )}
-                      </span>
+                      <Icon className="h-4 w-4 shrink-0" />
+                      <span className="flex-1 text-left font-medium">{item.label}</span>
+                      {isOpen ? (
+                        <ChevronDown className="h-4 w-4" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4" />
+                      )}
                     </button>
 
-                    {/* ✅ Children ONLY render on md+ (prevents overflow/scrollbar on small) */}
-                    <div className="hidden md:block">
-                      {isOpen && (
-                        <ul className="ml-4 mt-1 space-y-1">
-                          {item.children?.map((child) => {
-                            const childActive = isActive(pathname, child.href);
-                            const ChildIcon = child.icon;
+                    {isOpen && (
+                      <ul className="ml-4 mt-1 space-y-1">
+                        {item.children?.map((child) => {
+                          const childActive = isActive(pathname, child.href);
+                          const ChildIcon = child.icon;
 
-                            return (
-                              <li key={child.href}>
-                                <Link
-                                  href={child.href}
-                                  data-testid={toSidebarTestId(variant, child.label)}
-                                  className={cn(
-                                    "flex items-center gap-3 rounded-xl px-3 py-1.5 text-xs transition-colors",
-                                    "hover:bg-white/10",
-                                    childActive && "bg-[#2E6F7A] hover:bg-[#2E6F7A]"
-                                  )}
-                                >
-                                  <ChildIcon className="h-3.5 w-3.5" />
-                                  <span className="font-medium">{child.label}</span>
-                                </Link>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      )}
-                    </div>
+                          return (
+                            <li key={child.href}>
+                              <Link
+                                href={child.href}
+                                onClick={onNavigate}
+                                data-testid={toSidebarTestId(variant, child.label)}
+                                className={cn(
+                                  "flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors",
+                                  "hover:bg-white/10",
+                                  childActive && "bg-[#2E6F7A] hover:bg-[#2E6F7A]"
+                                )}
+                              >
+                                <ChildIcon className="h-3.5 w-3.5 shrink-0" />
+                                <span className="font-medium">{child.label}</span>
+                              </Link>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
                   </div>
                 ) : (
                   <Link
                     href={item.href}
+                    onClick={onNavigate}
                     data-testid={toSidebarTestId(variant, item.label)}
-                    className={cn(baseRowClass, "gap-0 md:gap-3")}
+                    className={baseRowClass}
                   >
-                    <Icon className="h-4.5 w-4.5 md:h-4 md:w-4 mx-auto md:mx-0" />
-                    <span className="hidden md:block font-medium">{item.label}</span>
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span className="font-medium">{item.label}</span>
                   </Link>
                 )}
               </li>
@@ -210,8 +199,6 @@ export default function LguSidebar({ variant, scopeDisplayName }: Props) {
           })}
         </ul>
       </nav>
-
-    
     </aside>
   );
 }

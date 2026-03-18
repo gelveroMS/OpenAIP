@@ -74,35 +74,102 @@ export default function AccountsTable({
 }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-      <div className="border border-slate-200 rounded-xl overflow-hidden bg-white m-5">
+      <div className="divide-y divide-slate-200 md:hidden">
+        {rows.map((row) => (
+          <div
+            key={row.id}
+            data-testid={`admin-account-row-${row.id}`}
+            data-account-email={row.email.toLowerCase()}
+            className="space-y-3 p-4"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-slate-900 break-words">{row.fullName}</div>
+                <div className="mt-0.5 break-all text-xs text-slate-600">{row.email}</div>
+              </div>
+              <Badge
+                variant="outline"
+                className={cn("rounded-full px-3 py-1 text-[11px]", statusBadgeClass(row.status))}
+              >
+                {statusLabel(row.status)}
+              </Badge>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="outline" className="rounded-full px-3 py-1 text-[11px] border-slate-200 bg-slate-100 text-slate-700">
+                {roleLabel(row.role)}
+              </Badge>
+              <Badge
+                variant="outline"
+                className={cn("rounded-full px-3 py-1 text-[11px]", invitationBadgeClass(row.invitationPending))}
+              >
+                {invitationLabel(row.invitationPending)}
+              </Badge>
+            </div>
+
+            <div className="grid grid-cols-1 gap-1 text-xs text-slate-600">
+              <div>
+                <span className="font-medium">LGU:</span> {row.lguAssignment}
+              </div>
+              <div>
+                <span className="font-medium">Last Login:</span> {formatDateTime(row.lastLoginAt)}
+              </div>
+              <div>
+                <span className="font-medium">Created:</span> {formatDate(row.createdAt)}
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <AccountRowActions
+                account={row}
+                onViewDetails={() => onViewDetails(row.id)}
+                onEdit={() => onEdit(row.id)}
+                onDeactivate={() => onDeactivate(row.id)}
+                onDelete={() => onDelete(row.id)}
+                onResetPassword={() => onResetPassword(row.id)}
+                onResendInvite={() => onResendInvite(row.id)}
+                onActivateOrReactivate={() => onActivateOrReactivate(row.id)}
+              />
+            </div>
+          </div>
+        ))}
+
+        {rows.length === 0 ? (
+          <div className="py-12 text-center text-sm text-slate-500">
+            No accounts found for the selected filters.
+          </div>
+        ) : null}
+      </div>
+
+      <div className="m-3 hidden overflow-hidden rounded-xl border border-slate-200 bg-white md:block md:m-5">
         <Table>
           <TableHeader>
             <TableRow className="bg-slate-50 hover:bg-slate-50">
-              <TableHead className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">
+              <TableHead className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold whitespace-nowrap">
                 Full Name
               </TableHead>
-              <TableHead className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">
+              <TableHead className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold whitespace-nowrap">
                 Email
               </TableHead>
-              <TableHead className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">
+              <TableHead className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold whitespace-nowrap">
                 Role
               </TableHead>
-              <TableHead className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">
+              <TableHead className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold whitespace-nowrap">
                 LGU Assignment
               </TableHead>
-              <TableHead className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">
+              <TableHead className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold whitespace-nowrap">
                 Status
               </TableHead>
-              <TableHead className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">
+              <TableHead className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold whitespace-nowrap">
                 Invite Status
               </TableHead>
-              <TableHead className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">
+              <TableHead className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold whitespace-nowrap">
                 Last Login
               </TableHead>
-              <TableHead className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">
+              <TableHead className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold whitespace-nowrap">
                 Created
               </TableHead>
-              <TableHead className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold text-right">
+              <TableHead className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold text-right whitespace-nowrap">
                 Actions
               </TableHead>
             </TableRow>
@@ -116,18 +183,18 @@ export default function AccountsTable({
                 data-account-email={row.email.toLowerCase()}
                 className="hover:bg-slate-50"
               >
-                <TableCell className="text-sm text-slate-900 font-medium">
+                <TableCell className="text-sm text-slate-900 font-medium min-w-[180px]">
                   {row.fullName}
                 </TableCell>
-                <TableCell className="text-sm text-slate-600">{row.email}</TableCell>
-                <TableCell className="text-sm text-slate-700">
+                <TableCell className="text-sm text-slate-600 min-w-[220px] break-all">{row.email}</TableCell>
+                <TableCell className="text-sm text-slate-700 whitespace-nowrap">
                   {roleLabel(row.role)}
                 </TableCell>
-                <TableCell className="text-sm text-slate-700">{row.lguAssignment}</TableCell>
+                <TableCell className="text-sm text-slate-700 min-w-[180px]">{row.lguAssignment}</TableCell>
                 <TableCell>
                   <Badge
                     variant="outline"
-                    className={cn("rounded-full px-3 py-1 text-[11px]", statusBadgeClass(row.status))}
+                    className={cn("rounded-full px-3 py-1 text-[11px] whitespace-nowrap", statusBadgeClass(row.status))}
                   >
                     {statusLabel(row.status)}
                   </Badge>
@@ -136,17 +203,17 @@ export default function AccountsTable({
                   <Badge
                     variant="outline"
                     className={cn(
-                      "rounded-full px-3 py-1 text-[11px]",
+                      "rounded-full px-3 py-1 text-[11px] whitespace-nowrap",
                       invitationBadgeClass(row.invitationPending)
                     )}
                   >
                     {invitationLabel(row.invitationPending)}
                   </Badge>
                 </TableCell>
-                <TableCell className="text-sm text-slate-700">
+                <TableCell className="text-sm text-slate-700 whitespace-nowrap">
                   {formatDateTime(row.lastLoginAt)}
                 </TableCell>
-                <TableCell className="text-sm text-slate-700 tabular-nums">
+                <TableCell className="text-sm text-slate-700 tabular-nums whitespace-nowrap">
                   {formatDate(row.createdAt)}
                 </TableCell>
                 <TableCell className="text-right">

@@ -45,14 +45,14 @@ export function RecentActivityFeed({
   );
 
   return (
-    <Card className="bg-card text-card-foreground rounded-xl border border-border py-5">
-      <CardHeader>
-        <CardTitle className="text-lg font-medium text-foreground">Recent Activity</CardTitle>
+    <Card className="bg-card text-card-foreground rounded-xl border border-border py-4 sm:py-5">
+      <CardHeader className="px-4 sm:px-6">
+        <CardTitle className="text-base font-medium text-foreground sm:text-lg">Recent Activity</CardTitle>
       </CardHeader>
       <CardContent
         className={compact
-          ? "max-h-[320px] space-y-2 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] px-4"
-          : "max-h-[728px] space-y-2 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] px-5"}
+          ? "max-h-[300px] space-y-2 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] px-4"
+          : "max-h-[620px] space-y-2 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] px-4 sm:px-5"}
       >
         {sortedLogs.map((log) => {
           const actionLabel = getAuditActionLabel(log.action);
@@ -69,13 +69,13 @@ export function RecentActivityFeed({
                 ? "rounded-lg border border-border bg-secondary p-2.5 hover:bg-accent"
                 : "rounded-lg border border-border bg-secondary p-3 hover:bg-accent"}
             >
-              <div className="flex items-center justify-between">
-                <span className="truncate text-sm font-semibold text-foreground">{actionLabel}</span>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-foreground break-words">{actionLabel}</span>
                 <Badge className="rounded-md border border-border bg-card text-muted-foreground">
                   {roleLabel}
                 </Badge>
               </div>
-              <div className="mt-1 truncate text-sm text-foreground">{details}</div>
+              <div className="mt-1 text-sm text-foreground line-clamp-2">{details}</div>
               <div className="mt-1 text-xs tabular-nums text-muted-foreground">
                 {`${actorName} | ${formatDateTime(log.createdAt)}`}
               </div>
@@ -88,7 +88,7 @@ export function RecentActivityFeed({
           </div>
         )}
       </CardContent>
-      <div className={compact ? "px-4 pt-3" : "px-5 pt-3"}>
+      <div className={compact ? "px-4 pt-3" : "px-4 pt-3 sm:px-5"}>
         <Button
           asChild
           variant="ghost"
@@ -119,23 +119,23 @@ export function RecentProjectUpdatesCard({
   };
 
   return (
-    <Card className="bg-card text-card-foreground rounded-xl border border-border py-0 w-full min-w-0 flex min-h-0 max-h-[418px] flex-col">
-      <CardHeader className="shrink-0 p-5 pb-0">
-        <CardTitle className="text-lg font-medium text-foreground">Recent Project Updates</CardTitle>
+    <Card className="bg-card text-card-foreground rounded-xl border border-border py-0 w-full min-w-0 flex min-h-0 max-h-[360px] sm:max-h-[418px] flex-col">
+      <CardHeader className="shrink-0 p-4 pb-0 sm:p-5 sm:pb-0">
+        <CardTitle className="text-base font-medium text-foreground sm:text-lg">Recent Project Updates</CardTitle>
       </CardHeader>
-      <CardContent className="flex-1 min-h-0 space-y-2 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] pb-5 pr-4 text-sm">
+      <CardContent className="flex-1 min-h-0 space-y-2 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] pb-4 pr-3 text-sm sm:pb-5 sm:pr-4">
         {sortedLogs.map((log) => (
           <div
             key={log.id}
             className="w-full rounded-lg border border-border bg-secondary p-3 hover:bg-accent"
           >
             <div className="flex min-w-0 items-center justify-between gap-2">
-              <div className="min-w-0 truncate text-sm font-semibold text-foreground">{log.title}</div>
+              <div className="min-w-0 text-sm font-semibold text-foreground line-clamp-2">{log.title}</div>
               <Badge className="shrink-0 rounded-md border border-border bg-card text-muted-foreground">
                 {getTagLabel(log.action)}
               </Badge>
             </div>
-            <div className="mt-1 min-w-0 truncate text-sm text-foreground">
+            <div className="mt-1 min-w-0 text-sm text-foreground line-clamp-2">
               {log.body || "No description provided."}
             </div>
             <div className="mt-1 text-xs text-muted-foreground">

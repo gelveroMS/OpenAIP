@@ -66,23 +66,23 @@ export default function AiPreviewMotion({ vm }: AiPreviewMotionProps) {
 
   return (
     <motion.div
-      className="mx-auto flex w-full max-w-5xl flex-col items-center gap-10"
+      className="mx-auto flex w-full max-w-5xl min-w-0 flex-col items-center gap-6 md:gap-10"
       initial="hidden"
       whileInView="visible"
       viewport={VIEWPORT_ONCE}
       onViewportEnter={() => setHasEnteredView(true)}
     >
-      <motion.header className="space-y-4 text-center" variants={headerContainer}>
+      <motion.header className="space-y-3 text-center md:space-y-4" variants={headerContainer}>
         <motion.p
-          className="mx-auto inline-flex rounded-full border border-white/10 bg-white/10 px-4 py-1 text-xs font-semibold text-white/90"
+          className="mx-auto inline-flex rounded-full border border-white/10 bg-white/10 px-3 py-1 text-[11px] font-semibold text-white/90 md:px-4 md:text-xs"
           variants={pillVariant}
         >
           {vm.pillLabel}
         </motion.p>
-        <motion.h2 className="text-5xl font-bold tracking-tight text-white sm:text-6xl" variants={titleVariant}>
+        <motion.h2 className="break-words text-[clamp(2rem,10vw,3.3rem)] font-bold tracking-tight text-white sm:text-6xl" variants={titleVariant}>
           {vm.title}
         </motion.h2>
-        <motion.p className="mx-auto max-w-2xl text-base leading-relaxed text-white/70 sm:text-xl" variants={subtitleVariant}>
+        <motion.p className="mx-auto max-w-2xl text-sm leading-relaxed text-white/70 sm:text-base md:text-xl" variants={subtitleVariant}>
           {vm.subtitle}
         </motion.p>
       </motion.header>

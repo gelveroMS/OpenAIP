@@ -52,12 +52,12 @@ function formatDateSubmitted(iso: string): string {
 
 export function SubmissionTable({ aips }: SubmissionTableProps) {
   return (
-    <Card className="border-slate-200">
-      <CardContent className="p-6">
-        <h2 className="text-lg font-semibold text-slate-900 mb-6">Submitted AIP Lists</h2>
+    <Card className="min-w-0 border-slate-200">
+      <CardContent className="px-4 py-4 sm:p-6">
+        <h2 className="mb-4 break-words text-base font-semibold text-slate-900 sm:mb-6 sm:text-lg">Submitted AIP Lists</h2>
 
-        <div className="overflow-x-auto">
-          <table className="w-full">
+        <div className="max-w-full overflow-x-auto rounded-lg border border-slate-100 [scrollbar-width:thin]">
+          <table className="w-full min-w-[780px] text-sm">
             <thead>
               <tr className="border-b border-slate-200">
                 <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">
@@ -87,13 +87,13 @@ export function SubmissionTable({ aips }: SubmissionTableProps) {
                   data-testid={`city-submission-row-${aip.id ?? index}`}
                   className="border-b border-slate-100 hover:bg-slate-50"
                 >
-                  <td className="py-4 px-4 text-sm text-slate-900">
+                  <td className="px-3 py-3 text-sm text-slate-900 sm:px-4 sm:py-4">
                     {aip.barangayName || "Barangay"}
                   </td>
-                  <td className="py-4 px-4 text-sm text-slate-600">
+                  <td className="px-3 py-3 text-sm text-slate-600 sm:px-4 sm:py-4">
                     {formatDateSubmitted(aip.uploadedAt)}
                   </td>
-                  <td className="py-4 px-4">
+                  <td className="px-3 py-3 sm:px-4 sm:py-4">
                     <Badge
                       data-testid={`city-submission-status-badge-${aip.id ?? index}`}
                       variant="outline"
@@ -102,13 +102,13 @@ export function SubmissionTable({ aips }: SubmissionTableProps) {
                       {getAipStatusLabel(aip.status)}
                     </Badge>
                   </td>
-                  <td className="py-4 px-4 text-sm text-slate-600">
+                  <td className="px-3 py-3 text-sm text-slate-600 sm:px-4 sm:py-4">
                     {aip.reviewerName ?? "Not yet assigned"}
                   </td>
-                  <td className="py-4 px-4 text-sm text-slate-600">
+                  <td className="px-3 py-3 text-sm text-slate-600 sm:px-4 sm:py-4">
                     {getTimeSince(aip.uploadedAt)}
                   </td>
-                  <td className="py-4 px-4">
+                  <td className="px-3 py-3 sm:px-4 sm:py-4">
                     {(() => {
                       const isPending = aip.status === "pending_review";
                       const isUnderReview = aip.status === "under_review";
@@ -130,8 +130,8 @@ export function SubmissionTable({ aips }: SubmissionTableProps) {
                       size="sm"
                       className={
                         isPending
-                          ? "gap-2 bg-teal-600 hover:bg-teal-700 text-white"
-                          : "gap-2"
+                          ? "h-8 gap-1.5 bg-teal-600 px-2.5 text-xs text-white hover:bg-teal-700 sm:h-9 sm:gap-2 sm:px-3 sm:text-sm"
+                          : "h-8 gap-1.5 px-2.5 text-xs sm:h-9 sm:gap-2 sm:px-3 sm:text-sm"
                       }
                       asChild
                     >

@@ -4,10 +4,10 @@ import type { AipDetails } from '@/features/citizen/aips/types';
 export default function AipSummaryCard({ aip }: { aip: AipDetails }) {
   return (
     <Card className="border-slate-200">
-      <CardContent className="space-y-2">
+      <CardContent className="space-y-2 px-4 py-4 sm:px-6 sm:py-6">
         <div>
-          <h2 className="text-2xl font-semibold text-slate-900">Summary</h2>
-          <p className="mt-3 text-base leading-relaxed text-slate-700">{aip.summaryText}</p>
+          <h2 className="text-xl font-semibold text-slate-900 sm:text-2xl">Summary</h2>
+          <p className="mt-2 text-sm leading-7 text-slate-700 sm:mt-3 sm:text-base">{aip.summaryText}</p>
         </div>
       </CardContent>
     </Card>

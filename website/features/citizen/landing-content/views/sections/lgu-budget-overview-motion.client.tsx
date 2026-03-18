@@ -102,7 +102,7 @@ export default function LguBudgetOverviewMotion({
 
   return (
     <motion.div
-      className="relative mx-auto w-full max-w-5xl rounded-[28px] border border-slate-200 bg-white/60 p-6 shadow-sm backdrop-blur-sm md:p-8"
+      className="relative mx-auto w-full min-w-0 max-w-5xl overflow-x-hidden rounded-[24px] border border-slate-200 bg-white/60 p-4 shadow-sm backdrop-blur-sm sm:p-5 md:rounded-[28px] md:p-8"
       initial="hidden"
       whileInView="visible"
       viewport={VIEWPORT_ONCE}
@@ -116,15 +116,15 @@ export default function LguBudgetOverviewMotion({
         />
       </motion.div>
 
-      <div className="mt-7 grid grid-cols-12 gap-6">
-        <div className="col-span-12 space-y-4 lg:col-span-5">
-          <motion.div className="flex items-start gap-3 p-3" variants={lguHeaderVariant}>
-            <div className="mt-0.5 grid h-15 w-15 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-[#0B4E7B] to-[#5EB3E4] text-white shadow-[0_10px_24px_rgba(11,78,123,0.2)]">
-              <Building2 className="h-8 w-8" aria-hidden="true" />
+      <div className="mt-5 grid grid-cols-12 gap-4 md:mt-7 md:gap-6">
+        <div className="col-span-12 min-w-0 space-y-3 md:space-y-4 lg:col-span-5">
+          <motion.div className="flex min-w-0 items-start gap-2.5 p-2 md:gap-3 md:p-3" variants={lguHeaderVariant}>
+            <div className="mt-0.5 grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-[#0B4E7B] to-[#5EB3E4] text-white shadow-[0_10px_24px_rgba(11,78,123,0.2)] sm:h-15 sm:w-15">
+              <Building2 className="h-6 w-6 sm:h-8 sm:w-8" aria-hidden="true" />
             </div>
-            <div>
-              <p className="text-3xl font-bold leading-none text-[#0C4F78]">{vm.lguName}</p>
-              <div className="mt-2 flex flex-wrap gap-2">
+            <div className="min-w-0">
+              <p className="break-words text-2xl font-bold leading-none text-[#0C4F78] sm:text-3xl">{vm.lguName}</p>
+              <div className="mt-2 flex min-w-0 flex-wrap gap-2">
                 <span className="rounded-sm bg-[#0b4e7b] px-2.5 py-1 text-[11px] font-medium text-white">
                   {vm.scopeLabel}
                 </span>
@@ -135,12 +135,14 @@ export default function LguBudgetOverviewMotion({
             </div>
           </motion.div>
 
-          <motion.div className="space-y-3" variants={kpiContainerVariant}>
+          <motion.div className="space-y-2.5 md:space-y-3" variants={kpiContainerVariant}>
             <motion.div variants={kpiPrimaryVariant}>
               <Card className="rounded-2xl border-slate-200 bg-white py-0">
-                <CardContent className="space-y-3 p-4">
+                <CardContent className="space-y-2 p-3.5 sm:space-y-3 sm:p-4">
                   <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">Total Budget</p>
-                  <p className="text-4xl font-bold leading-none text-[#0C2C3A]">{formatPeso(vm.totalBudget)}</p>
+                  <p className="break-words text-[clamp(1.8rem,8vw,2.45rem)] font-bold leading-tight text-[#0C2C3A]">
+                    {formatPeso(vm.totalBudget)}
+                  </p>
                   {vm.budgetDeltaLabel ? (
                     <div className={getDeltaBadgeClassName(vm.budgetDeltaLabel)}>
                       {vm.budgetDeltaLabel}
@@ -153,11 +155,13 @@ export default function LguBudgetOverviewMotion({
             <div className="grid grid-cols-2 items-stretch gap-3">
               <motion.div className="h-full" variants={kpiItemVariant}>
                 <Card className="h-full rounded-2xl border-slate-200 bg-white py-0">
-                  <CardContent className="flex h-full min-h-[126px] flex-col p-4">
+                  <CardContent className="flex h-full min-h-[112px] flex-col p-3.5 sm:min-h-[126px] sm:p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">Total Projects</p>
-                    <p className="mt-5 text-4xl font-semibold leading-none text-[#0C2C3A]">{formatNumber(vm.projectCount)}</p>
+                    <p className="mt-4 text-3xl font-semibold leading-none text-[#0C2C3A] sm:mt-5 sm:text-4xl">
+                      {formatNumber(vm.projectCount)}
+                    </p>
                     {vm.projectDeltaLabel ? (
-                      <span className={`mt-4 ${getDeltaBadgeClassName(vm.projectDeltaLabel)}`}>
+                      <span className={`mt-3 sm:mt-4 ${getDeltaBadgeClassName(vm.projectDeltaLabel)}`}>
                         {vm.projectDeltaLabel}
                       </span>
                     ) : null}
@@ -167,9 +171,9 @@ export default function LguBudgetOverviewMotion({
 
               <motion.div className="h-full" variants={kpiItemVariant}>
                 <Card className="h-full rounded-2xl border-slate-200 bg-white py-0">
-                  <CardContent className="flex h-full min-h-[126px] flex-col p-4">
+                  <CardContent className="flex h-full min-h-[112px] flex-col p-3.5 sm:min-h-[126px] sm:p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">AIP Status</p>
-                    <div className="mt-5 inline-flex items-start gap-2 text-xl font-semibold leading-none text-[#0C2C3A]">
+                    <div className="mt-4 inline-flex items-start gap-2 text-lg font-semibold leading-none text-[#0C2C3A] sm:mt-5 sm:text-xl">
                       <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-[#0EA97B]" />
                       {vm.aipStatus}
                     </div>
@@ -180,10 +184,12 @@ export default function LguBudgetOverviewMotion({
 
             <motion.div variants={kpiItemVariant}>
               <Card className="rounded-2xl border-slate-200 bg-white py-0">
-                <CardContent className="p-4">
+                <CardContent className="p-3.5 sm:p-4">
                   <div>
                     <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">OpenAIP Citizens</p>
-                    <p className="mt-5 text-4xl font-semibold leading-none text-[#0C2C3A]">{formatNumber(vm.citizenCount)}</p>
+                    <p className="mt-4 text-3xl font-semibold leading-none text-[#0C2C3A] sm:mt-5 sm:text-4xl">
+                      {formatNumber(vm.citizenCount)}
+                    </p>
                   </div>
                 </CardContent>
               </Card>

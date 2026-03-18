@@ -10,7 +10,7 @@ export default function LandingContentCanvas({ children, className }: LandingCon
   return (
     <div
       className={cn(
-        "relative left-1/2 w-screen -translate-x-1/2 min-h-screen supports-[height:100svh]:min-h-[100svh] bg-[#E6EDF2] [font-family:var(--font-inter)]",
+        "relative left-1/2 w-screen -translate-x-1/2 overflow-x-hidden bg-[#E6EDF2] [font-family:var(--font-inter)]",
         className
       )}
     >

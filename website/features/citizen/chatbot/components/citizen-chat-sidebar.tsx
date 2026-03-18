@@ -30,8 +30,8 @@ export default function CitizenChatSidebar({
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Conversations</h2>
           {canManageConversations ? (
-            <Button className="h-10 gap-2 rounded-xl bg-[#022437] px-4 text-white hover:bg-[#011c2a]" onClick={onNewChat}>
-              <Plus className="h-4 w-4" />
+            <Button className="h-8 gap-1.5 rounded-xl bg-[#022437] px-3 text-xs font-semibold text-white hover:bg-[#011c2a] sm:h-9 sm:px-3.5 sm:text-sm" onClick={onNewChat}>
+              <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               New Chat
             </Button>
           ) : null}

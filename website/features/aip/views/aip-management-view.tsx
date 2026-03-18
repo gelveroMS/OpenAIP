@@ -149,22 +149,24 @@ export default function AipManagementView({
   const scopeLabel = scope === "city" ? "city" : "barangay";
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-4 overflow-x-hidden md:space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold text-slate-900">AIP Management</h1>
-        <p className="mt-2 text-sm text-slate-600">
+        <h1 className="break-words text-2xl font-bold text-slate-900 md:text-3xl">
+          AIP Management
+        </h1>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
           Manage, upload, review, and monitor Annual Investment Plan (AIP) documents for {scopeLabel} development.
         </p>
       </div>
 
       {/* Controls */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="text-sm text-slate-500">Showing {filtered.length} AIPs</div>
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <Select value={yearFilter} onValueChange={setYearFilter}>
-            <SelectTrigger className="w-[180px] bg-slate-50 border-slate-200">
+            <SelectTrigger className="w-full border-slate-200 bg-slate-50 sm:w-[180px]">
               <SelectValue placeholder="All Years" />
             </SelectTrigger>
             <SelectContent>
@@ -179,7 +181,7 @@ export default function AipManagementView({
 
           <Button
             data-testid="aip-upload-open-button"
-            className="bg-[#022437] hover:bg-[#022437]/90"
+            className="w-full bg-[#022437] hover:bg-[#022437]/90 sm:w-auto"
             onClick={() => setOpenUpload(true)}
           >
             <Plus className="h-4 w-4" />
@@ -189,7 +191,7 @@ export default function AipManagementView({
       </div>
 
       {/* List */}
-      <div className="space-y-4">
+      <div className="space-y-3 md:space-y-4">
         {filtered.map((aip) => (
           <AipCard key={aip.id} aip={aip} scope={scope} />
         ))}

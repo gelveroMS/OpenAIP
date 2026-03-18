@@ -84,6 +84,14 @@ describe("AipProjectsTable", () => {
     expect(screen.getByText("General Program 1")).toBeInTheDocument();
   });
 
+  it("keeps mobile-safe horizontal table containment classes", () => {
+    render(<AipProjectsTable aip={buildAipDetails()} />);
+
+    const table = screen.getByRole("table");
+    expect(table.className).toContain("min-w-[640px]");
+    expect(table.parentElement?.className).toContain("overflow-x-auto");
+  });
+
   it("applies row status styling precedence for LGU notes and AI flags", () => {
     render(<AipProjectsTable aip={buildAipDetails()} />);
 

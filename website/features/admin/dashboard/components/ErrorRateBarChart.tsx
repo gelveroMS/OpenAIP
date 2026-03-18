@@ -7,8 +7,8 @@ import { DASHBOARD_CHART_STROKES, DASHBOARD_SEMANTIC_COLORS } from "@/lib/ui/tok
 export default function ErrorRateBarChart({ metrics }: { metrics: UsageMetricsVM }) {
   const data = metrics.errorRateTrend;
   const maxValue = Math.max(...data.map((d) => d.value), 1);
-  const chartHeight = 210;
-  const svgWidth = Math.max(data.length * 80, 700);
+  const chartHeight = 180;
+  const svgWidth = Math.max(data.length * 64, 520);
   const plotWidth = svgWidth - 40;
   const gridLines = 4;
   const step = plotWidth / Math.max(data.length, 1);
@@ -17,20 +17,20 @@ export default function ErrorRateBarChart({ metrics }: { metrics: UsageMetricsVM
   return (
     <Card className="border-slate-200 py-3 shadow-none">
       <CardHeader className="space-y-1 pb-0">
-        <CardTitle className="text-[18px]">Error Rate Trend</CardTitle>
+        <CardTitle className="text-base sm:text-[18px]">Error Rate Trend</CardTitle>
         <div className="text-[12px] text-slate-500">
           Daily error rate percentage showing system reliability and performance issues.
         </div>
       </CardHeader>
       <CardContent className="pt-4">
-        <div className="w-full overflow-x-auto">
+        <div className="w-full overflow-hidden">
           <svg
             width="100%"
-            height={250}
-            viewBox={`0 0 ${svgWidth} 250`}
+            height={220}
+            viewBox={`0 0 ${svgWidth} 220`}
             className="text-slate-400"
           >
-            <g transform="translate(20,20)">
+            <g transform="translate(20,18)">
               {Array.from({ length: gridLines + 1 }, (_, idx) => {
                 const y = (chartHeight / gridLines) * idx;
                 return (
@@ -60,7 +60,7 @@ export default function ErrorRateBarChart({ metrics }: { metrics: UsageMetricsVM
                     />
                     <text
                       x={x + barWidth / 2}
-                      y={chartHeight + 18}
+                      y={chartHeight + 16}
                       textAnchor="middle"
                       className="text-[10px] fill-slate-400"
                     >

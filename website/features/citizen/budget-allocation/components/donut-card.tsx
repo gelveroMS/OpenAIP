@@ -30,17 +30,20 @@ export default function DonutCard({ fiscalYear, totalBudget, sectors }: DonutCar
 
   return (
     <Card className="rounded-2xl border border-gray-200 bg-white shadow-sm">
-      <CardHeader className="pb-2">
+      <CardHeader className="space-y-1 pb-2">
         <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-lg text-[#022437]">Annual Budget Allocation Overview</CardTitle>
+          <CardTitle className="text-base text-[#022437] md:text-lg">Annual Budget Allocation Overview</CardTitle>
           <Badge className="rounded-full bg-cyan-50 text-cyan-800 hover:bg-cyan-50">FY {fiscalYear}</Badge>
         </div>
-        <p className="text-4xl font-semibold text-[#022437]" title={formatPeso(totalBudget)}>
+        <p
+          className="break-words text-[clamp(1.55rem,8.8vw,2.25rem)] font-semibold text-[#022437] md:text-4xl"
+          title={formatPeso(totalBudget)}
+        >
           {formatPeso(totalBudget)}
         </p>
       </CardHeader>
-      <CardContent className="space-y-5">
-        <div className="h-60 w-full">
+      <CardContent className="space-y-4 md:space-y-5">
+        <div className="h-48 w-full sm:h-56 md:h-60">
           {hasData ? (
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -81,11 +84,16 @@ export default function DonutCard({ fiscalYear, totalBudget, sectors }: DonutCar
 
         <ul className="space-y-2.5">
           {donutRows.map((row) => (
-            <li key={row.key} className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-3 text-sm">
+            <li
+              key={row.key}
+              className="grid grid-cols-[auto_1fr_auto] items-center gap-2.5 text-xs sm:grid-cols-[auto_1fr_auto_auto] sm:gap-3 sm:text-sm"
+            >
               <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: row.color }} />
-              <span className="text-slate-700">{row.label}</span>
-              <span className="text-slate-500 tabular-nums">{row.percentage.toFixed(1)}%</span>
-              <span className="text-right font-semibold text-[#022437] tabular-nums">{formatPeso(row.amount)}</span>
+              <span className="min-w-0 break-words text-slate-700">{row.label}</span>
+              <span className="text-slate-500 tabular-nums whitespace-nowrap">{row.percentage.toFixed(1)}%</span>
+              <span className="col-span-full text-right font-semibold text-[#022437] tabular-nums whitespace-nowrap sm:col-auto">
+                {formatPeso(row.amount)}
+              </span>
             </li>
           ))}
         </ul>

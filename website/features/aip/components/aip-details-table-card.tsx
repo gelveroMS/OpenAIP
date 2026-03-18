@@ -100,28 +100,28 @@ export function AipDetailsTableCard({
   const showingEnd = filtered.length === 0 ? 0 : pageEnd;
 
   return (
-    <Card data-testid="aip-details-table-card" className="border-slate-200">
-      <CardContent className="px-6">
+    <Card data-testid="aip-details-table-card" className="min-w-0 border-slate-200">
+      <CardContent className="px-3 py-4 sm:px-5 md:px-6">
         {showCommentingNote && !canComment && (
           <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
             <strong>Note:</strong> Commenting on projects is only available when the AIP status is Draft or For Revision.
           </div>
         )}
         
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h3 className="text-lg font-bold text-slate-900">
+        <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <h3 className="break-words text-base font-bold text-slate-900 sm:text-lg">
               Annual Investment Plan {year} Details
             </h3>
 
-            <div className="mt-3">
+            <div className="-mx-1 mt-3 min-w-0 overflow-x-auto px-1 [scrollbar-width:thin]">
               <Tabs value={activeSector} onValueChange={(v) => setActiveSector(v as typeof SECTOR_TABS[number])}>
-                <TabsList className="h-7 bg-slate-100 p-1 rounded-full">
+                <TabsList className="h-10 w-max min-w-max rounded-full bg-slate-100 p-1">
                   {SECTOR_TABS.map((s) => (
                     <TabsTrigger
                       key={s}
                       value={s}
-                      className="h-5 px-3 text-[11px] rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm"
+                      className="h-8 shrink-0 rounded-full px-3 text-xs leading-none sm:h-7 sm:px-3 sm:text-[11px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
                     >
                       {s}
                     </TabsTrigger>
@@ -143,8 +143,11 @@ export function AipDetailsTableCard({
           </div>
         </div>
 
-        <div data-testid="aip-details-table" className="mt-4 border border-slate-200 rounded-lg overflow-hidden bg-white">
-          <Table>
+        <div
+          data-testid="aip-details-table"
+          className="mt-4 max-w-full overflow-x-auto rounded-lg border border-slate-200 bg-white [scrollbar-width:thin]"
+        >
+          <Table className="min-w-[680px] md:min-w-[700px]">
             <TableHeader>
               <TableRow className="bg-slate-50 hover:bg-slate-50">
                 <TableHead className="text-xs text-slate-600 font-semibold">AIP Reference Code</TableHead>
@@ -174,8 +177,10 @@ export function AipDetailsTableCard({
                     onClick={() => onRowClick(r)}
                   >
                     <TableCell className="text-xs text-slate-700">{r.projectRefCode}</TableCell>
-                    <TableCell className="text-xs text-slate-700">{r.aipDescription}</TableCell>
-                    <TableCell className="text-xs text-slate-700 text-right tabular-nums">
+                    <TableCell className="min-w-[280px] whitespace-normal text-xs text-slate-700">
+                      {r.aipDescription}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-xs text-slate-700 text-right tabular-nums">
                       ₱{r.amount.toLocaleString()}
                     </TableCell>
                   </TableRow>
@@ -199,7 +204,7 @@ export function AipDetailsTableCard({
               {`Showing ${showingStart}-${showingEnd} of ${filtered.length} projects`}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 variant="outline"
                 size="sm"
@@ -221,7 +226,7 @@ export function AipDetailsTableCard({
           </div>
         )}
 
-        <div className="mt-4 flex flex-wrap items-center justify-end gap-x-6 gap-y-2">
+        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 sm:justify-end sm:gap-x-6">
           <LegendItem colorClass="bg-red-500" label="GPT detected a potential error" />
           <LegendItem colorClass="bg-amber-500" label="Reviewed and commented by official" />
           <LegendItem colorClass="bg-slate-300" label="No issues detected" />

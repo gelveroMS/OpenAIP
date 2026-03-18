@@ -18,7 +18,7 @@ const CitizenAipDetailsPage = async ({ params }: { params: Promise<{ aipId: stri
   const aipDetails = toAipDetails(record);
 
   return (
-    <section className="space-y-6">
+    <section className="space-y-4 md:space-y-6 overflow-x-hidden">
       <AipDetailsHeader aip={aipDetails} />
       <AipDetailsTabs aip={aipDetails} />
     </section>
