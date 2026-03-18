@@ -401,7 +401,7 @@ export default function CitizenBudgetAllocationView({
   };
 
   return (
-    <section className="overflow-x-hidden pb-12 md:pb-16">
+    <section className="pb-12 md:pb-16">
       <div className="mx-auto max-w-6xl px-3 pt-2 sm:px-4 md:px-6">
         <CitizenPageHero
           title={vm.hero.title.toUpperCase()}

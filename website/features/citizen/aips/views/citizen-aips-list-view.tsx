@@ -170,7 +170,7 @@ export default function CitizenAipsListView({ items }: Props) {
   );
 
   return (
-    <section className="space-y-4 md:space-y-6 overflow-x-hidden">
+    <section className="space-y-4 md:space-y-6">
       <CitizenPageHero
         title="Annual Investment Plans"
         subtitle="Explore how your city or barangay plans to use public funds for programs, projects, and community development throughout the year."
