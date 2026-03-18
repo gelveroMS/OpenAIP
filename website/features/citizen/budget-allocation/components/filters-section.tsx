@@ -17,6 +17,8 @@ export default function FiltersSection({
 }: FiltersSectionProps) {
   const hasCities = filters.availableCities.length > 0;
   const hasBarangays = filters.availableBarangays.length > 0;
+  const selectedYearValue = String(filters.selectedYear);
+  const isReselectKey = (key: string) => key === "Enter" || key === " ";
 
   return (
     <section className="mx-auto max-w-6xl px-3 pb-4 pt-0 sm:px-4 md:px-6 md:pb-6">
@@ -32,7 +34,20 @@ export default function FiltersSection({
             </SelectTrigger>
             <SelectContent>
               {filters.availableYears.map((year: number) => (
-                <SelectItem key={year} value={String(year)}>
+                <SelectItem
+                  key={year}
+                  value={String(year)}
+                  onPointerUp={() => {
+                    if (String(year) === selectedYearValue) {
+                      onYearChange(filters.selectedYear);
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if (String(year) === selectedYearValue && isReselectKey(event.key)) {
+                      onYearChange(filters.selectedYear);
+                    }
+                  }}
+                >
                   {year}
                 </SelectItem>
               ))}
@@ -52,7 +67,20 @@ export default function FiltersSection({
             </SelectTrigger>
             <SelectContent>
               {filters.availableCities.map((option) => (
-                <SelectItem key={option.id} value={option.id}>
+                <SelectItem
+                  key={option.id}
+                  value={option.id}
+                  onPointerUp={() => {
+                    if (option.id === filters.selectedCityScopeId) {
+                      onCityChange(filters.selectedCityScopeId);
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if (option.id === filters.selectedCityScopeId && isReselectKey(event.key)) {
+                      onCityChange(filters.selectedCityScopeId);
+                    }
+                  }}
+                >
                   {option.label}
                 </SelectItem>
               ))}
@@ -72,7 +100,23 @@ export default function FiltersSection({
             </SelectTrigger>
             <SelectContent>
               {filters.availableBarangays.map((option) => (
-                <SelectItem key={option.id} value={option.id}>
+                <SelectItem
+                  key={option.id}
+                  value={option.id}
+                  onPointerUp={() => {
+                    if (option.id === filters.selectedBarangayScopeId) {
+                      onBarangayChange(filters.selectedBarangayScopeId);
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if (
+                      option.id === filters.selectedBarangayScopeId &&
+                      isReselectKey(event.key)
+                    ) {
+                      onBarangayChange(filters.selectedBarangayScopeId);
+                    }
+                  }}
+                >
                   {option.label}
                 </SelectItem>
               ))}
