@@ -75,7 +75,7 @@ export default function AccountModal({ open, onOpenChange, user }: Props) {
         onOpenChange(nextOpen);
       }}
     >
-      <DialogContent className="sm:max-w-2xl border-slate-200 bg-white">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto border-slate-200 bg-white sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Account</DialogTitle>
           <DialogDescription>
@@ -84,13 +84,13 @@ export default function AccountModal({ open, onOpenChange, user }: Props) {
         </DialogHeader>
 
         <Card className="border-slate-200 shadow-none">
-          <CardContent className="space-y-6 p-6">
+          <CardContent className="space-y-4 p-4 sm:space-y-6 sm:p-6">
             <div className="space-y-1">
               <h2 className="text-lg font-semibold text-slate-900">Account Information</h2>
               <p className="text-xs text-slate-500">Managed by Admin</p>
             </div>
 
-            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-5">
               <ReadOnlyField label="Name" value={user.fullName} />
               <ReadOnlyField label="Office Email" value={user.email} />
               <ReadOnlyField label="Position" value={user.position} />
