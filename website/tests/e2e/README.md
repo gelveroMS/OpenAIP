@@ -37,6 +37,15 @@ Distinct PDF paths per project:
 - `E2E_AIP_PDF_PATH_PIXEL5`
 - `E2E_AIP_PDF_PATH_IPHONE13`
 
+Committed fixture set (from `website/`):
+
+- `E2E_AIP_PDF_PATH_CHROMIUM=tests/e2e/fixtures/aip-chromium.pdf`
+- `E2E_AIP_PDF_PATH_FIREFOX=tests/e2e/fixtures/aip-firefox.pdf`
+- `E2E_AIP_PDF_PATH_PIXEL5=tests/e2e/fixtures/aip-pixel5.pdf`
+- `E2E_AIP_PDF_PATH_IPHONE13=tests/e2e/fixtures/aip-iphone13.pdf`
+
+These files are intentionally unique so upload hash-gating does not treat them as duplicates across projects.
+
 Project scenario JSON paths:
 
 - `E2E_SCENARIO_CHROMIUM`
@@ -45,6 +54,16 @@ Project scenario JSON paths:
 - `E2E_SCENARIO_IPHONE13`
 
 Use `tests/e2e/scenarios/scenario.example.json` as the schema template.
+
+Shared scenario now (staging snapshot, March 11, 2026):
+
+- `E2E_SCENARIO_CHROMIUM=tests/e2e/scenarios/scenario.staging.shared.json`
+- `E2E_SCENARIO_FIREFOX=tests/e2e/scenarios/scenario.staging.shared.json`
+- `E2E_SCENARIO_PIXEL5=tests/e2e/scenarios/scenario.staging.shared.json`
+- `E2E_SCENARIO_IPHONE13=tests/e2e/scenarios/scenario.staging.shared.json`
+
+Note: this shared scenario is intended for the current staging snapshot and smoke execution.  
+Because all projects mutate the same AIP workflow entities, a full 4-project run can conflict unless staging is reseeded between projects or 4 isolated scenario files are prepared.
 
 ## Scenario Contract
 
@@ -67,6 +86,15 @@ A scenario file must include:
 ## Run Commands
 
 From `website/`:
+
+PowerShell setup example:
+
+```powershell
+$env:E2E_AIP_PDF_PATH_CHROMIUM="tests/e2e/fixtures/aip-chromium.pdf"
+$env:E2E_AIP_PDF_PATH_FIREFOX="tests/e2e/fixtures/aip-firefox.pdf"
+$env:E2E_AIP_PDF_PATH_PIXEL5="tests/e2e/fixtures/aip-pixel5.pdf"
+$env:E2E_AIP_PDF_PATH_IPHONE13="tests/e2e/fixtures/aip-iphone13.pdf"
+```
 
 ```bash
 npm run e2e:install
