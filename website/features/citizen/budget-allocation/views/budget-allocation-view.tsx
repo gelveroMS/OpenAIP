@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DBV2_SECTOR_CODES, getSectorLabel, type DashboardSectorCode } from "@/lib/constants/dashboard";
 import type {
   AipDetailsRowVM,
@@ -76,33 +76,91 @@ type SummaryPayload = {
 
 type ProjectsPayload = {
   items: Array<{
+    project_id?: string;
     aip_ref_code: string;
     program_project_description: string;
+    source_of_funds?: string | null;
     total: number;
   }>;
-  totalPages: number;
+  page?: number;
+  pageSize?: number;
+  totalRows?: number;
+  totalPages?: number;
 };
 
-export default function CitizenBudgetAllocationView() {
+type InitialPayload = {
+  filters: FiltersPayload;
+  summary: SummaryPayload | null;
+  projects: ProjectsPayload | null;
+};
+
+type CitizenBudgetAllocationViewProps = {
+  initialData?: InitialPayload | null;
+};
+
+function toProjectRows(
+  payload: ProjectsPayload | null | undefined,
+  categoryKey: BudgetCategoryKey
+): AipDetailsRowVM[] {
+  return (payload?.items ?? []).map((item) => ({
+    categoryKey,
+    aipRefCode: item.aip_ref_code,
+    programDescription: item.program_project_description,
+    totalAmount: typeof item.total === 'number' ? item.total : 0,
+  }));
+}
+
+function toLguOptions(
+  payload: FiltersPayload | null | undefined
+): BudgetAllocationLguOptionVM[] {
+  return (payload?.lgus ?? []).map((option) => ({
+    id: option.scope_id,
+    label: option.label,
+    scopeType: option.scope_type,
+  }));
+}
+
+export default function CitizenBudgetAllocationView({
+  initialData,
+}: CitizenBudgetAllocationViewProps) {
   const vm = CITIZEN_BUDGET_ALLOCATION_MOCK;
+  const initialFilters = initialData?.filters ?? null;
+  const initialSelected = initialFilters?.selected ?? null;
+  const hasInitialPublishedData = Boolean(initialFilters?.has_data && initialSelected);
+  const skipInitialSummaryFetch = useRef(Boolean(initialData?.summary && hasInitialPublishedData));
+  const skipInitialProjectsFetch = useRef(
+    Boolean(initialData?.projects && hasInitialPublishedData)
+  );
 
   const [activeTab, setActiveTab] = useState<BudgetCategoryKey>(DEFAULT_TAB);
   const [detailsSearch, setDetailsSearch] = useState<string>('');
-  const [selectedYear, setSelectedYear] = useState<number | null>(null);
-  const [selectedScopeType, setSelectedScopeType] = useState<"city" | "barangay" | null>(null);
-  const [selectedScopeId, setSelectedScopeId] = useState<string>('');
-  const [availableYears, setAvailableYears] = useState<number[]>([]);
-  const [availableLGUs, setAvailableLGUs] = useState<BudgetAllocationLguOptionVM[]>([]);
+  const [selectedYear, setSelectedYear] = useState<number | null>(
+    initialSelected?.fiscal_year ?? null
+  );
+  const [selectedScopeType, setSelectedScopeType] = useState<"city" | "barangay" | null>(
+    initialSelected?.scope_type ?? null
+  );
+  const [selectedScopeId, setSelectedScopeId] = useState<string>(initialSelected?.scope_id ?? '');
+  const [availableYears, setAvailableYears] = useState<number[]>(initialFilters?.years ?? []);
+  const [availableLGUs, setAvailableLGUs] = useState<BudgetAllocationLguOptionVM[]>(
+    toLguOptions(initialFilters)
+  );
   const [projectPage, setProjectPage] = useState<number>(1);
-  const [isFiltersLoading, setIsFiltersLoading] = useState<boolean>(true);
+  const [isFiltersLoading, setIsFiltersLoading] = useState<boolean>(() => !initialFilters);
   const [isSummaryLoading, setIsSummaryLoading] = useState<boolean>(false);
   const [isProjectsLoading, setIsProjectsLoading] = useState<boolean>(false);
-  const [hasPublishedData, setHasPublishedData] = useState<boolean>(false);
+  const [hasPublishedData, setHasPublishedData] = useState<boolean>(hasInitialPublishedData);
   const [filtersError, setFiltersError] = useState<string | null>(null);
 
-  const [summaryPayload, setSummaryPayload] = useState<SummaryPayload | null>(null);
-  const [projectItems, setProjectItems] = useState<AipDetailsRowVM[]>([]);
-  const [projectTotalPages, setProjectTotalPages] = useState<number>(1);
+  const [summaryPayload, setSummaryPayload] = useState<SummaryPayload | null>(
+    initialData?.summary ?? null
+  );
+  const [projectItems, setProjectItems] = useState<AipDetailsRowVM[]>(
+    toProjectRows(initialData?.projects ?? null, DEFAULT_TAB)
+  );
+  const [projectTotalPages, setProjectTotalPages] = useState<number>(
+    Math.max(1, Number(initialData?.projects?.totalPages ?? 1))
+  );
 
   const canFetchLiveData =
     hasPublishedData &&
@@ -134,7 +192,7 @@ export default function CitizenBudgetAllocationView() {
         params.set("prefer", input.prefer);
       }
 
-      const response = await fetch(`/api/citizen/budget-allocation/filters?${params.toString()}`, { cache: 'no-store' });
+      const response = await fetch(`/api/citizen/budget-allocation/filters?${params.toString()}`);
       const payload = (await response.json()) as FiltersPayload;
       if (!response.ok) {
         throw new Error("Failed to load budget allocation filters.");
@@ -150,18 +208,14 @@ export default function CitizenBudgetAllocationView() {
         setSummaryPayload(null);
         setProjectItems([]);
         setProjectTotalPages(1);
+        skipInitialSummaryFetch.current = false;
+        skipInitialProjectsFetch.current = false;
         return;
       }
 
       setHasPublishedData(true);
       setAvailableYears(payload.years ?? []);
-      setAvailableLGUs(
-        (payload.lgus ?? []).map((option) => ({
-          id: option.scope_id,
-          label: option.label,
-          scopeType: option.scope_type,
-        }))
-      );
+      setAvailableLGUs(toLguOptions(payload));
       setSelectedYear(payload.selected.fiscal_year);
       setSelectedScopeType(payload.selected.scope_type);
       setSelectedScopeId(payload.selected.scope_id);
@@ -170,6 +224,11 @@ export default function CitizenBudgetAllocationView() {
   );
 
   useEffect(() => {
+    if (initialFilters) {
+      setIsFiltersLoading(false);
+      return;
+    }
+
     let cancelled = false;
     setIsFiltersLoading(true);
     setFiltersError(null);
@@ -187,13 +246,19 @@ export default function CitizenBudgetAllocationView() {
     return () => {
       cancelled = true;
     };
-  }, [syncFilters]);
+  }, [initialFilters, syncFilters]);
 
   useEffect(() => {
     if (!canFetchLiveData || typeof selectedYear !== "number" || !selectedScopeType) {
       setIsSummaryLoading(false);
       return;
     }
+
+    if (skipInitialSummaryFetch.current) {
+      skipInitialSummaryFetch.current = false;
+      return;
+    }
+
     let cancelled = false;
 
     const loadSummary = async () => {
@@ -204,7 +269,7 @@ export default function CitizenBudgetAllocationView() {
         scope_id: selectedScopeId,
       });
 
-      const response = await fetch(`/api/citizen/budget-allocation/summary?${params.toString()}`, { cache: 'no-store' });
+      const response = await fetch(`/api/citizen/budget-allocation/summary?${params.toString()}`);
       const payload = (await response.json()) as SummaryPayload;
       if (!cancelled) {
         setSummaryPayload(response.ok ? payload : null);
@@ -229,6 +294,18 @@ export default function CitizenBudgetAllocationView() {
       setIsProjectsLoading(false);
       return;
     }
+
+    if (
+      skipInitialProjectsFetch.current &&
+      activeTab === DEFAULT_TAB &&
+      projectPage === 1 &&
+      detailsSearch.trim().length === 0
+    ) {
+      skipInitialProjectsFetch.current = false;
+      return;
+    }
+    skipInitialProjectsFetch.current = false;
+
     let cancelled = false;
 
     const loadProjects = async () => {
@@ -246,23 +323,17 @@ export default function CitizenBudgetAllocationView() {
         params.set('q', detailsSearch.trim());
       }
 
-      const response = await fetch(`/api/citizen/budget-allocation/projects?${params.toString()}`, { cache: 'no-store' });
+      const response = await fetch(`/api/citizen/budget-allocation/projects?${params.toString()}`);
       const payload = (await response.json()) as ProjectsPayload;
       if (!cancelled) {
         if (!response.ok) {
           setProjectItems([]);
           setProjectTotalPages(1);
+          setIsProjectsLoading(false);
           return;
         }
 
-        setProjectItems(
-          (payload.items ?? []).map((item) => ({
-            categoryKey: activeTab,
-            aipRefCode: item.aip_ref_code,
-            programDescription: item.program_project_description,
-            totalAmount: typeof item.total === 'number' ? item.total : 0,
-          }))
-        );
+        setProjectItems(toProjectRows(payload, activeTab));
         setProjectTotalPages(Math.max(1, Number(payload.totalPages ?? 1)));
         setIsProjectsLoading(false);
       }
@@ -381,6 +452,8 @@ export default function CitizenBudgetAllocationView() {
             onYearChange={(year) => {
               setProjectPage(1);
               setFiltersError(null);
+              skipInitialSummaryFetch.current = false;
+              skipInitialProjectsFetch.current = false;
               syncFilters({
                 fiscalYear: year,
                 scopeType: selectedScopeType ?? undefined,
@@ -394,6 +467,8 @@ export default function CitizenBudgetAllocationView() {
             onLguChange={(scopeType, scopeId) => {
               setProjectPage(1);
               setFiltersError(null);
+              skipInitialSummaryFetch.current = false;
+              skipInitialProjectsFetch.current = false;
               syncFilters({
                 scopeType,
                 scopeId,

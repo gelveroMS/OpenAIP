@@ -28,8 +28,9 @@ import {
   type CitizenDashboardContentValue,
   type CitizenDashboardScopePinValue,
 } from "@/lib/settings/app-settings";
+import { measureTiming } from "@/lib/server/perf/timing";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { supabaseServer } from "@/lib/supabase/server";
+import { supabasePublicServer } from "@/lib/supabase/public-server";
 import {
   buildFeedbackMetrics,
   FEEDBACK_MONTHS,
@@ -56,6 +57,24 @@ type AipPickRow = {
   updated_at: string;
 };
 
+type ScopeYearRollupRow = {
+  aip_id: string;
+  fiscal_year: number;
+  scope_type: LandingScopeType | string;
+  scope_id: string;
+  total_budget: number | string | null;
+  project_count: number | string | null;
+  project_total_budget: number | string | null;
+  health_project_count: number | string | null;
+  health_project_total: number | string | null;
+  infrastructure_project_count: number | string | null;
+  infrastructure_project_total: number | string | null;
+  sector_1000_total: number | string | null;
+  sector_3000_total: number | string | null;
+  sector_8000_total: number | string | null;
+  sector_9000_total: number | string | null;
+};
+
 type ScopeProjectRow = {
   id: string;
   aip_id: string;
@@ -68,11 +87,6 @@ type ScopeProjectRow = {
   expected_output: string | null;
   source_of_funds: string | null;
   image_url: string | null;
-};
-
-type ProjectLinkRow = {
-  id: string;
-  aip_id: string;
 };
 
 type ResolvedScopePin = {
@@ -390,7 +404,7 @@ function toScopeKey(scopeType: LandingScopeType, scopeId: string): string {
 async function resolveConfiguredPins(
   pins: CitizenDashboardScopePinValue[]
 ): Promise<ResolvedScopePin[]> {
-  const client = await supabaseServer();
+  const client = supabasePublicServer();
   const cityPsgcs = dedupeNonEmptyStrings(
     pins.filter((pin) => pin.scopeType === "city").map((pin) => pin.scopePsgc)
   );
@@ -578,28 +592,48 @@ async function listAvailableFiscalYears(
   scopeId: string | null
 ): Promise<number[]> {
   if (!scopeId) return [];
-  const client = await supabaseServer();
-  const scopeColumn = scopeColumnOf(scopeType);
-  const data = await collectPaged(async (from, to) => {
-    const { data: batch, error } = await client
-      .from("aips")
-      .select("id,fiscal_year")
-      .eq("status", "published")
-      .eq(scopeColumn, scopeId)
-      .order("fiscal_year", { ascending: false })
-      .order("id", { ascending: true })
-      .range(from, to);
+  const client = supabasePublicServer();
+  try {
+    const { data, error } = await client
+      .from("v_citizen_dashboard_published_rollups")
+      .select("fiscal_year")
+      .eq("scope_type", scopeType)
+      .eq("scope_id", scopeId)
+      .eq("is_latest_scope_year", true)
+      .order("fiscal_year", { ascending: false });
 
     if (error) throw new Error(error.message);
-    return (batch ?? []) as FiscalYearRow[];
-  });
 
-  const seen = new Set<number>();
-  for (const row of data) {
-    seen.add(row.fiscal_year);
+    const seen = new Set<number>();
+    for (const row of (data ?? []) as Array<{ fiscal_year: number }>) {
+      if (Number.isInteger(row.fiscal_year)) {
+        seen.add(row.fiscal_year);
+      }
+    }
+    return Array.from(seen).sort((left, right) => right - left);
+  } catch {
+    const scopeColumn = scopeColumnOf(scopeType);
+    const data = await collectPaged(async (from, to) => {
+      const { data: batch, error } = await client
+        .from("aips")
+        .select("id,fiscal_year")
+        .eq("status", "published")
+        .eq(scopeColumn, scopeId)
+        .order("fiscal_year", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, to);
+
+      if (error) throw new Error(error.message);
+      return (batch ?? []) as FiscalYearRow[];
+    });
+
+    const seen = new Set<number>();
+    for (const row of data) {
+      seen.add(row.fiscal_year);
+    }
+
+    return Array.from(seen).sort((left, right) => right - left);
   }
-
-  return Array.from(seen).sort((left, right) => right - left);
 }
 
 async function listPublishedAipsByScopeYear(input: {
@@ -607,7 +641,7 @@ async function listPublishedAipsByScopeYear(input: {
   scopeId: string;
   fiscalYear: number;
 }): Promise<AipPickRow[]> {
-  const client = await supabaseServer();
+  const client = supabasePublicServer();
   const scopeColumn = scopeColumnOf(input.scopeType);
   const { data, error } = await client
     .from("aips")
@@ -627,6 +661,25 @@ async function getPublishedAipIdByScopeYear(input: {
   scopeId: string;
   fiscalYear: number;
 }): Promise<string | null> {
+  const client = supabasePublicServer();
+  try {
+    const { data, error } = await client
+      .from("v_citizen_dashboard_published_rollups")
+      .select("aip_id")
+      .eq("scope_type", input.scopeType)
+      .eq("scope_id", input.scopeId)
+      .eq("fiscal_year", input.fiscalYear)
+      .eq("is_latest_scope_year", true)
+      .limit(1)
+      .maybeSingle<{ aip_id: string }>();
+
+    if (!error && data?.aip_id) {
+      return data.aip_id;
+    }
+  } catch {
+    // Fall back to direct AIP lookup when the rollup view is unavailable.
+  }
+
   const rows = await listPublishedAipsByScopeYear(input);
   return rows[0]?.id ?? null;
 }
@@ -666,17 +719,13 @@ function resolveFiscalYear(input: {
   };
 }
 
-function toAmount(value: number | null): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
-  return value;
-}
-
-function toDashboardSectorCode(value: string | null | undefined): DashboardSectorCode | null {
-  const normalized = typeof value === "string" ? value.trim() : "";
-  if (DBV2_SECTOR_CODES.includes(normalized as DashboardSectorCode)) {
-    return normalized as DashboardSectorCode;
+function toAmount(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value.replace(/,/g, "").trim());
+    return Number.isFinite(parsed) ? parsed : 0;
   }
-  return null;
+  return 0;
 }
 
 function toDisplayRefCode(value: string | null | undefined): string {
@@ -684,8 +733,79 @@ function toDisplayRefCode(value: string | null | undefined): string {
   return normalized.length > 0 ? normalized : "Unspecified";
 }
 
-async function listProjectsByAipId(aipId: string): Promise<ScopeProjectRow[]> {
-  const client = await supabaseServer();
+async function listTopProjectsByAipId(input: {
+  aipId: string;
+  category: "health" | "infrastructure";
+  limit?: number;
+}): Promise<ScopeProjectRow[]> {
+  const client = supabasePublicServer();
+  const limit = Math.max(1, Math.min(12, input.limit ?? 6));
+  const { data, error } = await client
+    .from("projects")
+    .select(
+      "id,aip_id,aip_ref_code,program_project_description,category,sector_code,total,implementing_agency,expected_output,source_of_funds,image_url"
+    )
+    .eq("aip_id", input.aipId)
+    .eq("category", input.category)
+    .order("total", { ascending: false, nullsFirst: false })
+    .order("id", { ascending: true })
+    .limit(limit);
+
+  if (error) throw new Error(error.message);
+  return (data ?? []) as ScopeProjectRow[];
+}
+
+async function getScopeYearRollup(input: {
+  scopeType: LandingScopeType;
+  scopeId: string;
+  fiscalYear: number;
+}): Promise<ScopeYearRollupRow | null> {
+  const client = supabasePublicServer();
+  try {
+    const { data, error } = await client
+      .from("v_citizen_dashboard_published_rollups")
+      .select(
+        "aip_id,fiscal_year,scope_type,scope_id,total_budget,project_count,project_total_budget,health_project_count,health_project_total,infrastructure_project_count,infrastructure_project_total,sector_1000_total,sector_3000_total,sector_8000_total,sector_9000_total"
+      )
+      .eq("scope_type", input.scopeType)
+      .eq("scope_id", input.scopeId)
+      .eq("fiscal_year", input.fiscalYear)
+      .eq("is_latest_scope_year", true)
+      .limit(1)
+      .maybeSingle<ScopeYearRollupRow>();
+
+    if (error) throw new Error(error.message);
+    return data ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function summarizeScopeYearMetricsFromRollup(input: {
+  rollup: ScopeYearRollupRow;
+  healthProjects: ScopeProjectRow[];
+  infraProjects: ScopeProjectRow[];
+}): ScopeYearMetrics {
+  const totalBudget = toAmount(input.rollup.total_budget);
+  const projectTotalBudget = toAmount(input.rollup.project_total_budget);
+  const residualToOther = Math.max(totalBudget - projectTotalBudget, 0);
+
+  return {
+    totalBudget,
+    projectCount: Math.max(0, Math.round(toAmount(input.rollup.project_count))),
+    sectorTotals: {
+      "1000": toAmount(input.rollup.sector_1000_total),
+      "3000": toAmount(input.rollup.sector_3000_total),
+      "8000": toAmount(input.rollup.sector_8000_total),
+      "9000": toAmount(input.rollup.sector_9000_total) + residualToOther,
+    },
+    healthProjects: input.healthProjects,
+    infraProjects: input.infraProjects,
+  };
+}
+
+async function listAllProjectsByAipId(aipId: string): Promise<ScopeProjectRow[]> {
+  const client = supabasePublicServer();
   const rows: ScopeProjectRow[] = [];
   let from = 0;
 
@@ -711,7 +831,7 @@ async function listProjectsByAipId(aipId: string): Promise<ScopeProjectRow[]> {
   return rows;
 }
 
-function summarizeScopeYearMetrics(
+function summarizeScopeYearMetricsFromProjects(
   projects: ScopeProjectRow[],
   options?: { displayTotalBudget?: number | null }
 ): ScopeYearMetrics {
@@ -726,11 +846,18 @@ function summarizeScopeYearMetrics(
   for (const row of projects) {
     const amount = toAmount(row.total);
     projectTotalBudget += amount;
-    const code = toDashboardSectorCode(row.sector_code);
-    if (code) {
-      sectorTotals[code] += amount;
+    const sectorCode = typeof row.sector_code === "string" ? row.sector_code.trim() : "";
+    if (sectorCode.startsWith("1000")) {
+      sectorTotals["1000"] += amount;
+    } else if (sectorCode.startsWith("3000")) {
+      sectorTotals["3000"] += amount;
+    } else if (sectorCode.startsWith("8000")) {
+      sectorTotals["8000"] += amount;
+    } else {
+      sectorTotals["9000"] += amount;
     }
   }
+
   const totalBudget =
     typeof options?.displayTotalBudget === "number" &&
     Number.isFinite(options.displayTotalBudget)
@@ -836,17 +963,14 @@ function toProjectCards(input: {
   });
 }
 
-async function resolveAipDisplayTotalByAipId(input: {
+async function resolveAipDisplayTotalFromProjects(input: {
   aipId: string;
-  projects?: ScopeProjectRow[];
+  projects: ScopeProjectRow[];
 }): Promise<number> {
-  const projects =
-    input.projects?.filter((row) => row.aip_id === input.aipId) ??
-    (await listProjectsByAipId(input.aipId));
-  const client = await supabaseServer();
+  const client = supabasePublicServer();
   const fileTotalsByAipId = await fetchAipFileTotalsByAipIds(client, [input.aipId]);
   const fallbackTotalsByAipId = buildProjectTotalsByAipId(
-    projects.map((row) => ({
+    input.projects.map((row) => ({
       aip_id: row.aip_id,
       total: row.total,
     }))
@@ -859,78 +983,90 @@ async function resolveAipDisplayTotalByAipId(input: {
   });
 }
 
-async function resolveScopeYearDisplayTotal(input: {
-  scopeType: LandingScopeType;
-  scopeId: string;
-  fiscalYear: number;
-  projects?: ScopeProjectRow[];
-}): Promise<number> {
-  const aipId = await getPublishedAipIdByScopeYear({
-    scopeType: input.scopeType,
-    scopeId: input.scopeId,
-    fiscalYear: input.fiscalYear,
-  });
-  if (!aipId) return 0;
-
-  return resolveAipDisplayTotalByAipId({
-    aipId,
-    projects: input.projects,
-  });
-}
-
 async function listMarkerBudgetsByYear(
   pins: ResolvedScopePin[],
   fiscalYear: number
 ): Promise<Map<string, number>> {
-  const selectablePins = pins.filter((pin) => typeof pin.scopeId === "string");
-  const budgetEntries = await Promise.all(
-    selectablePins.map(async (pin) => {
-      const scopeId = pin.scopeId as string;
-      const totalBudget = await resolveScopeYearDisplayTotal({
-        scopeType: pin.scopeType,
-        scopeId,
-        fiscalYear,
-      });
-      return [toScopeKey(pin.scopeType, scopeId), totalBudget] as const;
-    })
+  const selectablePins = pins.filter((pin): pin is ResolvedScopePin & { scopeId: string } =>
+    typeof pin.scopeId === "string"
+  );
+  if (selectablePins.length === 0) return new Map();
+
+  const cityIds = dedupeNonEmptyStrings(
+    selectablePins.filter((pin) => pin.scopeType === "city").map((pin) => pin.scopeId)
+  );
+  const barangayIds = dedupeNonEmptyStrings(
+    selectablePins.filter((pin) => pin.scopeType === "barangay").map((pin) => pin.scopeId)
   );
 
-  return new Map(budgetEntries);
-}
+  const client = supabasePublicServer();
+  const rows: Array<{
+    scope_type: LandingScopeType;
+    scope_id: string;
+    total_budget: number | string | null;
+  }> = [];
 
-async function listProjectLinksByAipIds(aipIds: string[]): Promise<ProjectLinkRow[]> {
-  const normalizedAipIds = dedupeNonEmptyStrings(aipIds);
-  if (normalizedAipIds.length === 0) return [];
-
-  const client = await supabaseServer();
-  return collectInChunksPaged(
-    normalizedAipIds,
-    async (aipChunk, from, to) => {
+  try {
+    if (cityIds.length > 0) {
       const { data, error } = await client
-        .from("projects")
-        .select("id,aip_id")
-        .in("aip_id", aipChunk)
-        .order("id", { ascending: true })
-        .range(from, to);
-
+        .from("v_citizen_dashboard_published_rollups")
+        .select("scope_type,scope_id,total_budget")
+        .eq("scope_type", "city")
+        .eq("fiscal_year", fiscalYear)
+        .eq("is_latest_scope_year", true)
+        .in("scope_id", cityIds);
       if (error) throw new Error(error.message);
-      return (data ?? []) as ProjectLinkRow[];
+      rows.push(
+        ...((data ?? []) as Array<{
+          scope_type: LandingScopeType;
+          scope_id: string;
+          total_budget: number | string | null;
+        }>)
+      );
     }
-  );
+
+    if (barangayIds.length > 0) {
+      const { data, error } = await client
+        .from("v_citizen_dashboard_published_rollups")
+        .select("scope_type,scope_id,total_budget")
+        .eq("scope_type", "barangay")
+        .eq("fiscal_year", fiscalYear)
+        .eq("is_latest_scope_year", true)
+        .in("scope_id", barangayIds);
+      if (error) throw new Error(error.message);
+      rows.push(
+        ...((data ?? []) as Array<{
+          scope_type: LandingScopeType;
+          scope_id: string;
+          total_budget: number | string | null;
+        }>)
+      );
+    }
+  } catch {
+    // Keep zero-marker budgets when rollup view is unavailable.
+  }
+
+  const budgetByScopeKey = new Map<string, number>();
+  for (const row of rows) {
+    budgetByScopeKey.set(
+      toScopeKey(row.scope_type, row.scope_id),
+      Math.max(0, toAmount(row.total_budget))
+    );
+  }
+
+  return budgetByScopeKey;
 }
 
-async function listFeedbackRowsByTargets(input: {
-  aipIds: string[];
-  projectIds: string[];
-}): Promise<LandingFeedbackMetricsRow[]> {
-  const client = await supabaseServer();
+async function listFeedbackRowsByAipIds(
+  aipIds: string[]
+): Promise<LandingFeedbackMetricsRow[]> {
+  const client = supabasePublicServer();
   const rows: LandingFeedbackMetricsRow[] = [];
-  const aipIds = dedupeNonEmptyStrings(input.aipIds);
-  const projectIds = dedupeNonEmptyStrings(input.projectIds);
+  const normalizedAipIds = dedupeNonEmptyStrings(aipIds);
 
-  if (aipIds.length > 0) {
+  if (normalizedAipIds.length > 0) {
     const aipRows = await collectInChunksPaged(
-      aipIds,
+      normalizedAipIds,
       async (aipChunk, from, to) => {
         const { data, error } = await client
           .from("feedback")
@@ -947,20 +1083,44 @@ async function listFeedbackRowsByTargets(input: {
     rows.push(...aipRows);
   }
 
-  if (projectIds.length > 0) {
+  if (normalizedAipIds.length > 0) {
     const projectRows = await collectInChunksPaged(
-      projectIds,
+      normalizedAipIds,
       async (projectChunk, from, to) => {
         const { data, error } = await client
           .from("feedback")
-          .select("id,target_type,aip_id,project_id,parent_feedback_id,kind,source,created_at")
+          .select(
+            "id,target_type,aip_id,project_id,parent_feedback_id,kind,source,created_at,projects!inner(aip_id)"
+          )
           .eq("target_type", "project")
-          .in("project_id", projectChunk)
+          .in("projects.aip_id", projectChunk)
           .order("created_at", { ascending: true })
           .order("id", { ascending: true })
           .range(from, to);
         if (error) throw new Error(error.message);
-        return (data ?? []) as LandingFeedbackMetricsRow[];
+        const mapped = ((data ?? []) as Array<
+          LandingFeedbackMetricsRow & {
+            projects?: { aip_id?: string | null } | Array<{ aip_id?: string | null }>;
+          }
+        >).map((row) => {
+          const joined =
+            Array.isArray(row.projects) ? row.projects[0] : row.projects;
+          const joinedAipId = joined?.aip_id ?? null;
+          return {
+            id: row.id,
+            target_type: row.target_type,
+            aip_id:
+              typeof row.aip_id === "string" && row.aip_id.length > 0
+                ? row.aip_id
+                : joinedAipId,
+            project_id: row.project_id,
+            parent_feedback_id: row.parent_feedback_id,
+            kind: row.kind,
+            source: row.source,
+            created_at: row.created_at,
+          } satisfies LandingFeedbackMetricsRow;
+        });
+        return mapped;
       }
     );
     rows.push(...projectRows);
@@ -992,13 +1152,15 @@ async function computeFeedbackMetrics(input: {
 
   const fiscalYearByAipId = new Map(scopedAips.map((row) => [row.id, row.fiscal_year]));
   const aipIds = scopedAips.map((row) => row.id);
-  const projectLinks = await listProjectLinksByAipIds(aipIds);
-  const aipIdByProjectId = new Map(projectLinks.map((row) => [row.id, row.aip_id]));
-
-  const feedbackRows = await listFeedbackRowsByTargets({
-    aipIds,
-    projectIds: projectLinks.map((row) => row.id),
-  });
+  const feedbackRows = await listFeedbackRowsByAipIds(aipIds);
+  const aipIdByProjectId = new Map(
+    feedbackRows
+      .filter((row) => row.target_type === "project")
+      .map((row) => [row.project_id, row.aip_id] as const)
+      .filter((entry): entry is [string, string] =>
+        typeof entry[0] === "string" && entry[0].length > 0 && typeof entry[1] === "string"
+      )
+  );
 
   return buildFeedbackMetrics({
     feedbackRows,
@@ -1073,7 +1235,15 @@ export function createSupabaseLandingContentRepo(): LandingContentRepo {
 
       const availableFiscalYears =
         selectedPin && selectedPin.scopeId
-          ? await listAvailableFiscalYears(selectedPin.scopeType, selectedPin.scopeId)
+          ? await measureTiming({
+              label: "landing-content.available-fiscal-years",
+              meta: {
+                scopeType: selectedPin.scopeType,
+                hasScopeId: true,
+              },
+              run: async () =>
+                listAvailableFiscalYears(selectedPin.scopeType, selectedPin.scopeId),
+            })
           : [];
       const requestedFiscalYear =
         normalizedQuery.requestedFiscalYear ??
@@ -1115,28 +1285,69 @@ export function createSupabaseLandingContentRepo(): LandingContentRepo {
               fiscalYear: resolvedFiscalYear,
             })
           : null;
+      const selectedScopeIdForCitizenCount = selectedPin?.scopeId ?? null;
       const citizenCount =
-        selectedPin?.scopeId
-          ? await countCitizenProfilesForScope({
-              scopeType: selectedPin.scopeType,
-              scopeId: selectedPin.scopeId,
-            })
-          : 0;
-      const currentProjects =
-        hasData && resolvedScopeAipId
-          ? await listProjectsByAipId(resolvedScopeAipId)
-          : [];
-      const currentDisplayTotal =
-        hasData && resolvedScopeAipId
-          ? await resolveAipDisplayTotalByAipId({
-              aipId: resolvedScopeAipId,
-              projects: currentProjects,
+        selectedScopeIdForCitizenCount && selectedPin
+          ? await measureTiming({
+              label: "landing-content.citizen-count",
+              meta: {
+                scopeType: selectedPin.scopeType,
+                hasScopeId: true,
+              },
+              run: async () =>
+                countCitizenProfilesForScope({
+                  scopeType: selectedPin.scopeType,
+                  scopeId: selectedScopeIdForCitizenCount,
+                }),
             })
           : 0;
       const currentMetrics =
         hasData && resolvedScopeAipId
-          ? summarizeScopeYearMetrics(currentProjects, {
-              displayTotalBudget: currentDisplayTotal,
+          ? await measureTiming({
+              label: "landing-content.current-metrics",
+              meta: {
+                scopeType: selectedPin?.scopeType ?? null,
+                fiscalYear: resolvedFiscalYear,
+                hasAipId: true,
+              },
+              run: async () => {
+                const [rollup, healthProjects, infraProjects] = await Promise.all([
+                  selectedPin?.scopeId
+                    ? getScopeYearRollup({
+                        scopeType: selectedPin.scopeType,
+                        scopeId: selectedPin.scopeId,
+                        fiscalYear: resolvedFiscalYear,
+                      })
+                    : Promise.resolve(null),
+                  listTopProjectsByAipId({
+                    aipId: resolvedScopeAipId,
+                    category: "health",
+                    limit: 6,
+                  }),
+                  listTopProjectsByAipId({
+                    aipId: resolvedScopeAipId,
+                    category: "infrastructure",
+                    limit: 6,
+                  }),
+                ]);
+
+                if (rollup) {
+                  return summarizeScopeYearMetricsFromRollup({
+                    rollup,
+                    healthProjects,
+                    infraProjects,
+                  });
+                }
+
+                const fallbackProjects = await listAllProjectsByAipId(resolvedScopeAipId);
+                const fallbackDisplayTotal = await resolveAipDisplayTotalFromProjects({
+                  aipId: resolvedScopeAipId,
+                  projects: fallbackProjects,
+                });
+                return summarizeScopeYearMetricsFromProjects(fallbackProjects, {
+                  displayTotalBudget: fallbackDisplayTotal,
+                });
+              },
             })
           : buildEmptyMetrics();
 
@@ -1145,50 +1356,96 @@ export function createSupabaseLandingContentRepo(): LandingContentRepo {
         selectedScopeType &&
         selectedScopeId &&
         typeof previousPublishedFiscalYear === "number"
-          ? await (async () => {
-              const previousAipId = await getPublishedAipIdByScopeYear({
+          ? await measureTiming({
+              label: "landing-content.previous-metrics",
+              meta: {
                 scopeType: selectedScopeType,
-                scopeId: selectedScopeId,
                 fiscalYear: previousPublishedFiscalYear,
-              });
-              if (!previousAipId) return null;
+                hasScopeId: true,
+              },
+              run: async () => {
+                const previousAipId = await getPublishedAipIdByScopeYear({
+                  scopeType: selectedScopeType,
+                  scopeId: selectedScopeId,
+                  fiscalYear: previousPublishedFiscalYear,
+                });
+                if (!previousAipId) return null;
 
-              const previousProjects = await listProjectsByAipId(previousAipId);
-              const previousDisplayTotal = await resolveAipDisplayTotalByAipId({
-                aipId: previousAipId,
-                projects: previousProjects,
-              });
-              return summarizeScopeYearMetrics(previousProjects, {
-                displayTotalBudget: previousDisplayTotal,
-              });
-            })()
+                const [rollup, healthProjects, infraProjects] = await Promise.all([
+                  getScopeYearRollup({
+                    scopeType: selectedScopeType,
+                    scopeId: selectedScopeId,
+                    fiscalYear: previousPublishedFiscalYear,
+                  }),
+                  listTopProjectsByAipId({
+                    aipId: previousAipId,
+                    category: "health",
+                    limit: 6,
+                  }),
+                  listTopProjectsByAipId({
+                    aipId: previousAipId,
+                    category: "infrastructure",
+                    limit: 6,
+                  }),
+                ]);
+
+                if (rollup) {
+                  return summarizeScopeYearMetricsFromRollup({
+                    rollup,
+                    healthProjects,
+                    infraProjects,
+                  });
+                }
+
+                const previousProjects = await listAllProjectsByAipId(previousAipId);
+                const previousDisplayTotal = await resolveAipDisplayTotalFromProjects({
+                  aipId: previousAipId,
+                  projects: previousProjects,
+                });
+                return summarizeScopeYearMetricsFromProjects(previousProjects, {
+                  displayTotalBudget: previousDisplayTotal,
+                });
+              },
+            })
           : null;
 
-      const markerBudgetByScope = await listMarkerBudgetsByYear(
-        resolvedPins,
-        resolvedFiscalYear
-      );
+      const markerBudgetByScope = await measureTiming({
+        label: "landing-content.marker-budgets",
+        meta: {
+          markerCount: resolvedPins.length,
+          fiscalYear: resolvedFiscalYear,
+        },
+        run: async () => listMarkerBudgetsByYear(resolvedPins, resolvedFiscalYear),
+      });
 
       const feedbackMetrics =
         hasData && selectedScopeType && selectedScopeId && resolvedScopeAipId
-          ? await (async () => {
-              try {
-                return await computeFeedbackMetrics({
-                  selectedFiscalYear: resolvedFiscalYear,
-                  selectedAipId: resolvedScopeAipId,
-                  previousFiscalYear: previousFeedbackFiscalYear,
-                  previousAipId: previousFeedbackAipId,
-                });
-              } catch (error) {
-                console.error("[LANDING_CONTENT] feedback metrics fallback", {
-                  scopeType: selectedScopeType,
-                  scopeId: selectedScopeId,
-                  selectedFiscalYear: resolvedFiscalYear,
-                  error,
-                });
-                return buildEmptyFeedbackMetrics(resolvedFiscalYear);
-              }
-            })()
+          ? await measureTiming({
+              label: "landing-content.feedback-metrics",
+              meta: {
+                scopeType: selectedScopeType,
+                fiscalYear: resolvedFiscalYear,
+                hasAipId: true,
+              },
+              run: async () => {
+                try {
+                  return await computeFeedbackMetrics({
+                    selectedFiscalYear: resolvedFiscalYear,
+                    selectedAipId: resolvedScopeAipId,
+                    previousFiscalYear: previousFeedbackFiscalYear,
+                    previousAipId: previousFeedbackAipId,
+                  });
+                } catch (error) {
+                  console.error("[LANDING_CONTENT] feedback metrics fallback", {
+                    scopeType: selectedScopeType,
+                    scopeId: selectedScopeId,
+                    selectedFiscalYear: resolvedFiscalYear,
+                    error,
+                  });
+                  return buildEmptyFeedbackMetrics(resolvedFiscalYear);
+                }
+              },
+            })
           : buildEmptyFeedbackMetrics(resolvedFiscalYear);
 
       const mapCenterPin = selectedPin ??

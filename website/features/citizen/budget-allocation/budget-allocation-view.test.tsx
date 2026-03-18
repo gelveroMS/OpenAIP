@@ -134,10 +134,11 @@ describe("CitizenBudgetAllocationView", () => {
     render(<CitizenBudgetAllocationView />);
 
     await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining("/api/citizen/budget-allocation/projects"),
-        expect.objectContaining({ cache: "no-store" })
-      )
+      expect(
+        fetchMock.mock.calls.some((call) =>
+          String(call[0]).includes("/api/citizen/budget-allocation/projects")
+        )
+      ).toBe(true)
     );
 
     const urls = fetchMock.mock.calls.map((call) => String(call[0]));
