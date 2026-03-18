@@ -23,11 +23,20 @@ export default function CitizenChatComposer({
   const isSendMode = mode === "send";
   const primaryLabel =
     mode === "sign_in" ? "Sign In" : mode === "complete_profile" ? "Complete Profile" : "Send";
+  const helperText = isSendMode
+    ? "Shift+Enter for new line"
+    : mode === "sign_in"
+      ? "Sign in required to use the AI Assistant."
+      : mode === "complete_profile"
+        ? "Complete your profile to start chatting."
+        : isSending
+          ? "Please wait..."
+          : "Authentication required";
 
   return (
-    <div className="sticky bottom-0 bg-inherit px-6 py-4 backdrop-blur">
-      <div className="rounded-2xl bg-white p-3">
-        <div className="flex items-end gap-3">
+    <div className="sticky bottom-0 z-20 border-t border-slate-300/70 bg-[#D3DBE0]/95 px-3 pb-[calc(env(safe-area-inset-bottom)+0.55rem)] pt-2 backdrop-blur sm:px-5 sm:pt-3">
+      <div className="rounded-2xl border border-slate-200 bg-white p-2.5 sm:p-3">
+        <div className="flex items-end gap-2.5">
           <Textarea
             value={value}
             onChange={(event) => onChange(event.target.value)}
@@ -40,11 +49,12 @@ export default function CitizenChatComposer({
             }}
             placeholder={placeholder}
             disabled={!isSendMode || disabled}
-            className="min-h-11 max-h-32 resize-none border-0 px-2 shadow-none focus-visible:ring-0"
+            aria-label="Chat message input"
+            className="min-h-11 max-h-36 resize-none border-0 px-2 py-2 text-sm leading-6 shadow-none focus-visible:ring-0"
           />
           <Button
             type="button"
-            className="h-10 rounded-xl bg-[#022437] px-4 text-white hover:bg-[#011c2a]"
+            className="h-10 shrink-0 rounded-xl bg-[#022437] px-4 text-white hover:bg-[#011c2a]"
             onClick={onPrimaryAction}
             disabled={isSendMode ? disabled || !value.trim().length : disabled}
           >
@@ -53,9 +63,7 @@ export default function CitizenChatComposer({
           </Button>
         </div>
       </div>
-      <p className="mt-2 px-1 text-[11px] text-slate-500">
-        {isSendMode ? "Shift+Enter for new line" : isSending ? "Please wait..." : "Authentication required"}
-      </p>
+      <p className="mt-1.5 px-1 text-[11px] text-slate-500 sm:mt-2">{helperText}</p>
     </div>
   );
 }

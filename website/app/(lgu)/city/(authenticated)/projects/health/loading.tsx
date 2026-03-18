@@ -1,5 +1,5 @@
-import SmartFullPageLoader from "@/components/ui/SmartFullPageLoader";
+import CityRouteSkeleton from "@/components/ui/skeletons/city-route-skeleton";
 
-export default function BarangayAipsLoading() {
-  return <SmartFullPageLoader target="lgu-main" />;
+export default function RouteLoading() {
+  return <CityRouteSkeleton variant="list" />;
 }

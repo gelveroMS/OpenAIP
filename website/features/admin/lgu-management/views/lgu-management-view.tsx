@@ -49,7 +49,7 @@ export default function LguManagementView() {
       ) : error ? (
         <div className="text-sm text-rose-600">{error}</div>
       ) : (
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
           <div className="min-w-0">
             <LguMasterList
               query={query}

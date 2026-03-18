@@ -18,10 +18,10 @@ type MockProjectRow = {
   sector_code: string | null;
 };
 
-const mockSupabaseServer = vi.fn();
+const mocksupabasePublicServer = vi.fn();
 
-vi.mock("@/lib/supabase/server", () => ({
-  supabaseServer: () => mockSupabaseServer(),
+vi.mock("@/lib/supabase/public-server", () => ({
+  supabasePublicServer: () => mocksupabasePublicServer(),
 }));
 
 function createMockClient(input: { aips: MockAipRow[]; projects: MockProjectRow[] }) {
@@ -29,6 +29,40 @@ function createMockClient(input: { aips: MockAipRow[]; projects: MockProjectRow[
 
   return {
     from: (table: string) => {
+      if (table === "v_citizen_dashboard_published_rollups") {
+        return {
+          select: () => {
+            const eqFilters: Array<{ field: string; value: unknown }> = [];
+            const builder = {
+              eq: (field: string, value: unknown) => {
+                eqFilters.push({ field, value });
+                return builder;
+              },
+              limit: () => builder,
+              maybeSingle: async () => {
+                const scopeType = eqFilters.find((row) => row.field === "scope_type")?.value;
+                const scopeId = eqFilters.find((row) => row.field === "scope_id")?.value;
+                const fiscalYear = eqFilters.find((row) => row.field === "fiscal_year")?.value;
+
+                const matched = input.aips.find((row) => {
+                  if (row.status !== "published") return false;
+                  if (row.fiscal_year !== fiscalYear) return false;
+                  if (scopeType === "city") return row.city_id === scopeId;
+                  if (scopeType === "barangay") return row.barangay_id === scopeId;
+                  return false;
+                });
+
+                return {
+                  data: matched ? { aip_id: matched.id } : null,
+                  error: null,
+                };
+              },
+            };
+            return builder;
+          },
+        };
+      }
+
       if (table === "aips") {
         return {
           select: (_columns: string, _options?: { head?: boolean; count?: "exact" }) => {
@@ -167,7 +201,7 @@ describe("GET /api/citizen/budget-allocation/projects", () => {
       };
     });
 
-    mockSupabaseServer.mockResolvedValue(
+    mocksupabasePublicServer.mockReturnValue(
       createMockClient({
         aips: [
           {
@@ -201,7 +235,7 @@ describe("GET /api/citizen/budget-allocation/projects", () => {
 
   it("uses Unspecified fallback when aip_ref_code is null", async () => {
     const aipId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
-    mockSupabaseServer.mockResolvedValue(
+    mocksupabasePublicServer.mockReturnValue(
       createMockClient({
         aips: [
           {
@@ -241,7 +275,7 @@ describe("GET /api/citizen/budget-allocation/projects", () => {
 
   it("includes explicit and uncategorized rows for sector_code=9000", async () => {
     const aipId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
-    mockSupabaseServer.mockResolvedValue(
+    mocksupabasePublicServer.mockReturnValue(
       createMockClient({
         aips: [
           {

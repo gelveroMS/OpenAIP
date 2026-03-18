@@ -370,7 +370,25 @@ export default function NotificationsInbox({
         </div>
       </div>
 
-      {loading ? <p className="text-sm text-slate-500">Loading notifications...</p> : null}
+      {loading ? (
+        <div className="space-y-3" role="status" aria-live="polite" aria-busy="true">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div
+              key={`notification-loading-${index}`}
+              className="rounded-[22px] border border-slate-200 bg-white px-5 py-4 shadow-sm"
+            >
+              <div className="flex items-start gap-4">
+                <div className="h-11 w-11 animate-pulse rounded-full bg-slate-100" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="h-4 w-3/5 animate-pulse rounded-full bg-slate-200" />
+                  <div className="h-3 w-2/5 animate-pulse rounded-full bg-slate-100" />
+                  <div className="h-3 w-5/6 animate-pulse rounded-full bg-slate-100" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
       {error ? (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {error}

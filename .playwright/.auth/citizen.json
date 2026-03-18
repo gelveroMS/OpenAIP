@@ -1,0 +1,55 @@
+{
+  "cookies": [
+    {
+      "name": "oa_session_timeout_ms",
+      "value": "1800000",
+      "domain": "open-aip-theta.vercel.app",
+      "path": "/",
+      "expires": 1773186582.676673,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "oa_session_warning_ms",
+      "value": "300000",
+      "domain": "open-aip-theta.vercel.app",
+      "path": "/",
+      "expires": 1773186582.677331,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "oa_last_activity_at",
+      "value": "1773184782134",
+      "domain": "open-aip-theta.vercel.app",
+      "path": "/",
+      "expires": 1773186582.677358,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "sb-vtnbmqxvpactapmgasyc-auth-token",
+      "value": "base64-eyJhY2Nlc3NfdG9rZW4iOiJleUpoYkdjaU9pSkZVekkxTmlJc0ltdHBaQ0k2SWpjNU1tSmhZakkyTFRrME5EUXRORFkxTXkxaFpEWTBMV1U1TlRZeE1XWmlPR0U1T0NJc0luUjVjQ0k2SWtwWFZDSjkuZXlKcGMzTWlPaUpvZEhSd2N6b3ZMM1owYm1KdGNYaDJjR0ZqZEdGd2JXZGhjM2xqTG5OMWNHRmlZWE5sTG1OdkwyRjFkR2d2ZGpFaUxDSnpkV0lpT2lJMU5tTXhOV0kzTXkwNE1qUXpMVFJtTVRRdFlUazRNeTFrTTJGak1URXlPVFZrTW1JaUxDSmhkV1FpT2lKaGRYUm9aVzUwYVdOaGRHVmtJaXdpWlhod0lqb3hOemN6TVRnNE16Z3hMQ0pwWVhRaU9qRTNOek14T0RRM09ERXNJbVZ0WVdsc0lqb2lZMnB3WVdSMVlUTXdMakEwUUdkdFlXbHNMbU52YlNJc0luQm9iMjVsSWpvaUlpd2lZWEJ3WDIxbGRHRmtZWFJoSWpwN0luQnliM1pwWkdWeUlqb2laVzFoYVd3aUxDSndjbTkyYVdSbGNuTWlPbHNpWlcxaGFXd2lYWDBzSW5WelpYSmZiV1YwWVdSaGRHRWlPbnNpWlcxaGFXd2lPaUpqYW5CaFpIVmhNekF1TURSQVoyMWhhV3d1WTI5dElpd2laVzFoYVd4ZmRtVnlhV1pwWldRaU9uUnlkV1VzSW5Cb2IyNWxYM1psY21sbWFXVmtJanBtWVd4elpTd2ljM1ZpSWpvaU5UWmpNVFZpTnpNdE9ESTBNeTAwWmpFMExXRTVPRE10WkROaFl6RXhNamsxWkRKaUluMHNJbkp2YkdVaU9pSmhkWFJvWlc1MGFXTmhkR1ZrSWl3aVlXRnNJam9pWVdGc01TSXNJbUZ0Y2lJNlczc2liV1YwYUc5a0lqb2ljR0Z6YzNkdmNtUWlMQ0owYVcxbGMzUmhiWEFpT2pFM056TXhPRFEzT0RGOVhTd2ljMlZ6YzJsdmJsOXBaQ0k2SW1ZNVlqQmlabVV4TFRSaVltSXROR0ZsT1MwNFpXSm1MV1psT0RWa09EUTNPR1JrTmlJc0ltbHpYMkZ1YjI1NWJXOTFjeUk2Wm1Gc2MyVjkuWWFSTnBGNkxla2RYZXJtQWhTc2puclF4bHZ0dTQ0M1ZzSGkxRXc0VXdLbmdkQ2wzU3l4OG9rT3cyNzJ1T3RxdzJHT0tnMkpqMHBzajFNQTdzRTRnNGciLCJ0b2tlbl90eXBlIjoiYmVhcmVyIiwiZXhwaXJlc19pbiI6MzYwMCwiZXhwaXJlc19hdCI6MTc3MzE4ODM4MSwicmVmcmVzaF90b2tlbiI6InBtNzN3Zmd5aG5leiIsInVzZXIiOnsiaWQiOiI1NmMxNWI3My04MjQzLTRmMTQtYTk4My1kM2FjMTEyOTVkMmIiLCJhdWQiOiJhdXRoZW50aWNhdGVkIiwicm9sZSI6ImF1dGhlbnRpY2F0ZWQiLCJlbWFpbCI6ImNqcGFkdWEzMC4wNEBnbWFpbC5jb20iLCJlbWFpbF9jb25maXJtZWRfYXQiOiIyMDI2LTAzLTEwVDE4OjM3OjM2LjE0MjM2MloiLCJwaG9uZSI6IiIsImNvbmZpcm1hdGlvbl9zZW50X2F0IjoiMjAyNi0wMy0xMFQxODozNzoxOS40MzU1NjJaIiwiY29uZmlybWVkX2F0IjoiMjAyNi0wMy0xMFQxODozNzozNi4xNDIzNjJaIiwibGFzdF9zaWduX2luX2F0IjoiMjAyNi0wMy0xMFQyMzoxOTo0MC45OTk5MDM4OTVaIiwiYXBwX21ldGFkYXRhIjp7InByb3ZpZGVyIjoiZW1haWwiLCJwcm92aWRlcnMiOlsiZW1haWwiXX0sInVzZXJfbWV0YWRhdGEiOnsiZW1haWwiOiJjanBhZHVhMzAuMDRAZ21haWwuY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsInBob25lX3ZlcmlmaWVkIjpmYWxzZSwic3ViIjoiNTZjMTViNzMtODI0My00ZjE0LWE5ODMtZDNhYzExMjk1ZDJiIn0sImlkZW50aXRpZXMiOlt7ImlkZW50aXR5X2lkIjoiMzE3ZTVkY2YtOTZkMS00ZTAzLTk0MWEtYTliNTUxMjU3OGNkIiwiaWQiOiI1NmMxNWI3My04MjQzLTRmMTQtYTk4My1kM2FjMTEyOTVkMmIiLCJ1c2VyX2lkIjoiNTZjMTViNzMtODI0My00ZjE0LWE5ODMtZDNhYzExMjk1ZDJiIiwiaWRlbnRpdHlfZGF0YSI6eyJlbWFpbCI6ImNqcGFkdWEzMC4wNEBnbWFpbC5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwicGhvbmVfdmVyaWZpZWQiOmZhbHNlLCJzdWIiOiI1NmMxNWI3My04MjQzLTRmMTQtYTk4My1kM2FjMTEyOTVkMmIifSwicHJvdmlkZXIiOiJlbWFpbCIsImxhc3Rfc2lnbl9pbl9hdCI6IjIwMjYtMDMtMTBUMTg6MzI6MTIuMDM5MTUxWiIsImNyZWF0ZWRfYXQiOiIyMDI2LTAzLTEwVDE4OjMyOjEyLjA0MDA5MloiLCJ1cGRhdGVkX2F0IjoiMjAyNi0wMy0xMFQxODozMjoxMi4wNDAwOTJaIiwiZW1haWwiOiJjanBhZHVhMzAuMDRAZ21haWwuY29tIn1dLCJjcmVhdGVkX2F0IjoiMjAyNi0wMy0xMFQxODozMjoxMi4wMTcyMTNaIiwidXBkYXRlZF9hdCI6IjIwMjYtMDMtMTBUMjM6MTk6NDEuMDMyMDUyWiIsImlzX2Fub255bW91cyI6ZmFsc2V9LCJ3ZWFrX3Bhc3N3b3JkIjpudWxsfQ",
+      "domain": "open-aip-theta.vercel.app",
+      "path": "/",
+      "expires": 1807744782.677382,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": [
+    {
+      "origin": "https://open-aip-theta.vercel.app",
+      "localStorage": [
+        {
+          "name": "openAip:citizenAuthChangedAt",
+          "value": "1773184782695"
+        }
+      ]
+    }
+  ]
+}

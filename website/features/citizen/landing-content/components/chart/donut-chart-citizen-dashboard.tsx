@@ -22,6 +22,7 @@ type DonutChartCitizenDashboardProps = {
   activeKey: string | null;
   onHover: (key: string | null) => void;
   animate?: boolean;
+  hideOuterLabels?: boolean;
 };
 
 function formatCompactTotal(total: number, unitLabel?: string): string {
@@ -46,6 +47,7 @@ export default function DonutChartCitizenDashboard({
   activeKey,
   onHover,
   animate = false,
+  hideOuterLabels = false,
 }: DonutChartCitizenDashboardProps) {
   const reducedMotion = useReducedMotion() ?? false;
   const viewBoxSize = 100;
@@ -174,29 +176,31 @@ export default function DonutChartCitizenDashboard({
             );
           })}
         </g>
-        <motion.g
-          animate={{ opacity: drawStarted ? 1 : 0 }}
-          transition={{
-            duration: drawStarted ? labelFadeDuration : 0,
-            delay: drawStarted ? labelFadeDelay : 0,
-            ease: "easeOut",
-          }}
-        >
-          {processedSegments.map((segment) => {
-            const isActive = activeKey ? activeKey === segment.key : true;
-            return (
-              <path
-                key={`${segment.key}-leader`}
-                d={segment.linePath}
-                fill="none"
-                stroke="rgba(255,255,255,0.38)"
-                strokeWidth={0.35}
-                strokeLinecap="round"
-                className={cn("transition-opacity", isActive ? "opacity-100" : "opacity-40")}
-              />
-            );
-          })}
-        </motion.g>
+        {hideOuterLabels ? null : (
+          <motion.g
+            animate={{ opacity: drawStarted ? 1 : 0 }}
+            transition={{
+              duration: drawStarted ? labelFadeDuration : 0,
+              delay: drawStarted ? labelFadeDelay : 0,
+              ease: "easeOut",
+            }}
+          >
+            {processedSegments.map((segment) => {
+              const isActive = activeKey ? activeKey === segment.key : true;
+              return (
+                <path
+                  key={`${segment.key}-leader`}
+                  d={segment.linePath}
+                  fill="none"
+                  stroke="rgba(255,255,255,0.38)"
+                  strokeWidth={0.35}
+                  strokeLinecap="round"
+                  className={cn("transition-opacity", isActive ? "opacity-100" : "opacity-40")}
+                />
+              );
+            })}
+          </motion.g>
+        )}
       </svg>
 
       <motion.div
@@ -213,49 +217,51 @@ export default function DonutChartCitizenDashboard({
         {unitLabel ? <p className="text-xs uppercase text-white/50">{unitLabel}</p> : null}
       </motion.div>
 
-      <motion.div
-        className="absolute inset-0"
-        animate={{ opacity: drawStarted ? 1 : 0 }}
-        transition={{
-          duration: drawStarted ? labelFadeDuration : 0,
-          delay: drawStarted ? labelFadeDelay : 0,
-          ease: "easeOut",
-        }}
-      >
-        {processedSegments.map((segment, index) => {
-          const yNudge = index % 2 === 0 ? -2 : 2;
-          const isActive = activeKey ? activeKey === segment.key : true;
-          return (
-            <div
-              key={`${segment.key}-label`}
-              className={cn(
-                "absolute flex items-center gap-2 text-xs text-white/75 transition-opacity",
-                segment.isRight ? "flex-row" : "flex-row-reverse",
-                isActive ? "opacity-100" : "opacity-45"
-              )}
-              style={{
-                left: `${(segment.labelX / viewBoxSize) * 100}%`,
-                top: `${(segment.labelY / viewBoxSize) * 100}%`,
-                translate: segment.isRight
-                  ? `8px calc(-50% + ${yNudge}px)`
-                  : `calc(-100% - 8px) calc(-50% + ${yNudge}px)`,
-              }}
-              onMouseEnter={() => onHover(segment.key)}
-              onMouseLeave={() => onHover(null)}
-            >
-              <span className={cn("h-2 w-2 rounded-full", segment.colorClass.split(" ")[0])} />
-              <span
+      {hideOuterLabels ? null : (
+        <motion.div
+          className="absolute inset-0"
+          animate={{ opacity: drawStarted ? 1 : 0 }}
+          transition={{
+            duration: drawStarted ? labelFadeDuration : 0,
+            delay: drawStarted ? labelFadeDelay : 0,
+            ease: "easeOut",
+          }}
+        >
+          {processedSegments.map((segment, index) => {
+            const yNudge = index % 2 === 0 ? -2 : 2;
+            const isActive = activeKey ? activeKey === segment.key : true;
+            return (
+              <div
+                key={`${segment.key}-label`}
                 className={cn(
-                  "whitespace-normal break-words leading-tight",
-                  segment.key === "economic" ? "max-w-[84px]" : "max-w-[140px]"
+                  "absolute flex items-center gap-2 text-xs text-white/75 transition-opacity",
+                  segment.isRight ? "flex-row" : "flex-row-reverse",
+                  isActive ? "opacity-100" : "opacity-45"
                 )}
+                style={{
+                  left: `${(segment.labelX / viewBoxSize) * 100}%`,
+                  top: `${(segment.labelY / viewBoxSize) * 100}%`,
+                  translate: segment.isRight
+                    ? `8px calc(-50% + ${yNudge}px)`
+                    : `calc(-100% - 8px) calc(-50% + ${yNudge}px)`,
+                }}
+                onMouseEnter={() => onHover(segment.key)}
+                onMouseLeave={() => onHover(null)}
               >
-                {segment.label}
-              </span>
-            </div>
-          );
-        })}
-      </motion.div>
+                <span className={cn("h-2 w-2 rounded-full", segment.colorClass.split(" ")[0])} />
+                <span
+                  className={cn(
+                    "whitespace-normal break-words leading-tight",
+                    segment.key === "economic" ? "max-w-[84px]" : "max-w-[140px]"
+                  )}
+                >
+                  {segment.label}
+                </span>
+              </div>
+            );
+          })}
+        </motion.div>
+      )}
     </div>
   );
 }

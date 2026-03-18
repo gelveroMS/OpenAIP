@@ -110,15 +110,17 @@ export function BudgetAllocationTable({
   coveredPercentage: number;
 }) {
   return (
-    <Card className="border-slate-200">
-      <CardContent className="px-5">
+    <Card className="min-w-0 border-slate-200">
+      <CardContent className="px-3 py-4 sm:px-5">
         <div>
-          <h3 className="text-lg font-bold text-slate-900">Budget Allocation Table</h3>
+          <h3 className="text-base font-bold text-slate-900 sm:text-lg">
+            Budget Allocation Table
+          </h3>
           <p className="mt-2 text-xs text-slate-500">Breakdown by project category</p>
         </div>
 
-        <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
-          <Table>
+        <div className="mt-3 max-w-full overflow-x-auto rounded-lg border border-slate-200 bg-white [scrollbar-width:thin]">
+          <Table className="min-w-[620px] sm:min-w-[640px]">
             <TableHeader>
               <TableRow className="bg-slate-50 hover:bg-slate-50">
                 <TableHead className="text-xs text-slate-600 font-semibold">Category</TableHead>
@@ -134,10 +136,10 @@ export function BudgetAllocationTable({
                   <TableCell className="text-xs text-slate-700 text-right tabular-nums">
                     {row.projectCount}
                   </TableCell>
-                  <TableCell className="text-xs text-slate-700 text-right tabular-nums">
+                  <TableCell className="whitespace-nowrap text-xs text-slate-700 text-right tabular-nums">
                     {formatPeso(row.budget)}
                   </TableCell>
-                  <TableCell className="text-xs text-slate-700 text-right tabular-nums">
+                  <TableCell className="whitespace-nowrap text-xs text-slate-700 text-right tabular-nums">
                     {formatPercentage(row.percentage)}
                   </TableCell>
                 </TableRow>
@@ -147,10 +149,10 @@ export function BudgetAllocationTable({
                 <TableCell className="text-xs text-slate-700 text-right tabular-nums">
                   {totalProjects}
                 </TableCell>
-                <TableCell className="text-xs text-slate-700 text-right tabular-nums">
+                <TableCell className="whitespace-nowrap text-xs text-slate-700 text-right tabular-nums">
                   {formatPeso(totalBudget)}
                 </TableCell>
-                <TableCell className="text-xs text-slate-700 text-right tabular-nums">
+                <TableCell className="whitespace-nowrap text-xs text-slate-700 text-right tabular-nums">
                   {formatPercentage(coveredPercentage)}
                 </TableCell>
               </TableRow>

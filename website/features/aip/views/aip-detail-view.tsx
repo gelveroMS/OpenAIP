@@ -1327,7 +1327,7 @@ export default function AipDetailView({
     : "Restart from Failed Stage";
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-4 overflow-x-hidden md:space-y-6">
       <BreadcrumbNav items={breadcrumb} />
 
       {shouldBlockWithProcessingUi ? (
@@ -1342,13 +1342,17 @@ export default function AipDetailView({
         <>
           {/* title bar */}
           <Card className="border-slate-200">
-            <CardContent className="flex items-center justify-between px-6">
-              <h1 className="text-2xl font-bold text-slate-900">{aip.title}</h1>
+            <CardContent className="flex flex-col items-start justify-between gap-3 px-4 py-4 sm:flex-row sm:items-center sm:px-6">
+              <h1 className="break-words text-xl font-bold leading-tight text-slate-900 sm:text-2xl">
+                {aip.title}
+              </h1>
 
               <Badge
                 data-testid="aip-status-badge"
                 variant="outline"
-                className={`rounded-full ${getAipStatusBadgeClass(aip.status)}`}
+                className={`w-fit self-start rounded-full ${getAipStatusBadgeClass(
+                  aip.status
+                )}`}
               >
                 {aip.status}
               </Badge>
@@ -1545,15 +1549,15 @@ export default function AipDetailView({
               <div
                 className={
                   showRightSidebar
-                    ? "grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]"
-                    : "space-y-6"
+                    ? "grid min-w-0 gap-4 md:gap-6 lg:grid-cols-[minmax(0,1fr)_320px]"
+                    : "space-y-4 md:space-y-6"
                 }
               >
 
-                <div className="space-y-6">
+                <div className="min-w-0 space-y-4 md:space-y-6">
                   <AipPdfContainer aip={aip} />
 
-              <div className="flex items-center">
+              <div className="-mx-1 flex min-w-0 items-center overflow-x-auto px-1 [scrollbar-width:thin]">
                 <Tabs
                   value={activeTab}
                   onValueChange={(value) => {
@@ -1574,16 +1578,16 @@ export default function AipDetailView({
                     });
                   }}
                 >
-                  <TabsList className="h-10 gap-2 bg-transparent p-0">
+                  <TabsList className="h-10 w-max min-w-max gap-2 bg-transparent p-0">
                     <TabsTrigger
                       value="summary"
-                      className="h-9 rounded-lg px-4 text-sm font-medium text-slate-500 data-[state=active]:border data-[state=active]:border-slate-200 data-[state=active]:bg-slate-100 data-[state=active]:text-slate-900 data-[state=active]:shadow-sm"
+                      className="h-9 shrink-0 rounded-lg px-3 text-xs font-medium text-slate-500 data-[state=active]:border data-[state=active]:border-slate-200 data-[state=active]:bg-slate-100 data-[state=active]:text-slate-900 data-[state=active]:shadow-sm sm:px-4 sm:text-sm"
                     >
                       Summary
                     </TabsTrigger>
                     <TabsTrigger
                       value="comments"
-                      className="h-9 rounded-lg px-4 text-sm font-medium text-slate-500 data-[state=active]:border data-[state=active]:border-slate-200 data-[state=active]:bg-slate-100 data-[state=active]:text-slate-900 data-[state=active]:shadow-sm"
+                      className="h-9 shrink-0 rounded-lg px-3 text-xs font-medium text-slate-500 data-[state=active]:border data-[state=active]:border-slate-200 data-[state=active]:bg-slate-100 data-[state=active]:text-slate-900 data-[state=active]:shadow-sm sm:px-4 sm:text-sm"
                       onClick={() => {
                         if (activeTab !== "comments") return;
                         const params = new URLSearchParams(searchParams.toString());
@@ -1632,7 +1636,7 @@ export default function AipDetailView({
                     />
                   ) : (
                     <Card className="border-slate-200">
-                      <CardContent className="px-5 text-sm text-slate-600">
+                      <CardContent className="px-4 text-sm text-slate-600 sm:px-5">
                         No workflow feedback history yet.
                       </CardContent>
                     </Card>
@@ -1640,7 +1644,7 @@ export default function AipDetailView({
 
                   {aip.status === "published" ? (
                     <Card className="border-slate-200">
-                      <CardContent className="space-y-3 px-5">
+                      <CardContent className="space-y-3 px-4 sm:px-5">
                         <div>
                           <h3 className="text-sm font-semibold text-slate-900">
                             Citizen Feedback
@@ -1663,7 +1667,7 @@ export default function AipDetailView({
               )}
 
               {/* Bottom action */}
-              <div className="flex justify-end gap-3">
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-3">
                 {aip.status === "draft" ? (
                   <>
                     {!isBarangayScope || canManageBarangayWorkflow ? (
@@ -1715,11 +1719,11 @@ export default function AipDetailView({
             </div>
 
                 {showRightSidebar ? (
-                  <div className="h-fit space-y-6 lg:sticky lg:top-4">
+                  <div className="h-fit min-w-0 space-y-4 md:space-y-6 lg:sticky lg:top-4">
                 {showRevisionWorkflowSidebar ? (
                   <>
                     <Card className="border-slate-200">
-                      <CardContent className="space-y-4 px-5">
+                      <CardContent className="space-y-4 px-4 sm:px-5">
                         <div>
                           <h3 className="text-sm font-semibold text-slate-900">
                             Official Comment / Justification
@@ -1864,7 +1868,7 @@ export default function AipDetailView({
 
                 {aip.status === "published" && chatbotReadiness ? (
                   <Card className="border-slate-200">
-                    <CardContent className="space-y-3 px-5">
+                    <CardContent className="space-y-3 px-4 sm:px-5">
                       <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
                         <span className={getChatbotStatusToneClass(chatbotReadiness.tone)}>
                           <ChatbotStatusIcon kind={chatbotReadiness.kind} />

@@ -197,7 +197,7 @@ export default function ChatPreviewCard({ vm, className, isActive = true }: Chat
       initial="hidden"
       animate="visible"
     >
-      <header className="bg-gradient-to-r from-[#0d5b71] via-[#0f8daa] to-[#0b7490] px-5 py-4 text-white">
+      <header className="bg-gradient-to-r from-[#0d5b71] via-[#0f8daa] to-[#0b7490] px-4 py-3 text-white sm:px-5 sm:py-4">
         <div className="flex items-start gap-3">
           <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/15">
             <Bot className="h-4 w-4" aria-hidden="true" />
@@ -209,15 +209,15 @@ export default function ChatPreviewCard({ vm, className, isActive = true }: Chat
         </div>
       </header>
 
-      <div className="space-y-6 px-4 py-5 sm:px-5 sm:py-6">
+      <div className="space-y-4 px-3 py-4 sm:space-y-6 sm:px-5 sm:py-6">
         <motion.div className="flex justify-end" variants={userBubble}>
-          <p className="max-w-[88%] rounded-2xl bg-[#0b5a70] px-4 py-2.5 text-sm text-white">
+          <p className="max-w-[92%] rounded-2xl bg-[#0b5a70] px-3 py-2 text-sm text-white sm:max-w-[88%] sm:px-4 sm:py-2.5">
             {typedUserPrompt}
           </p>
         </motion.div>
 
         <motion.div
-          className="max-w-[88%] rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-[0_6px_18px_rgba(15,23,42,0.07)]"
+          className="max-w-[92%] rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-[0_6px_18px_rgba(15,23,42,0.07)] sm:max-w-[88%] sm:px-4 sm:py-3"
           initial={{ opacity: 0, x: reducedMotion ? 0 : -10 }}
           animate={{
             opacity: showAssistantBubble ? 1 : 0,
@@ -235,8 +235,8 @@ export default function ChatPreviewCard({ vm, className, isActive = true }: Chat
         </motion.div>
       </div>
 
-      <motion.div className="border-y border-slate-200 bg-[#f5f7fa] px-4 py-4 sm:px-5" variants={chipsContainer}>
-        <p className="mb-2 text-sm text-slate-500">Try asking:</p>
+      <motion.div className="border-y border-slate-200 bg-[#f5f7fa] px-3 py-3 sm:px-5 sm:py-4" variants={chipsContainer}>
+        <p className="mb-2 text-xs text-slate-500 sm:text-sm">Try asking:</p>
         <motion.div
           className="flex flex-wrap gap-2"
           variants={{
@@ -272,7 +272,7 @@ export default function ChatPreviewCard({ vm, className, isActive = true }: Chat
         </motion.div>
       </motion.div>
 
-      <motion.footer className="bg-gradient-to-r from-[#0a5166] via-[#0a6f88] to-[#0a8bac] px-5 py-5" variants={ctaBar}>
+      <motion.footer className="bg-gradient-to-r from-[#0a5166] via-[#0a6f88] to-[#0a8bac] px-4 py-4 sm:px-5 sm:py-5" variants={ctaBar}>
         {vm.ctaHref ? (
           <motion.div
             whileHover={reducedMotion ? undefined : { scale: 1.02 }}
@@ -283,7 +283,7 @@ export default function ChatPreviewCard({ vm, className, isActive = true }: Chat
             <Link
               href={vm.ctaHref}
               aria-label={vm.ctaLabel}
-              className="flex items-center gap-2 rounded-full px-4 py-1.5 text-3xl font-semibold text-white transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/80"
+              className="flex items-center gap-2 rounded-full px-3 py-1.5 text-2xl font-semibold text-white transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/80 sm:px-4 sm:text-3xl"
             >
               <MessageCircle className="h-6 w-6" aria-hidden="true" />
               <span>{vm.ctaLabel}</span>
@@ -294,7 +294,7 @@ export default function ChatPreviewCard({ vm, className, isActive = true }: Chat
           <button
             type="button"
             aria-label={vm.ctaLabel}
-            className="mx-auto flex w-fit items-center gap-2 rounded-full px-4 py-1.5 text-3xl font-semibold text-white/90"
+            className="mx-auto flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-2xl font-semibold text-white/90 sm:px-4 sm:text-3xl"
             disabled
           >
             <MessageCircle className="h-6 w-6" aria-hidden="true" />

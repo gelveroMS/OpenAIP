@@ -12,9 +12,9 @@ export default function AccountAdminHeader({
 }) {
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-      <div>
-        <h1 className="text-3xl font-bold text-slate-900">Account Administration</h1>
-        <p className="mt-2 text-sm text-slate-600 max-w-3xl">
+      <div className="min-w-0">
+        <h1 className="break-words text-2xl font-bold text-slate-900 sm:text-3xl">Account Administration</h1>
+        <p className="mt-2 max-w-3xl text-sm text-slate-600">
           Manage official and citizen accounts while enforcing role-based LGU
           scope binding and account lifecycle controls.
         </p>
@@ -23,7 +23,7 @@ export default function AccountAdminHeader({
       {showCreateOfficial ? (
         <Button
           data-testid="admin-create-official-account-button"
-          className="bg-teal-700 hover:bg-teal-800"
+          className="w-full bg-teal-700 hover:bg-teal-800 sm:w-auto"
           onClick={onCreateOfficial}
         >
           <Plus className="h-4 w-4" />
@@ -33,4 +33,3 @@ export default function AccountAdminHeader({
     </div>
   );
 }
-

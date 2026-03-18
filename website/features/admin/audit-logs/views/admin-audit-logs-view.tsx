@@ -29,8 +29,6 @@ type Props = {
   };
 };
 
-const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
-
 function formatDateTime(iso: string) {
   const d = new Date(iso);
   return d.toLocaleString("en-US", {
@@ -249,22 +247,7 @@ export default function AdminAuditLogsView({ logs, total, filters }: Props) {
       </div>
 
       <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <label className="flex items-center gap-2 text-xs text-slate-500">
-          <span>Rows</span>
-          <select
-            aria-label="Rows per page"
-            className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-700"
-            value={String(filters.pageSize)}
-            onChange={(event) => updateParams({ pageSize: event.target.value }, true)}
-          >
-            {PAGE_SIZE_OPTIONS.map((size) => (
-              <option key={size} value={String(size)}>
-                {size}
-              </option>
-            ))}
-          </select>
-        </label>
-
+        <div className="text-xs text-slate-500">15 rows per page</div>
         <div className="flex items-center gap-2">
           <Button
             variant="outline"

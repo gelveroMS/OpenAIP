@@ -1,5 +1,8 @@
 import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
+import { loadEnvFiles } from "./tests/e2e/helpers/load-env";
+
+loadEnvFiles({ cwd: __dirname, files: [".env.local", ".env"] });
 
 const reportDir = path.resolve(__dirname, "../evidence-pack/01-functional/playwright-report");
 const jsonReportPath = path.resolve(__dirname, "test-results/playwright-results.json");

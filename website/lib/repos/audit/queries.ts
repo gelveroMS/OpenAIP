@@ -7,8 +7,8 @@ import type { ActivityLogRow, AuditListResult, AuditRoleFilter } from "./repo";
 import { getAuditRepo } from "./repo.server";
 
 const DEFAULT_CRUD_DEDUPE_WINDOW_MS = 15_000;
-const ADMIN_AUDIT_PAGE_SIZES = [10, 20, 50] as const;
-const DEFAULT_ADMIN_AUDIT_PAGE_SIZE = 20;
+const ADMIN_AUDIT_PAGE_SIZES = [15] as const;
+const DEFAULT_ADMIN_AUDIT_PAGE_SIZE = 15;
 
 type SearchParamsInput =
   | URLSearchParams

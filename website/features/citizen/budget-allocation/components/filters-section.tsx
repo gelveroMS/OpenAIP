@@ -12,12 +12,12 @@ type FiltersSectionProps = {
 
 export default function FiltersSection({ filters, onYearChange, onLguChange }: FiltersSectionProps) {
   return (
-    <section className="mx-auto flex max-w-6xl justify-end px-6 pb-6 pt-0">
-      <div className="grid w-fit gap-6 md:grid-cols-2">
-        <div className="space-y-2 justify-self-end">
-          <Label className="text-lg font-medium text-slate-700">Fiscal Year</Label>
+    <section className="mx-auto max-w-6xl px-3 pb-4 pt-0 sm:px-4 md:px-6 md:pb-6">
+      <div className="grid w-full gap-3 sm:gap-4 md:grid-cols-2 md:gap-6">
+        <div className="space-y-1.5">
+          <Label className="text-sm font-medium text-slate-700 md:text-lg">Fiscal Year</Label>
           <Select value={String(filters.selectedYear)} onValueChange={(value) => onYearChange(Number(value))}>
-            <SelectTrigger className="h-12 w-36 rounded-2xl border-gray-300 bg-white text-base focus-visible:ring-cyan-500/40">
+            <SelectTrigger className="h-10 w-full rounded-xl border-gray-300 bg-white text-sm focus-visible:ring-cyan-500/40 md:h-12 md:w-36 md:rounded-2xl md:text-base">
               <SelectValue placeholder="Select year" />
             </SelectTrigger>
             <SelectContent>
@@ -30,8 +30,8 @@ export default function FiltersSection({ filters, onYearChange, onLguChange }: F
           </Select>
         </div>
 
-        <div className="space-y-2 justify-self-end">
-          <Label className="text-lg font-medium text-slate-700">LGU</Label>
+        <div className="space-y-1.5">
+          <Label className="text-sm font-medium text-slate-700 md:text-lg">LGU</Label>
           <Select
             value={`${filters.selectedScopeType}:${filters.selectedScopeId}`}
             onValueChange={(value) => {
@@ -39,7 +39,7 @@ export default function FiltersSection({ filters, onYearChange, onLguChange }: F
               onLguChange(scopeType === "barangay" ? "barangay" : "city", scopeId ?? "");
             }}
           >
-            <SelectTrigger className="h-12 rounded-2xl border-gray-300 bg-white text-base focus-visible:ring-cyan-500/40">
+            <SelectTrigger className="h-10 w-full rounded-xl border-gray-300 bg-white text-sm focus-visible:ring-cyan-500/40 md:h-12 md:rounded-2xl md:text-base">
               <SelectValue placeholder="Select LGU" />
             </SelectTrigger>
             <SelectContent>

@@ -329,10 +329,7 @@ export function LguAipFeedbackThread({
           <div
             key={thread.root.id}
             ref={setThreadRef(thread.root.id)}
-            className={cn(
-              "space-y-3 rounded-2xl border border-slate-200 bg-white p-4",
-              isSelected && "border-sky-300 ring-2 ring-sky-200"
-            )}
+            className="space-y-3"
             data-thread-id={thread.root.id}
             data-thread-selected={isSelected ? "true" : "false"}
           >
@@ -341,7 +338,7 @@ export function LguAipFeedbackThread({
                 item={thread.root}
                 onReply={handleReplyClick}
                 replyDisabled={isPostingReply}
-                highlighted={isRootFeedbackSelected}
+                highlighted={isRootFeedbackSelected || isSelected}
               />
             </div>
 

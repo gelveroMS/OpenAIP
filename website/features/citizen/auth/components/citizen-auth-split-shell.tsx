@@ -52,23 +52,23 @@ export default function CitizenAuthSplitShell({
         <DialogDescription className="sr-only">
           Citizen sign in and sign up modal flow.
         </DialogDescription>
-        <div className="relative mx-auto h-[min(88vh,720px)] w-full overflow-hidden rounded-2xl shadow-xl">
+        <div className="relative mx-auto flex max-h-[92dvh] min-h-[min(88dvh,680px)] w-full max-w-[460px] flex-col overflow-hidden rounded-2xl shadow-xl md:h-[min(88vh,720px)] md:max-h-none md:min-h-0 md:max-w-none">
           {canClose ? (
             <button
               type="button"
               onClick={() => onOpenChange(false)}
-              className="absolute right-6 top-6 z-20 inline-flex h-11 w-11 items-center justify-center rounded-full bg-slate-100 text-slate-700 transition hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0EA5C6]/40"
+              className="absolute right-4 top-4 z-20 inline-flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-700 transition hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0EA5C6]/40 md:right-6 md:top-6 md:h-11 md:w-11"
               aria-label="Close authentication modal"
             >
               <X className="h-6 w-6" />
             </button>
           ) : null}
 
-          <div className="grid h-full md:grid-cols-2">
-            <section className={cn("order-1 h-full", formFirst ? "md:order-1" : "md:order-2")}>
+          <div className="flex h-full min-h-0 flex-col md:grid md:grid-cols-2">
+            <section className={cn("order-1 h-full min-h-0", formFirst ? "md:order-1" : "md:order-2")}>
               {formPanel}
             </section>
-            <section className={cn("order-2 h-full", formFirst ? "md:order-2" : "md:order-1")}>
+            <section className={cn("order-2 hidden h-full md:block", formFirst ? "md:order-2" : "md:order-1")}>
               {brandPanel}
             </section>
           </div>

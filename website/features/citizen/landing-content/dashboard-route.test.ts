@@ -2,12 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LandingContentResult } from "@/lib/domain/landing-content";
 import { GET } from "@/app/api/citizen/dashboard/route";
 
-const mockGetLandingContent = vi.fn();
+const { mockGetLandingContent } = vi.hoisted(() => ({
+  mockGetLandingContent: vi.fn(),
+}));
 
-vi.mock("@/lib/repos/landing-content", () => ({
-  getLandingContentRepoServer: () => ({
-    getLandingContent: mockGetLandingContent,
-  }),
+vi.mock("@/lib/repos/landing-content/public-cache.server", () => ({
+  getCachedCitizenLandingContent: mockGetLandingContent,
 }));
 
 function buildResult(overrides?: Partial<LandingContentResult>): LandingContentResult {

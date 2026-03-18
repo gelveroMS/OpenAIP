@@ -49,11 +49,11 @@ export default function AdminDashboardView({
   };
 
   return (
-    <div className="space-y-6 text-[13px] text-slate-700">
+    <div className="space-y-5 text-[13px] text-slate-700 sm:space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-[30px] font-semibold leading-9 text-slate-900">Dashboard</h1>
-          <p className="mt-1.5 text-[14px] text-slate-500">
+          <h1 className="text-2xl font-semibold leading-tight text-slate-900 sm:text-[30px] sm:leading-9">Dashboard</h1>
+          <p className="mt-1.5 max-w-3xl text-sm text-slate-500 sm:text-[14px]">
             Read-only operational overview with drill-down access to oversight areas.
           </p>
         </div>
@@ -65,7 +65,7 @@ export default function AdminDashboardView({
         </Badge>
       </div>
 
-      <div className="rounded-[10px] bg-[#F4F6F8] px-8 py-4">
+      <div className="rounded-[10px] bg-[#F4F6F8] px-4 py-3 sm:px-6 sm:py-4 lg:px-8">
         <DashboardFiltersRow
           filters={filters}
           lguOptions={viewModel.lguOptions}

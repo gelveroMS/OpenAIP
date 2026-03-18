@@ -326,26 +326,26 @@ export default function HealthProjectsSection({ vm }: HealthProjectsSectionProps
         aria-hidden="true"
       />
       <motion.div
-        className="relative z-10 grid grid-cols-12 items-start gap-10 lg:gap-16"
+        className="relative z-10 grid grid-cols-12 items-start gap-6 md:gap-8 lg:gap-16"
         initial="hidden"
         whileInView="visible"
         viewport={VIEWPORT_ONCE}
       >
-        <div className="col-span-12 space-y-8 lg:col-span-5 lg:pt-10 xl:col-span-4">
-          <motion.div className="space-y-6" variants={headerVariants}>
-            <h2 className="max-w-[12ch] text-4xl font-extrabold leading-[0.95] tracking-tight text-[#052434] sm:text-5xl">
+        <div className="order-1 col-span-12 space-y-5 md:space-y-8 lg:order-1 lg:col-span-5 lg:pt-10 xl:col-span-4">
+          <motion.div className="space-y-4 md:space-y-6" variants={headerVariants}>
+            <h2 className="max-w-[12ch] break-words text-[clamp(2rem,10vw,2.9rem)] font-extrabold leading-[0.95] tracking-tight text-[#052434] sm:text-5xl">
               {vm.heading}
             </h2>
-            <p className="max-w-[24ch] text-xl leading-[1.45] text-[#4F7D92] sm:text-2xl">
+            <p className="max-w-[24ch] text-lg leading-[1.45] text-[#4F7D92] sm:text-xl md:text-2xl">
               {vm.description}
             </p>
           </motion.div>
 
-          <motion.div className="grid grid-cols-1 gap-5 min-[520px]:grid-cols-2" variants={kpiContainerVariants}>
+          <motion.div className="grid grid-cols-2 gap-3.5 md:gap-5" variants={kpiContainerVariants}>
             <motion.div className="h-full" variants={kpiItemVariants}>
-              <CardShell className="flex h-full min-h-[152px] w-full min-w-0 py-0">
-                <div className="flex h-full flex-col justify-between space-y-2 px-5 py-5 sm:px-6 sm:py-6">
-                  <p className="text-3xl font-bold leading-none text-[#EC4899] sm:text-3xl">
+              <CardShell className="flex h-full min-h-[130px] w-full min-w-0 py-0 md:min-h-[152px]">
+                <div className="flex h-full flex-col justify-between space-y-2 px-4 py-4 sm:px-5 sm:py-5 md:px-6 md:py-6">
+                  <p className="text-3xl font-bold leading-none text-[#EC4899]">
                     {formatCompactPeso(primaryValue)}
                   </p>
                   <p className="text-sm font-medium text-slate-500">{vm.primaryKpiLabel}</p>
@@ -354,9 +354,9 @@ export default function HealthProjectsSection({ vm }: HealthProjectsSectionProps
             </motion.div>
 
             <motion.div className="h-full" variants={kpiItemVariants}>
-              <CardShell className="flex h-full min-h-[152px] w-full min-w-0 py-0">
-                <div className="flex h-full flex-col justify-between space-y-2 px-5 py-5 sm:px-6 sm:py-6">
-                  <p className="text-3xl font-bold leading-none text-[#EC4899] sm:text-3xl">
+              <CardShell className="flex h-full min-h-[130px] w-full min-w-0 py-0 md:min-h-[152px]">
+                <div className="flex h-full flex-col justify-between space-y-2 px-4 py-4 sm:px-5 sm:py-5 md:px-6 md:py-6">
+                  <p className="text-3xl font-bold leading-none text-[#EC4899]">
                     {formatCompactCount(vm.secondaryKpiValue)}
                   </p>
                   <p className="text-sm font-medium text-slate-500">{vm.secondaryKpiLabel}</p>
@@ -366,11 +366,12 @@ export default function HealthProjectsSection({ vm }: HealthProjectsSectionProps
           </motion.div>
         </div>
 
-        <motion.div className="col-span-12 lg:col-span-7 xl:col-span-8" variants={carouselVariants}>
+        <motion.div className="order-2 col-span-12 lg:order-2 lg:col-span-7 xl:col-span-8" variants={carouselVariants}>
           <div className="relative w-full lg:max-w-[920px]">
             <div className="relative overflow-hidden rounded-2xl" onMouseLeave={stopEdgeScroll}>
               <div
-                className="relative h-[500px] sm:h-[540px]"
+                data-testid="health-carousel-stage"
+                className="relative h-[420px] sm:h-[460px] md:h-[540px]"
                 onMouseMove={handleStageMouseMove}
                 onWheel={() => {
                   stopEdgeScroll();
@@ -379,7 +380,8 @@ export default function HealthProjectsSection({ vm }: HealthProjectsSectionProps
               >
                 {previousItem ? (
                   <div
-                    className="absolute left-1/2 top-1/2 w-[360px]"
+                    data-testid="health-carousel-previous"
+                    className="absolute left-1/2 top-1/2 hidden w-[360px] md:block"
                     style={getStackStyle(-1)}
                     onClick={() => setActiveIndex(effectiveActiveIndex - 1)}
                   >
@@ -389,7 +391,8 @@ export default function HealthProjectsSection({ vm }: HealthProjectsSectionProps
 
                 {nextItem ? (
                   <div
-                    className="absolute left-1/2 top-1/2 w-[360px]"
+                    data-testid="health-carousel-next"
+                    className="absolute left-1/2 top-1/2 hidden w-[360px] md:block"
                     style={getStackStyle(1)}
                     onClick={() => setActiveIndex(effectiveActiveIndex + 1)}
                   >
@@ -400,7 +403,8 @@ export default function HealthProjectsSection({ vm }: HealthProjectsSectionProps
                 {activeItem ? (
                   <div
                     key={activeItem.id}
-                    className="absolute left-1/2 top-1/2 z-[56] w-[360px]"
+                    data-testid="health-carousel-active"
+                    className="absolute left-1/2 top-1/2 z-[56] w-[calc(100vw-3rem)] max-w-[360px] md:w-[360px]"
                     style={{ transform: "translate(-50%, -50%)" }}
                   >
                     {renderCarouselItem(activeItem, true)}
@@ -429,6 +433,31 @@ export default function HealthProjectsSection({ vm }: HealthProjectsSectionProps
                   onLostPointerCapture={onEdgePointerUp}
                 />
               </div>
+            </div>
+
+            <div className="mt-3 flex items-center justify-center gap-2.5 md:hidden">
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                aria-label="Go to previous health project"
+                disabled={!hasMultipleItems || effectiveActiveIndex <= 0}
+                className="h-10 w-10 rounded-full border border-white/70 bg-white/95 text-[#56616B] shadow-[0_8px_18px_rgba(15,23,42,0.14)] hover:bg-white disabled:opacity-30"
+                onClick={goToPrevious}
+              >
+                <ChevronLeft className="h-5 w-5 stroke-[2.6]" />
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                aria-label="Advance to next health project"
+                disabled={!hasMultipleItems || effectiveActiveIndex >= carouselItems.length - 1}
+                className="h-10 w-10 rounded-full border border-white/70 bg-white/95 text-[#56616B] shadow-[0_8px_18px_rgba(15,23,42,0.14)] hover:bg-white disabled:opacity-30"
+                onClick={goToNext}
+              >
+                <ChevronRight className="h-5 w-5 stroke-[2.6]" />
+              </Button>
             </div>
 
             <div className="pointer-events-none absolute inset-y-0 left-0 right-0 z-[70] hidden items-center justify-between px-2 lg:flex">

@@ -11,13 +11,13 @@ export default function CitizenChatFollowups({
   if (!followUps.length) return null;
 
   return (
-    <div className="mt-3 flex flex-wrap gap-2">
+    <div className="mt-3 grid gap-2">
       {followUps.map((item) => (
         <Button
           key={item.id}
           type="button"
           variant="outline"
-          className="h-8 rounded-full border-slate-200 bg-white px-3 text-xs text-slate-700 hover:border-[#022437]/40"
+          className="h-auto min-h-8 w-full justify-start rounded-xl border-slate-200 bg-white px-3 py-1.5 text-left text-xs leading-snug whitespace-normal break-words text-slate-700 hover:border-[#022437]/40 sm:w-auto sm:max-w-full sm:rounded-full"
           onClick={() => onUseFollowUp(item.label)}
         >
           {item.label}

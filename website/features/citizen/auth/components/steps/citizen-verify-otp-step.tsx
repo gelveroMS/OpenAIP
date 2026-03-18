@@ -30,8 +30,8 @@ export default function CitizenVerifyOtpStep({
   onResendCode,
 }: CitizenVerifyOtpStepProps) {
   return (
-    <div className="flex h-full flex-col overflow-y-auto bg-white p-8 md:p-10">
-      <div className="m-auto w-full max-w-md space-y-8">
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-white px-5 py-6 sm:px-6 sm:py-7 md:p-10">
+      <div className="m-auto w-full max-w-[380px] space-y-6 md:max-w-md md:space-y-8">
         <CitizenAuthHeader
           titleId={titleId}
           descriptionId={descriptionId}
@@ -44,7 +44,7 @@ export default function CitizenVerifyOtpStep({
             event.preventDefault();
             onSubmit();
           }}
-          className="space-y-6"
+          className="space-y-5 md:space-y-6"
         >
           <CitizenOtpInput value={code} onChange={onCodeChange} disabled={isLoading} />
 

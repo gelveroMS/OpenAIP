@@ -17,7 +17,7 @@ function LabelValue({
   return (
     <div className="space-y-1">
       <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
-      <p className="text-sm text-slate-800">{value?.trim() || "N/A"}</p>
+      <p className="break-words text-sm text-slate-800">{value?.trim() || "N/A"}</p>
     </div>
   );
 }
@@ -33,7 +33,7 @@ export default function CitizenAipProjectDetailView({
   const hasUnaddressedAiIssues = hasAiIssues && !project.hasLguNote;
 
   return (
-    <section className="space-y-6">
+    <section className="space-y-4 md:space-y-6 overflow-x-hidden">
       <BreadcrumbNav
         items={[
           { label: "AIPs", href: "/aips" },
@@ -43,29 +43,29 @@ export default function CitizenAipProjectDetailView({
       />
 
       <Card className="border-slate-200">
-        <CardHeader className="space-y-4">
+        <CardHeader className="space-y-3 px-4 pb-3 pt-4 sm:space-y-4 sm:px-6 sm:pb-4 sm:pt-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="space-y-1">
+            <div className="min-w-0 space-y-1">
               <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                 AIP Project Detail
               </p>
-              <CardTitle className="text-2xl text-slate-900">{project.title}</CardTitle>
-              <p className="text-sm text-slate-600">{aip.lguLabel} | FY {aip.fiscalYear}</p>
+              <CardTitle className="break-words text-2xl text-slate-900 sm:text-3xl">{project.title}</CardTitle>
+              <p className="break-words text-sm text-slate-600">{aip.lguLabel} | FY {aip.fiscalYear}</p>
             </div>
 
-            <div className="flex gap-2">
-              <Badge variant="outline">{project.projectRefCode}</Badge>
+            <div className="flex min-w-0 flex-wrap gap-2">
+              <Badge variant="outline" className="max-w-full break-words">{project.projectRefCode}</Badge>
               <Badge variant="secondary" className="bg-slate-100 text-slate-700 capitalize">
                 {project.category}
               </Badge>
-              <Badge className="bg-[#5ba6cb] text-white">{project.sector}</Badge>
+              <Badge className="max-w-full break-words bg-[#5ba6cb] text-white">{project.sector}</Badge>
             </div>
           </div>
 
-          <p className="text-sm leading-relaxed text-slate-700">{project.description}</p>
+          <p className="break-words text-sm leading-relaxed text-slate-700">{project.description}</p>
         </CardHeader>
 
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 px-4 pb-4 sm:px-6 sm:pb-6">
           <div
             className={`rounded-lg border p-4 ${
               hasAiIssues ? "border-rose-200 bg-rose-50" : "border-emerald-200 bg-emerald-50"
@@ -92,7 +92,7 @@ export default function CitizenAipProjectDetailView({
             ) : null}
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-3 md:grid-cols-2 md:gap-4">
           <LabelValue label="Implementing Agency" value={project.implementingAgency} />
           <LabelValue label="Source of Funds" value={project.sourceOfFunds} />
           <LabelValue label="Expected Output" value={project.expectedOutput} />
@@ -106,7 +106,7 @@ export default function CitizenAipProjectDetailView({
         </CardContent>
       </Card>
 
-      <div className="space-y-6">
+      <div className="space-y-4 md:space-y-6">
         <FeedbackThread
           projectId={project.projectId}
           rootFilter="citizen"

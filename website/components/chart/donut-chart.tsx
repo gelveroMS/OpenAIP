@@ -45,7 +45,7 @@ type TooltipPayloadItem = {
   payload?: DonutChartSlice;
 };
 
-const MOBILE_BREAKPOINT_PX = 360;
+const MOBILE_BREAKPOINT_PX = 640;
 const DEFAULT_CHART_HEIGHT_CLASS = "h-72";
 
 function clamp(value: number, min: number, max: number): number {
@@ -93,7 +93,7 @@ function wrapLabelText(text: string, maxCharsPerLine = 18, maxLines = 2): string
   if (finalLine) {
     const clipped =
       finalLine.length > maxCharsPerLine
-        ? `${finalLine.slice(0, Math.max(0, maxCharsPerLine - 1)).trimEnd()}…`
+        ? `${finalLine.slice(0, Math.max(0, maxCharsPerLine - 1)).trimEnd()}...`
         : finalLine;
     lines.push(clipped);
   }
@@ -354,7 +354,7 @@ export function DonutChart({
         )}
       >
         {size.width > 0 && size.height > 0 ? (
-          <ResponsiveContainer width="100%" height="100%" minWidth={240} minHeight={240}>
+          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
             {pieChart}
           </ResponsiveContainer>
         ) : (
@@ -375,7 +375,7 @@ export function DonutChart({
       </div>
 
       {isMobile ? (
-        <ul className="mt-3 grid grid-cols-1 gap-2">
+        <ul className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
           {slices.map((slice) => (
             <li key={`legend-${slice.name}`} className="min-w-0 rounded-md bg-muted/30 px-2.5 py-2">
               <div className="flex items-start gap-2">
@@ -403,3 +403,4 @@ export function DonutChart({
 }
 
 export default DonutChart;
+

@@ -78,14 +78,14 @@ export function TopFundedProjectsSection({
   }, [searchText, category, sector]);
 
   return (
-    <Card className="bg-card text-card-foreground border border-border rounded-xl py-4">
-      <CardHeader className="grid-rows-[auto] items-center gap-0 border-b border-border px-5">
+    <Card className="bg-card text-card-foreground border border-border rounded-xl py-3 sm:py-4">
+      <CardHeader className="grid-rows-[auto] items-center gap-0 border-b border-border px-4 sm:px-5">
         <CardTitle className="flex items-center gap-2 leading-none text-lg font-medium text-foreground">
           <TrendingUp className="h-4 w-4 text-muted-foreground" />
           Top Funded Projects
         </CardTitle>
       </CardHeader>
-      <CardContent className="px-5 space-y-3">
+      <CardContent className="space-y-3 px-4 sm:px-5">
         <TopProjectsFilters
           sectors={sectors}
           searchText={searchText}
@@ -119,7 +119,7 @@ export function TopProjectsFilters({
   onSectorChange: (value: string | "all") => void;
 }) {
   return (
-    <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+    <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
       <div className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
@@ -127,7 +127,7 @@ export function TopProjectsFilters({
           value={searchText}
           onChange={(event) => onSearchTextChange(event.currentTarget.value)}
           placeholder="Search projects..."
-          className="h-9 rounded-lg border-0 bg-secondary pl-9 text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          className="h-10 rounded-lg border-0 bg-secondary pl-9 text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         />
       </div>
       <div className="relative">
@@ -135,7 +135,7 @@ export function TopProjectsFilters({
           name="category"
           value={category}
           onChange={(event) => onCategoryChange(parseCategoryFilter(event.currentTarget.value))}
-          className="h-9 w-full appearance-none rounded-lg border-0 bg-secondary px-3 pr-8 text-sm text-foreground hover:bg-secondary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          className="h-10 w-full appearance-none rounded-lg border-0 bg-secondary px-3 pr-8 text-sm text-foreground hover:bg-secondary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
           <option value="all">All Categories</option>
           <option value="health">Health</option>
@@ -149,7 +149,7 @@ export function TopProjectsFilters({
           name="sector"
           value={sector}
           onChange={(event) => onSectorChange(event.currentTarget.value || "all")}
-          className="h-9 w-full appearance-none rounded-lg border-0 bg-secondary px-3 pr-8 text-sm text-foreground hover:bg-secondary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          className="h-10 w-full appearance-none rounded-lg border-0 bg-secondary px-3 pr-8 text-sm text-foreground hover:bg-secondary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
           <option value="all">All Types</option>
           {sectors.map((sector) => (
@@ -224,58 +224,70 @@ export function TopProjectsTable({
     if (sectorLabel.includes("general") || project.category === "infrastructure") return "General";
     return "Other";
   };
+  const statusLabel = (project: DashboardProject): "Flagged" | "In Progress" | "Planned" => {
+    if (hasProjectErrors(project.errors)) return "Flagged";
+    if (project.isHumanEdited) return "In Progress";
+    return "Planned";
+  };
+  const categoryBadgeClass = (categoryLabel: ReturnType<typeof resolveCategoryLabel>) => {
+    if (categoryLabel === "Economic") return "bg-mediumseagreen-200 text-mediumseagreen-100";
+    if (categoryLabel === "Social") return "bg-dodgerblue-200 text-dodgerblue-100";
+    if (categoryLabel === "General") return "bg-[#DCE5E8] text-[#1A677D]";
+    return "bg-secondary text-foreground";
+  };
 
   return (
-    <div className="max-h-[353.8px] overflow-auto rounded-xl border border-border">
-      <table className="w-full min-w-[780px] text-sm text-foreground">
+    <div className="max-h-[353.8px] max-w-full overflow-auto rounded-xl border border-border [scrollbar-width:thin]">
+      <table className="w-full min-w-[620px] text-xs text-foreground sm:text-sm md:min-w-[780px]">
         <thead className="sticky top-0 z-10 bg-secondary text-left text-xs font-medium text-muted-foreground">
           <tr>
-            <th className="px-3 py-2">#</th><th className="px-3 py-2">Project Name</th><th className="px-3 py-2">Category</th><th className="px-3 py-2">Type</th><th className="px-3 py-2">Budget</th><th className="px-3 py-2">Status</th>
+            <th className="px-3 py-2">#</th>
+            <th className="px-3 py-2">Project Name</th>
+            <th className="px-3 py-2">Category</th>
+            <th className="px-3 py-2">Type</th>
+            <th className="px-3 py-2">Budget</th>
+            <th className="px-3 py-2">Status</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((project, index) => (
-            <tr key={project.id} className="border-b border-border text-sm hover:bg-accent">
-              <td className="px-3 py-2 text-muted-foreground">{index + 1}</td>
-              <td className="px-3 py-2"><div className="max-w-[300px] truncate">{project.programProjectDescription}</div></td>
-              <td className="px-3 py-2">
-                {(() => {
-                  const categoryLabel = resolveCategoryLabel(project);
-                  const categoryClass =
-                    categoryLabel === "Economic"
-                      ? "bg-mediumseagreen-200 text-mediumseagreen-100"
-                      : categoryLabel === "Social"
-                        ? "bg-dodgerblue-200 text-dodgerblue-100"
-                        : categoryLabel === "General"
-                          ? "bg-[#DCE5E8] text-[#1A677D]"
-                          : "bg-secondary text-foreground";
-
-                  return (
-                    <Badge className={`rounded-md border border-transparent text-xs font-medium ${categoryClass}`}>
-                      {categoryLabel}
-                    </Badge>
-                  );
-                })()}
-              </td>
-              <td className="px-3 py-2">
-                <Badge className="rounded-md border border-border bg-card text-xs text-muted-foreground">
-                  {isHealthType(resolveTypeLabel(project)) ? <Heart className="mr-1 h-3 w-3" /> : <Building2 className="mr-1 h-3 w-3" />}
-                  {resolveTypeLabel(project)}
-                </Badge>
-              </td>
-              <td className="px-3 py-2 text-right font-semibold tabular-nums">{toCurrency(project.total ?? 0)}</td>
-              <td className="px-3 py-2">
-                {hasProjectErrors(project.errors) ? (
-                  <Badge className="rounded-md border border-border bg-card text-muted-foreground">Flagged</Badge>
-                ) : project.isHumanEdited ? (
-                  <Badge className="rounded-md border border-border bg-card text-muted-foreground">In Progress</Badge>
-                ) : (
-                  <Badge className="rounded-md border border-border bg-card text-muted-foreground">Planned</Badge>
-                )}
+          {rows.map((project, index) => {
+            const categoryLabel = resolveCategoryLabel(project);
+            const typeLabel = resolveTypeLabel(project);
+            return (
+              <tr key={project.id} className="border-b border-border text-sm hover:bg-accent">
+                <td className="px-3 py-2 text-muted-foreground">{index + 1}</td>
+                <td className="px-3 py-2">
+                  <div className="max-w-[180px] truncate sm:max-w-[280px] md:max-w-[300px]">
+                    {project.programProjectDescription}
+                  </div>
+                </td>
+                <td className="px-3 py-2">
+                  <Badge className={`rounded-md border border-transparent text-xs font-medium ${categoryBadgeClass(categoryLabel)}`}>
+                    {categoryLabel}
+                  </Badge>
+                </td>
+                <td className="px-3 py-2">
+                  <Badge className="rounded-md border border-border bg-card text-xs text-muted-foreground">
+                    {isHealthType(typeLabel) ? <Heart className="mr-1 h-3 w-3" /> : <Building2 className="mr-1 h-3 w-3" />}
+                    {typeLabel}
+                  </Badge>
+                </td>
+                <td className="px-3 py-2 text-right font-semibold tabular-nums">{toCurrency(project.total ?? 0)}</td>
+                <td className="px-3 py-2">
+                  <Badge className="rounded-md border border-border bg-card text-muted-foreground">
+                    {statusLabel(project)}
+                  </Badge>
+                </td>
+              </tr>
+            );
+          })}
+          {rows.length === 0 ? (
+            <tr>
+              <td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">
+                No projects match your filters.
               </td>
             </tr>
-          ))}
-          {rows.length === 0 && <tr><td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">No projects match your filters.</td></tr>}
+          ) : null}
         </tbody>
       </table>
     </div>

@@ -38,12 +38,18 @@ export function AipCoverageCard({
 }) {
   return (
     <Card className="bg-card text-card-foreground border border-border rounded-xl py-0">
-      <CardHeader className="p-5 pb-0"><CardTitle className="text-lg font-medium text-foreground">AIP Coverage</CardTitle></CardHeader>
-      <CardContent className="p-5">
+      <CardHeader className="p-4 pb-0 sm:p-5 sm:pb-0">
+        <CardTitle className="text-base font-medium text-foreground sm:text-lg">AIP Coverage</CardTitle>
+      </CardHeader>
+      <CardContent className="p-4 sm:p-5">
         {selectedAip ? (
-          <div className="h-[101px] rounded-lg border border-border bg-card p-4 text-sm">
+          <div className="min-h-[96px] rounded-lg border border-border bg-card p-4 text-sm">
             <div className="text-muted-foreground">FY {selectedAip.fiscalYear}</div>
-            <Badge className={`mt-2 w-fit border text-xs font-medium ${STATUS_STYLES[selectedAip.status] ?? STATUS_STYLES.draft}`}>{formatStatusLabel(selectedAip.status)}</Badge>
+            <Badge
+              className={`mt-2 w-fit border text-xs font-medium ${STATUS_STYLES[selectedAip.status] ?? STATUS_STYLES.draft}`}
+            >
+              {formatStatusLabel(selectedAip.status)}
+            </Badge>
           </div>
         ) : (
           <MissingAipState scope={scope} fiscalYear={fiscalYear} createDraftAction={createDraftAction} />
@@ -66,7 +72,7 @@ function MissingAipState({
 
   return (
     <div className="space-y-3">
-      <div className="h-[101px] rounded-lg border border-border bg-[color:var(--color-warning-soft)] p-4">
+      <div className="min-h-[96px] rounded-lg border border-border bg-[color:var(--color-warning-soft)] p-4">
         <div className="flex items-center gap-2 text-destructive">
           <AlertTriangle className="h-4 w-4" />
           <span className="text-sm font-medium text-foreground">Missing AIP</span>
@@ -90,7 +96,6 @@ function MissingAipState({
     </div>
   );
 }
-
 
 function formatDate(value: string): string {
   return new Date(value).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" });
@@ -119,47 +124,59 @@ export function AipsByYearTable({
 
   return (
     <Card className="bg-card text-card-foreground border border-border rounded-xl py-0">
-      <CardHeader className="grid-rows-[auto] items-center gap-0 border-b border-border px-5 py-3">
-        <CardTitle className="leading-none text-lg font-medium text-foreground">AIPs by Year</CardTitle>
+      <CardHeader className="grid-rows-[auto] items-center gap-0 border-b border-border px-4 py-3 sm:px-5">
+        <CardTitle className="leading-none text-base font-medium text-foreground sm:text-lg">AIPs by Year</CardTitle>
       </CardHeader>
-      <CardContent className="pb-5 space-y-2">
-        <div className="grid grid-cols-[72px_140px_1fr_120px_88px] rounded-md border border-border bg-secondary px-3 py-2 text-left text-xs font-medium text-muted-foreground">
-          <span className="text-left">Year</span>
-          <span className="text-left">Status</span>
-          <span className="text-left">Uploaded By</span>
-          <span className="text-left">Upload Date</span>
-          <span className="text-left">Action</span>
+      <CardContent className="space-y-2 px-4 pb-4 pt-3 sm:px-5 sm:pb-5">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] text-sm sm:min-w-[620px]">
+            <thead>
+              <tr className="bg-secondary text-left text-xs font-medium text-muted-foreground">
+                <th className="px-3 py-2">Year</th>
+                <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2">Uploaded By</th>
+                <th className="px-3 py-2">Upload Date</th>
+                <th className="px-3 py-2">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {yearRows.map(({ year, aip }) => (
+                <tr key={year} className="border-b border-border hover:bg-accent">
+                  <td className="px-3 py-2 font-medium tabular-nums">{year}</td>
+                  <td className="px-3 py-2">
+                    <Badge
+                      className={`w-fit border text-xs font-medium ${
+                        aip?.status === "published"
+                          ? STATUS_STYLES.published
+                          : aip
+                            ? "bg-secondary text-muted-foreground border-border"
+                            : "bg-secondary text-muted-foreground border-border"
+                      }`}
+                    >
+                      {aip ? (aip.status === "published" ? "Published" : formatStatusLabel(aip.status)) : "None"}
+                    </Badge>
+                  </td>
+                  <td className="px-3 py-2 text-muted-foreground">{aip?.uploadedBy ?? "None"}</td>
+                  <td className="px-3 py-2 tabular-nums text-muted-foreground">
+                    {aip ? formatDate(aip.uploadedDate ?? aip.statusUpdatedAt) : "None"}
+                  </td>
+                  <td className="px-3 py-2">
+                    {aip ? (
+                      <Button asChild size="sm" variant="ghost" className="h-auto p-0 text-primary hover:underline">
+                        <Link href={`${basePath}/aips/${aip.id}`}>
+                          <Eye className="mr-1 h-4 w-4" />
+                          View
+                        </Link>
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">None</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-        {yearRows.map(({ year, aip }) => (
-          <div key={year} className="grid h-8 grid-cols-[72px_140px_1fr_120px_88px] items-center border-b border-border px-3 text-sm hover:bg-accent">
-            <span className="font-medium tabular-nums truncate">{year}</span>
-            <Badge
-              className={`w-fit border text-xs font-medium ${
-                aip?.status === "published"
-                  ? STATUS_STYLES.published
-                  : aip
-                    ? "bg-secondary text-muted-foreground border-border"
-                    : "bg-secondary text-muted-foreground border-border"
-              }`}
-            >
-              {aip ? (aip.status === "published" ? "Published" : formatStatusLabel(aip.status)) : "None"}
-            </Badge>
-            <span className="truncate text-muted-foreground">{aip?.uploadedBy ?? "None"}</span>
-            <span className="truncate tabular-nums text-left text-muted-foreground">
-              {aip ? formatDate(aip.uploadedDate ?? aip.statusUpdatedAt) : "None"}
-            </span>
-            {aip ? (
-              <Button asChild size="sm" variant="ghost" className="justify-self-start px-0 text-primary hover:underline">
-                <Link href={`${basePath}/aips/${aip.id}`}>
-                  <Eye className="mr-1 h-4 w-4" />
-                  View
-                </Link>
-              </Button>
-            ) : (
-              <span className="justify-self-start text-xs text-muted-foreground">None</span>
-            )}
-          </div>
-        ))}
       </CardContent>
     </Card>
   );
@@ -180,8 +197,10 @@ export function AipStatusColumn({
       <StatusDistributionCard statusDistribution={statusDistribution} />
 
       <Card className="bg-card text-card-foreground border border-border rounded-xl py-0">
-        <CardHeader className="p-5 pb-0"><CardTitle className="text-sm font-medium text-foreground">Pending Review Aging</CardTitle></CardHeader>
-        <CardContent className="p-5 text-sm">
+        <CardHeader className="p-4 pb-0 sm:p-5 sm:pb-0">
+          <CardTitle className="text-sm font-medium text-foreground">Pending Review Aging</CardTitle>
+        </CardHeader>
+        <CardContent className="p-4 text-sm sm:p-5">
           <div className="border border-dashed border-border rounded-lg p-3 space-y-2">
             {pendingReviewAging.map((item) => (
               <div key={item.bucket} className="grid grid-cols-[44px_1fr] items-center gap-2">
@@ -228,36 +247,41 @@ export function StatusDistributionCard({
     { parts: [] as string[], cursor: 0 }
   );
   const pieBackground = pieStops.parts.length > 0 ? `conic-gradient(${pieStops.parts.join(", ")})` : "conic-gradient(#e2e8f0 0 100%)";
-  const labelPositionByStatus: Record<string, string> = {
-    pending_review: "top-[-20px] left-1/2 -translate-x-1/2 text-center",
-    under_review: "left-[-86px] top-[120px] text-left",
-    for_revision: "right-[-80px] top-[122px] text-left",
-    published: "right-[-76px] top-[74px] text-left",
-    draft: "left-[-74px] top-[74px] text-left",
-  };
 
   return (
     <Card className="bg-card text-card-foreground border border-border rounded-xl py-0">
-      <CardHeader className="p-5 pb-0"><CardTitle className="text-sm font-medium text-foreground">Status Distribution</CardTitle></CardHeader>
-      <CardContent className="p-5 space-y-2 text-sm">
-        <div className="flex justify-center">
-          <div className="relative h-44 w-44 rounded-full" style={{ background: pieBackground }}>
-            {statusDistribution
-              .filter((item) => item.count > 0)
-              .map((item) => {
-                const percentage = totalStatusCount > 0 ? Math.round((item.count / totalStatusCount) * 100) : 0;
-                return (
-                  <div
-                    key={item.status}
-                    className={`absolute text-xs leading-tight ${labelPositionByStatus[item.status] ?? "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"}`}
-                    style={{ color: STATUS_PIE_COLORS[item.status] ?? "#64748B" }}
-                  >
-                    {formatStatusLabel(item.status)}:
-                    <br />
-                    {percentage}%
+      <CardHeader className="p-4 pb-0 sm:p-5 sm:pb-0">
+        <CardTitle className="text-sm font-medium text-foreground">Status Distribution</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4 p-4 text-sm sm:p-5">
+        <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="relative h-32 w-32 shrink-0 rounded-full sm:h-44 sm:w-44" style={{ background: pieBackground }}>
+            <div className="absolute inset-[22%] rounded-full bg-white" />
+            <div className="absolute inset-0 grid place-items-center text-center">
+              <div>
+                <div className="text-[11px] text-muted-foreground">Total</div>
+                <div className="text-lg font-semibold text-foreground sm:text-xl">{totalStatusCount}</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="w-full min-w-0 space-y-2 sm:max-w-[220px]">
+            {statusDistribution.map((item) => {
+              const percentage = totalStatusCount > 0 ? Math.round((item.count / totalStatusCount) * 100) : 0;
+              return (
+                <div key={item.status} className="flex items-center justify-between gap-3 text-xs">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span
+                      className="inline-flex h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: STATUS_PIE_COLORS[item.status] ?? "#94A3B8" }}
+                      aria-hidden
+                    />
+                    <span className="truncate text-muted-foreground">{formatStatusLabel(item.status)}</span>
                   </div>
-                );
-              })}
+                  <span className="shrink-0 font-medium text-foreground">{percentage}%</span>
+                </div>
+              );
+            })}
           </div>
         </div>
       </CardContent>

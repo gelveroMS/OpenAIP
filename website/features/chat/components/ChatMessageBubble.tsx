@@ -18,7 +18,7 @@ export default function ChatMessageBubble({
     <div className={cn("flex w-full", isUser ? "justify-end" : "justify-start")}>
       <div
         className={cn(
-          "max-w-130 rounded-xl px-4 py-3 text-[13.5px] leading-relaxed",
+          "min-w-0 max-w-[92%] rounded-xl px-3.5 py-3 text-[13px] leading-6 md:max-w-[85%] md:px-4 md:text-[13.5px] md:leading-relaxed lg:max-w-130",
           isUser ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"
         )}
       >
@@ -62,21 +62,23 @@ export default function ChatMessageBubble({
 
               return (
                 <div key={`${message.id}:${citation.sourceId}:${citation.chunkId ?? "chunk"}`} className="rounded-md border bg-background px-2 py-1.5">
-                <div className="flex flex-wrap items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                  <span>{citation.sourceId}</span>
-                  <span>{citation.scopeName ?? "Unknown scope"}</span>
+                <div className="flex min-w-0 flex-wrap items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground [overflow-wrap:anywhere]">
+                  <span className="break-words">{citation.sourceId}</span>
+                  <span className="break-words">{citation.scopeName ?? "Unknown scope"}</span>
                   <span>{citation.scopeType ?? "unknown"}</span>
                   {typeof citation.fiscalYear === "number" && <span>FY {citation.fiscalYear}</span>}
                   {metric.label && metric.value ? <span>{metric.label} {metric.value}</span> : null}
                 </div>
-                <div className="mt-1 text-[12px] leading-snug">{citation.snippet}</div>
+                <div className="mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[12px] leading-snug">
+                  {citation.snippet}
+                </div>
               </div>
               );
             })}
           </div>
           )}
 
-        <div className="mt-2 flex items-center justify-between gap-3 text-[11px]">
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px]">
           <div className={cn(isUser ? "text-primary-foreground/70" : "text-muted-foreground")}>
             {message.timeLabel}
           </div>

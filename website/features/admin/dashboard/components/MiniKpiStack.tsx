@@ -19,14 +19,14 @@ function MiniKpiItem({
 }) {
   return (
     <Card className="border-slate-200 py-0 shadow-none">
-      <CardContent className="p-5">
+      <CardContent className="p-4 sm:p-5">
         <div className="flex items-center justify-between">
           <div className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-slate-50 text-slate-600">
             {icon}
           </div>
           <div className="rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">{delta}</div>
         </div>
-        <div className="mt-3 text-[35px] leading-9 font-semibold text-slate-900">{value}</div>
+        <div className="mt-3 break-words text-3xl font-semibold leading-tight text-slate-900 sm:text-[35px] sm:leading-9">{value}</div>
         <div className="mt-1 text-[13px] text-slate-600">{title}</div>
       </CardContent>
     </Card>

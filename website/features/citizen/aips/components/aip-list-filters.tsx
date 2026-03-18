@@ -39,14 +39,14 @@ export default function AipListFilters({
 }: AipListFiltersProps) {
   return (
     <Card className="w-full border-slate-200">
-      <CardContent className="space-y-2 px-4 md:px-6">
+      <CardContent className="space-y-2 px-3 py-3 sm:px-4 md:px-6 md:py-5">
         <h3 className="text-sm font-medium text-slate-700">Filters</h3>
 
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-2.5 md:grid-cols-3 md:gap-3">
           <div className="space-y-1">
             <label className="text-xs font-medium text-slate-600">Fiscal Year</label>
             <Select value={yearValue} onValueChange={onYearChange}>
-              <SelectTrigger className="h-11 w-full bg-white">
+              <SelectTrigger className="h-10 w-full bg-white text-sm md:h-11">
                 <SelectValue placeholder="Select year" />
               </SelectTrigger>
               <SelectContent>
@@ -62,7 +62,7 @@ export default function AipListFilters({
           <div className="space-y-1">
             <label className="text-xs font-medium text-slate-600">City</label>
             <Select value={cityValue} onValueChange={onCityChange}>
-              <SelectTrigger className="h-11 w-full bg-white">
+              <SelectTrigger className="h-10 w-full bg-white text-sm md:h-11">
                 <SelectValue placeholder="Select city" />
               </SelectTrigger>
               <SelectContent>
@@ -78,7 +78,7 @@ export default function AipListFilters({
           <div className="space-y-1">
             <label className="text-xs font-medium text-slate-600">Barangay</label>
             <Select value={barangayValue} onValueChange={onBarangayChange}>
-              <SelectTrigger className="h-11 w-full bg-white">
+              <SelectTrigger className="h-10 w-full bg-white text-sm md:h-11">
                 <SelectValue placeholder="Select barangay" />
               </SelectTrigger>
               <SelectContent>

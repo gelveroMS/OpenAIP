@@ -67,7 +67,7 @@ describe("AdminAuditLogsView", () => {
   beforeEach(() => {
     mockPush.mockReset();
     currentSearchParams = new URLSearchParams(
-      "page=2&pageSize=20&role=all&year=all&event=all&q=seed"
+      "page=2&pageSize=15&role=all&year=all&event=all&q=seed"
     );
   });
 
@@ -78,7 +78,7 @@ describe("AdminAuditLogsView", () => {
         total={40}
         filters={{
           page: 2,
-          pageSize: 20,
+          pageSize: 15,
           role: "all",
           year: "all",
           event: "all",
@@ -97,14 +97,14 @@ describe("AdminAuditLogsView", () => {
     expect(params.get("q")).toBe("seed");
   });
 
-  it("resets page when page size changes", () => {
+  it("shows fixed page size label", () => {
     render(
       <AdminAuditLogsView
         logs={LOGS}
         total={40}
         filters={{
           page: 2,
-          pageSize: 20,
+          pageSize: 15,
           role: "all",
           year: "all",
           event: "all",
@@ -113,13 +113,7 @@ describe("AdminAuditLogsView", () => {
       />
     );
 
-    fireEvent.change(screen.getByLabelText("Rows per page"), {
-      target: { value: "50" },
-    });
-
-    const params = latestPushParams();
-    expect(params.get("page")).toBe("1");
-    expect(params.get("pageSize")).toBe("50");
+    expect(screen.getByText("15 rows per page")).toBeInTheDocument();
   });
 
   it("updates page with pagination controls", () => {
@@ -129,7 +123,7 @@ describe("AdminAuditLogsView", () => {
         total={40}
         filters={{
           page: 1,
-          pageSize: 20,
+          pageSize: 15,
           role: "all",
           year: "all",
           event: "all",
@@ -155,7 +149,7 @@ describe("AdminAuditLogsView", () => {
         total={2}
         filters={{
           page: 1,
-          pageSize: 20,
+          pageSize: 15,
           role: "all",
           year: "all",
           event: "all",

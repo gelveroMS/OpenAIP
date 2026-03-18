@@ -1,5 +1,5 @@
 import { LandingContentView } from "@/features/citizen/landing-content";
-import { getLandingContentRepoServer } from "@/lib/repos/landing-content";
+import { getCachedCitizenLandingContent } from "@/lib/repos/landing-content/public-cache.server";
 
 type DashboardSearchParams = Promise<{
   scope_type?: string;
@@ -15,8 +15,7 @@ const CitizenDashboardPage = async ({
   const params = await searchParams;
   const parsedFiscalYear = Number(params.fiscal_year);
 
-  const repo = getLandingContentRepoServer();
-  const result = await repo.getLandingContent({
+  const result = await getCachedCitizenLandingContent({
     scopeType:
       params.scope_type === "city" || params.scope_type === "barangay"
         ? params.scope_type

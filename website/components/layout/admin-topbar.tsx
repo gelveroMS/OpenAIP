@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { User } from "lucide-react";
+import { Menu, User } from "lucide-react";
 import AdminAccountModal from "@/features/account/AdminAccountModal";
 import NotificationsBell from "@/features/notifications/components/notifications-bell";
 import type { AdminAccountProfile } from "@/features/account/types";
@@ -10,29 +10,41 @@ type Props = {
   name: string;
   roleLabel: string;
   accountProfile: AdminAccountProfile;
+  onOpenSidebar?: () => void;
 };
 
-export default function AdminTopbar({ name, roleLabel, accountProfile }: Props) {
+export default function AdminTopbar({ name, roleLabel, accountProfile, onOpenSidebar }: Props) {
   const [accountModalOpen, setAccountModalOpen] = useState(false);
 
   return (
-    <header className="h-17 border-b border-slate-200 bg-white px-6 flex items-center justify-end">
-      <div className="flex items-center gap-3">
-        <div className="text-right leading-tight">
-          <div className="text-sm font-medium text-slate-900">{name}</div>
-          <div className="text-xs text-slate-500">{roleLabel}</div>
-        </div>
+    <header className="w-full border-b border-slate-200 bg-white">
+      <div className="flex h-14 items-center justify-between gap-3 px-3 sm:px-4 lg:h-16 lg:px-6">
         <button
           type="button"
-          className="h-10 w-10 rounded-full bg-[#0B3440] grid place-items-center"
-          aria-label="Open account"
-          aria-haspopup="dialog"
-          aria-expanded={accountModalOpen}
-          onClick={() => setAccountModalOpen(true)}
+          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 lg:hidden"
+          aria-label="Open navigation menu"
+          onClick={onOpenSidebar}
         >
-          <User className="h-5 w-5 text-white" />
+          <Menu className="h-4 w-4" />
         </button>
-        <NotificationsBell href="/admin/notifications" />
+
+        <div className="ml-auto flex min-w-0 items-center gap-2 sm:gap-3">
+          <div className="hidden max-w-[12rem] text-right leading-tight sm:block">
+            <div className="truncate text-sm font-medium text-slate-900">{name}</div>
+            <div className="truncate text-xs text-slate-500">{roleLabel}</div>
+          </div>
+          <button
+            type="button"
+            className="grid h-9 w-9 place-items-center rounded-full bg-[#0B3440] sm:h-10 sm:w-10"
+            aria-label="Open account"
+            aria-haspopup="dialog"
+            aria-expanded={accountModalOpen}
+            onClick={() => setAccountModalOpen(true)}
+          >
+            <User className="h-4 w-4 text-white sm:h-5 sm:w-5" />
+          </button>
+          <NotificationsBell href="/admin/notifications" className="h-9 w-9 sm:h-10 sm:w-10" />
+        </div>
       </div>
 
       <AdminAccountModal
@@ -43,3 +55,4 @@ export default function AdminTopbar({ name, roleLabel, accountProfile }: Props) 
     </header>
   );
 }
+

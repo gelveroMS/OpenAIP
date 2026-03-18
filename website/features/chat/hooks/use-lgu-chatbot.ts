@@ -146,10 +146,12 @@ export function useLguChatbot(routePrefix = "/api/barangay/chat") {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [messagesBySession, setMessagesBySession] = useState<Record<string, LocalChatMessage[]>>({});
   const [loadedSessionIds, setLoadedSessionIds] = useState<Record<string, true>>({});
+  const [isMessagesLoadingBySession, setIsMessagesLoadingBySession] = useState<Record<string, boolean>>({});
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [searchSessionIds, setSearchSessionIds] = useState<string[] | null>(null);
   const [messageInput, setMessageInput] = useState("");
+  const [isSessionsLoading, setIsSessionsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -164,15 +166,20 @@ export function useLguChatbot(routePrefix = "/api/barangay/chat") {
   }, []);
 
   const loadSessions = useCallback(async () => {
-    const payload = await getJson<{ sessions: ChatSession[] }>(`${routePrefix}/sessions`);
-    const fetchedSessions = sortSessionsByUpdatedAt(payload.sessions ?? []);
-    setSessions(fetchedSessions);
-    setActiveSessionId((prev) => {
-      if (prev && fetchedSessions.some((session) => session.id === prev)) {
-        return prev;
-      }
-      return fetchedSessions[0]?.id ?? null;
-    });
+    setIsSessionsLoading(true);
+    try {
+      const payload = await getJson<{ sessions: ChatSession[] }>(`${routePrefix}/sessions`);
+      const fetchedSessions = sortSessionsByUpdatedAt(payload.sessions ?? []);
+      setSessions(fetchedSessions);
+      setActiveSessionId((prev) => {
+        if (prev && fetchedSessions.some((session) => session.id === prev)) {
+          return prev;
+        }
+        return fetchedSessions[0]?.id ?? null;
+      });
+    } finally {
+      setIsSessionsLoading(false);
+    }
   }, [routePrefix]);
 
   const createSession = useCallback(async (): Promise<ChatSession> => {
@@ -232,20 +239,27 @@ export function useLguChatbot(routePrefix = "/api/barangay/chat") {
 
     async function loadMessages() {
       if (!activeSessionId || loadedSessionIds[activeSessionId]) return;
+      setIsMessagesLoadingBySession((prev) => ({ ...prev, [activeSessionId]: true }));
 
-      const payload = await getJson<{ messages: ChatMessage[] }>(
-        `${routePrefix}/sessions/${activeSessionId}/messages`
-      );
-      if (!isMounted) return;
+      try {
+        const payload = await getJson<{ messages: ChatMessage[] }>(
+          `${routePrefix}/sessions/${activeSessionId}/messages`
+        );
+        if (!isMounted) return;
 
-      setMessagesBySession((prev) => ({
-        ...prev,
-        [activeSessionId]: (payload.messages ?? []).map(toSentMessage),
-      }));
-      setLoadedSessionIds((prev) => ({
-        ...prev,
-        [activeSessionId]: true,
-      }));
+        setMessagesBySession((prev) => ({
+          ...prev,
+          [activeSessionId]: (payload.messages ?? []).map(toSentMessage),
+        }));
+        setLoadedSessionIds((prev) => ({
+          ...prev,
+          [activeSessionId]: true,
+        }));
+      } finally {
+        if (isMounted) {
+          setIsMessagesLoadingBySession((prev) => ({ ...prev, [activeSessionId]: false }));
+        }
+      }
     }
 
     loadMessages().catch((err) => {
@@ -524,11 +538,14 @@ export function useLguChatbot(routePrefix = "/api/barangay/chat") {
     () => activeMessages.map((message) => toBubble(message, handleRetry)),
     [activeMessages, handleRetry]
   );
+  const isMessagesLoading = Boolean(activeSessionId && isMessagesLoadingBySession[activeSessionId]);
 
   return {
     activeSessionId,
     query,
     messageInput,
+    isSessionsLoading,
+    isMessagesLoading,
     isSending,
     error,
     sessionListItems,

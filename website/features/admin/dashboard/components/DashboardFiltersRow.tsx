@@ -68,31 +68,30 @@ export default function DashboardFiltersRow({
   };
 
   return (
-    <div className="space-y-2 lg:flex lg:flex-col lg:items-end">
-      <div className="grid w-full items-end gap-3 lg:inline-grid lg:w-auto lg:grid-cols-[185px_24px_185px_180px_180px_max-content]">
+    <div className="space-y-3">
+      <div className="grid w-full items-end gap-3 sm:grid-cols-2 xl:grid-cols-[185px_185px_180px_180px_max-content]">
         <div className="space-y-1">
-          <div className="text-[12px] text-slate-600">Date Range</div>
+          <div className="text-[12px] text-slate-600">Date From</div>
           <Input
             type="date"
             value={filters.dateFrom ?? ""}
             onChange={(event) => onChange({ ...filters, dateFrom: event.target.value })}
-            className="h-9.5 border-slate-300 bg-white"
+            className="h-10 border-slate-300 bg-white"
           />
         </div>
-        <div className="h-9.5 flex items-center justify-center text-[13px] text-slate-500">to</div>
         <div className="space-y-1">
-          <div className="text-[12px] text-transparent">End Date</div>
+          <div className="text-[12px] text-slate-600">Date To</div>
           <Input
             type="date"
             value={filters.dateTo ?? ""}
             onChange={(event) => onChange({ ...filters, dateTo: event.target.value })}
-            className="h-9.5 border-slate-300 bg-white"
+            className="h-10 border-slate-300 bg-white"
           />
         </div>
         <div className="space-y-1">
           <div className="text-[12px] text-slate-600">LGU Scope</div>
           <Select value={lguValue} onValueChange={handleLguChange}>
-            <SelectTrigger className="h-9.5 w-full border-slate-300 bg-white">
+            <SelectTrigger className="h-10 w-full border-slate-300 bg-white">
               <SelectValue placeholder="All LGUs" />
             </SelectTrigger>
             <SelectContent>
@@ -116,7 +115,7 @@ export default function DashboardFiltersRow({
               onChange({ ...filters, aipStatus: value as AdminDashboardFilters["aipStatus"] })
             }
           >
-            <SelectTrigger className="h-9.5 w-full border-slate-300 bg-white">
+            <SelectTrigger className="h-10 w-full border-slate-300 bg-white">
               <SelectValue placeholder="All Statuses" />
             </SelectTrigger>
             <SelectContent>
@@ -128,17 +127,16 @@ export default function DashboardFiltersRow({
             </SelectContent>
           </Select>
         </div>
-        <div className="flex items-center gap-2 pb-px">
-          <Button variant="outline" className="h-9.5 gap-2 border-slate-300 bg-white" onClick={onReset}>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" className="h-10 w-full gap-2 border-slate-300 bg-white xl:w-auto" onClick={onReset}>
             <RotateCcw className="h-4 w-4" />
             Reset Filters
           </Button>
         </div>
       </div>
-      <div className="text-[12px] text-slate-500 lg:text-right">
+      <div className="text-[12px] text-slate-500 xl:text-right">
         Filters persist in the URL, carry into dashboard drill-down pages, and reuse date range in Usage Controls chatbot metrics.
       </div>
     </div>
   );
 }
-

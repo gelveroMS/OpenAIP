@@ -87,12 +87,12 @@ export default function HeroMotion({ title, subtitle, cta }: HeroMotionProps) {
         variants={overlayVariants}
       />
 
-      <div className="relative z-20 h-full px-10 sm:px-16 lg:px-24">
+      <div className="relative z-20 h-full px-5 sm:px-10 md:px-16 lg:px-24">
         <div className="grid h-full grid-cols-12 items-center">
           <div className="col-span-12 lg:col-span-7">
-            <div className="pt-12 pb-6 sm:pt-12 sm:pb-8 lg:pt-16 lg:pb-12">
+            <div className="pb-4 pt-8 sm:pb-6 sm:pt-10 lg:pb-12 lg:pt-16">
               <motion.h1
-                className="max-w-[680px] text-[clamp(2.6rem,7vw,5.2rem)] font-semibold leading-[1] tracking-tight text-linen"
+                className="max-w-[680px] break-words text-[clamp(2.1rem,11vw,3.3rem)] font-semibold leading-[0.98] tracking-tight text-linen sm:text-[clamp(2.6rem,7vw,5.2rem)]"
                 variants={headlineContainerVariants}
               >
                 {titleLines.map((line, index) => (
@@ -103,14 +103,14 @@ export default function HeroMotion({ title, subtitle, cta }: HeroMotionProps) {
               </motion.h1>
 
               <motion.p
-                className="mt-5 max-w-[640px] text-[12px] leading-7 text-white/80 md:text-[17px] md:leading-[29px]"
+                className="mt-3 max-w-[640px] text-[12px] leading-6 text-white/80 md:mt-5 md:text-[17px] md:leading-[29px]"
                 variants={subtitleVariants}
               >
                 {subtitle}
               </motion.p>
 
               <motion.div
-                className="mt-20 inline-flex"
+                className="mt-8 inline-flex md:mt-20"
                 variants={ctaVariants}
                 whileHover={reducedMotion ? undefined : { scale: 1.02 }}
                 whileTap={reducedMotion ? undefined : { scale: 0.98 }}
@@ -124,7 +124,7 @@ export default function HeroMotion({ title, subtitle, cta }: HeroMotionProps) {
       </div>
 
       <motion.div
-        className="pointer-events-none absolute bottom-6 left-1/2 z-20 -translate-x-1/2"
+        className="pointer-events-none absolute bottom-4 left-1/2 z-20 -translate-x-1/2 md:bottom-6"
         animate={
           hasEntered
             ? reducedMotion
@@ -142,7 +142,7 @@ export default function HeroMotion({ title, subtitle, cta }: HeroMotionProps) {
         }
       >
         <div className="flex min-w-[92px] flex-col items-center rounded-sm bg-[#082241]/35 px-3 py-2 text-white/70 backdrop-blur-[2px]">
-          <span className="text-sm leading-none">Scroll to explore</span>
+          <span className="text-xs leading-none sm:text-sm">Scroll to explore</span>
           <svg viewBox="0 0 20 20" className="mt-1 h-4 w-4" fill="none" aria-hidden="true">
             <path d="M5 8.5L10 13.5L15 8.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
           </svg>

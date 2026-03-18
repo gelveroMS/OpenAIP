@@ -36,11 +36,11 @@ export default function LineTrendsCard({ subtitle, data }: LineTrendsCardProps) 
   return (
     <Card className="rounded-2xl border border-[#033a58] bg-[#022437] text-white shadow-sm">
       <CardHeader className="space-y-1">
-        <CardTitle className="text-lg text-white">Sectoral Budget Trends Over Time</CardTitle>
-        <p className="text-sm text-cyan-100/80">{subtitle}</p>
+        <CardTitle className="text-base text-white md:text-lg">Sectoral Budget Trends Over Time</CardTitle>
+        <p className="text-xs text-cyan-100/80 md:text-sm">{subtitle}</p>
       </CardHeader>
       <CardContent>
-        <div className="h-[360px] w-full">
+        <div className="h-[280px] w-full sm:h-[320px] md:h-[360px]">
           {data.length > 0 ? (
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={data} margin={{ top: 10, right: 20, left: 0, bottom: 8 }}>

@@ -331,16 +331,17 @@ export default function InfrastructureProjectsSection({ vm }: InfrastructureProj
         aria-hidden="true"
       />
       <motion.div
-        className="relative z-10 grid grid-cols-12 items-center gap-6 lg:gap-8 xl:gap-10"
+        className="relative z-10 grid grid-cols-12 items-start gap-6 lg:gap-8 xl:gap-10"
         initial="hidden"
         whileInView="visible"
         viewport={VIEWPORT_ONCE}
       >
-        <motion.div className="col-span-12 lg:col-span-7 xl:col-span-8" variants={carouselVariants}>
+        <motion.div className="order-2 col-span-12 lg:order-1 lg:col-span-7 xl:col-span-7" variants={carouselVariants}>
           <div className="relative w-full lg:max-w-[920px]">
             <div className="relative overflow-hidden rounded-2xl" onMouseLeave={stopEdgeScroll}>
               <div
-                className="relative h-[500px] sm:h-[540px]"
+                data-testid="infrastructure-carousel-stage"
+                className="relative h-[420px] sm:h-[460px] md:h-[540px]"
                 onMouseMove={handleStageMouseMove}
                 onWheel={() => {
                   stopEdgeScroll();
@@ -349,7 +350,8 @@ export default function InfrastructureProjectsSection({ vm }: InfrastructureProj
               >
                 {previousItem ? (
                   <div
-                    className="absolute left-1/2 top-1/2 w-[360px] will-change-transform transition-transform transition-opacity duration-300 ease-out"
+                    data-testid="infrastructure-carousel-previous"
+                    className="absolute left-1/2 top-1/2 hidden w-[360px] will-change-transform transition-transform transition-opacity duration-300 ease-out md:block"
                     style={getStackStyle(1)}
                     onClick={() => setActiveIndex(effectiveActiveIndex - 1)}
                   >
@@ -359,7 +361,8 @@ export default function InfrastructureProjectsSection({ vm }: InfrastructureProj
 
                 {nextItem ? (
                   <div
-                    className="absolute left-1/2 top-1/2 w-[360px] will-change-transform transition-transform transition-opacity duration-300 ease-out"
+                    data-testid="infrastructure-carousel-next"
+                    className="absolute left-1/2 top-1/2 hidden w-[360px] will-change-transform transition-transform transition-opacity duration-300 ease-out md:block"
                     style={getStackStyle(-1)}
                     onClick={() => setActiveIndex(effectiveActiveIndex + 1)}
                   >
@@ -370,7 +373,8 @@ export default function InfrastructureProjectsSection({ vm }: InfrastructureProj
                 {activeItem ? (
                   <div
                     key={activeItem.id}
-                    className="absolute left-1/2 top-1/2 z-[56] w-[360px]"
+                    data-testid="infrastructure-carousel-active"
+                    className="absolute left-1/2 top-1/2 z-[56] w-[calc(100vw-3rem)] max-w-[360px] md:w-[360px]"
                     style={{ transform: "translate(-50%, -50%)" }}
                   >
                     {renderCarouselItem(activeItem, true)}
@@ -399,6 +403,31 @@ export default function InfrastructureProjectsSection({ vm }: InfrastructureProj
                   onLostPointerCapture={onEdgePointerUp}
                 />
               </div>
+            </div>
+
+            <div className="mt-3 flex items-center justify-center gap-2.5 md:hidden">
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                aria-label="Previous project"
+                disabled={!hasMultipleItems || effectiveActiveIndex <= 0}
+                className="h-10 w-10 rounded-full border border-[#C5CCD3] bg-white/95 text-[#56616B] shadow-[0_8px_18px_rgba(15,23,42,0.14)] hover:bg-white disabled:opacity-30"
+                onClick={goToPrevious}
+              >
+                <ChevronLeft className="h-5 w-5 stroke-[2.6]" />
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                aria-label="Next project"
+                disabled={!hasMultipleItems || effectiveActiveIndex >= carouselItems.length - 1}
+                className="h-10 w-10 rounded-full border border-[#C5CCD3] bg-white/95 text-[#56616B] shadow-[0_8px_18px_rgba(15,23,42,0.14)] hover:bg-white disabled:opacity-30"
+                onClick={goToNext}
+              >
+                <ChevronRight className="h-5 w-5 stroke-[2.6]" />
+              </Button>
             </div>
 
             <div className="pointer-events-none absolute inset-y-0 left-[30px] right-[30px] z-[70] hidden items-center justify-between lg:flex">
@@ -440,27 +469,27 @@ export default function InfrastructureProjectsSection({ vm }: InfrastructureProj
           </div>
         </motion.div>
 
-        <div className="col-span-12 space-y-8 lg:col-span-5 xl:col-span-4">
-          <motion.div className="space-y-6" variants={headerVariants}>
-            <h2 className="max-w-[14ch] text-5xl font-extrabold leading-[0.95] tracking-tight text-[#111827] sm:text-6xl">
+        <div className="order-1 col-span-12 space-y-5 md:space-y-8 lg:order-2 lg:col-span-5 xl:col-span-5">
+          <motion.div className="space-y-4 md:space-y-6" variants={headerVariants}>
+            <h2 className="max-w-[14ch] break-words text-[clamp(2rem,10vw,2.9rem)] font-extrabold leading-[0.95] tracking-tight text-[#111827] sm:text-[3.2rem] lg:max-w-none lg:break-normal lg:text-[3.45rem] xl:text-6xl">
               {vm.heading}
             </h2>
-            <p className="max-w-[24ch] text-xl leading-[1.45] text-[#495A64] sm:text-2xl">{vm.description}</p>
+            <p className="max-w-[24ch] text-lg leading-[1.45] text-[#495A64] sm:text-xl md:text-2xl">{vm.description}</p>
           </motion.div>
 
-          <motion.div className="grid gap-4 sm:grid-cols-2" variants={kpiContainerVariants}>
+          <motion.div className="grid grid-cols-2 gap-3.5 md:gap-4" variants={kpiContainerVariants}>
             <motion.div className="h-full" variants={kpiItemVariants}>
-              <CardShell className="flex h-full min-h-[152px] py-0">
-                <div className="flex h-full flex-col justify-between space-y-2 px-5 py-5 sm:px-6 sm:py-6">
-                  <p className="text-3xl font-bold leading-none text-[#0B4E7B] sm:text-3xl">{formatCompactPeso(primaryValue)}</p>
+              <CardShell className="flex h-full min-h-[130px] py-0 md:min-h-[152px]">
+                <div className="flex h-full flex-col justify-between space-y-2 px-4 py-4 sm:px-5 sm:py-5 md:px-6 md:py-6">
+                  <p className="text-3xl font-bold leading-none text-[#0B4E7B]">{formatCompactPeso(primaryValue)}</p>
                   <p className="text-sm font-medium text-slate-500">{vm.primaryKpiLabel}</p>
                 </div>
               </CardShell>
             </motion.div>
             <motion.div className="h-full" variants={kpiItemVariants}>
-              <CardShell className="flex h-full min-h-[152px] py-0">
-                <div className="flex h-full flex-col justify-between space-y-2 px-5 py-5 sm:px-6 sm:py-6">
-                  <p className="text-3xl font-bold leading-none text-[#0B4E7B] sm:text-3xl">
+              <CardShell className="flex h-full min-h-[130px] py-0 md:min-h-[152px]">
+                <div className="flex h-full flex-col justify-between space-y-2 px-4 py-4 sm:px-5 sm:py-5 md:px-6 md:py-6">
+                  <p className="text-3xl font-bold leading-none text-[#0B4E7B]">
                     {formatCompactCount(vm.secondaryKpiValue)}
                   </p>
                   <p className="text-sm font-medium text-slate-500">{vm.secondaryKpiLabel}</p>

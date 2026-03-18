@@ -95,7 +95,16 @@ export function AipDetailsTableView({
   );
 
   if (loading) {
-    return <div className="text-sm text-slate-500">Loading projects...</div>;
+    return (
+      <div className="space-y-4" role="status" aria-live="polite" aria-busy="true">
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="h-5 w-48 animate-pulse rounded-full bg-slate-200" />
+          <div className="mt-3 h-10 animate-pulse rounded-lg bg-slate-100" />
+          <div className="mt-2 h-10 animate-pulse rounded-lg bg-slate-100" />
+          <div className="mt-2 h-10 animate-pulse rounded-lg bg-slate-100" />
+        </div>
+      </div>
+    );
   }
   if (error) {
     return <div className="text-sm text-rose-600">{error}</div>;

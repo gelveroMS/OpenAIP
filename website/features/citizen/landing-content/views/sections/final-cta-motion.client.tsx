@@ -46,16 +46,16 @@ export default function FinalCtaMotion({ vm }: FinalCtaMotionProps) {
   }, [hasStarted, reducedMotion]);
 
   return (
-    <div className="flex min-h-screen snap-start flex-col supports-[height:100svh]:min-h-[100svh]">
+    <div className="flex min-h-0 snap-start flex-col py-8 md:min-h-screen md:py-0 md:supports-[height:100svh]:min-h-[100svh]">
       <motion.div
-        className="flex flex-1 items-center justify-center px-6 md:px-10 lg:px-14"
+        className="flex flex-1 items-center justify-center px-4 sm:px-6 md:px-10 lg:px-14"
         initial={false}
         whileInView="visible"
         onViewportEnter={() => setHasStarted(true)}
         viewport={VIEWPORT_ONCE}
       >
         <div className="mx-auto w-full max-w-4xl text-center">
-          <h2 className="text-6xl font-bold tracking-tight text-[#F2ECE5] md:text-7xl">
+          <h2 className="break-words text-[clamp(2.2rem,10vw,3.5rem)] font-bold tracking-tight text-[#F2ECE5] md:text-7xl">
             <motion.span
               className="inline"
               initial={{ opacity: 0, y: reducedMotion ? 0 : 14 }}
@@ -88,7 +88,7 @@ export default function FinalCtaMotion({ vm }: FinalCtaMotionProps) {
             ) : null}
           </h2>
           <motion.p
-            className="mt-4 text-xl text-[#F2ECE5]/85 md:text-2xl"
+            className="mt-3 text-base text-[#F2ECE5]/85 md:mt-4 md:text-2xl"
             initial={{ opacity: 0 }}
             animate={hasStarted ? { opacity: 1 } : { opacity: 0 }}
             transition={{
@@ -101,7 +101,7 @@ export default function FinalCtaMotion({ vm }: FinalCtaMotionProps) {
           </motion.p>
 
           <motion.div
-            className="mt-25 flex justify-center"
+            className="mt-10 flex justify-center md:mt-25"
             initial={{ opacity: 0, scale: reducedMotion ? 1 : 0.985 }}
             animate={
               subtitleDone
@@ -125,7 +125,7 @@ export default function FinalCtaMotion({ vm }: FinalCtaMotionProps) {
                 <Link
                   href={vm.ctaHref}
                   aria-label="View Full AIP"
-                  className="inline-flex items-center justify-center rounded-xl bg-white px-8 py-3 text-base font-semibold text-[#143240] shadow-[0_8px_22px_rgba(0,0,0,0.22)] transition hover:bg-white/95"
+                  className="inline-flex items-center justify-center rounded-xl bg-white px-6 py-2.5 text-sm font-semibold text-[#143240] shadow-[0_8px_22px_rgba(0,0,0,0.22)] transition hover:bg-white/95 md:px-8 md:py-3 md:text-base"
                 >
                   {vm.ctaLabel}
                 </Link>
@@ -137,7 +137,7 @@ export default function FinalCtaMotion({ vm }: FinalCtaMotionProps) {
                 aria-disabled="true"
                 aria-label="View Full AIP"
                 className={cn(
-                  "inline-flex items-center justify-center rounded-xl bg-white px-8 py-3 text-base font-semibold text-[#143240]",
+                  "inline-flex items-center justify-center rounded-xl bg-white px-6 py-2.5 text-sm font-semibold text-[#143240] md:px-8 md:py-3 md:text-base",
                   "cursor-not-allowed opacity-50 shadow-[0_8px_22px_rgba(0,0,0,0.22)]"
                 )}
               >

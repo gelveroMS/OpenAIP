@@ -36,11 +36,15 @@ export function FeedbackCategorySummaryChart({
   return (
     <div className={cn("space-y-4", className)}>
       <div className="space-y-3">
-        <h3 className={cn("text-center text-2xl font-semibold sm:text-3xl", titleClassName)}>
+        <h3 className={cn("text-center text-xl font-semibold sm:text-3xl", titleClassName)}>
           {title}
         </h3>
 
-        <div className="flex items-center gap-3 pl-28">
+        <div className="flex items-center justify-between text-[10px] font-medium sm:hidden">
+          <span className={scaleClassName}>0</span>
+          <span className={scaleClassName}>100</span>
+        </div>
+        <div className="hidden items-center gap-3 pl-28 sm:flex">
           {SCALE_LABELS.map((label) => (
             <span
               key={label}
@@ -59,11 +63,11 @@ export function FeedbackCategorySummaryChart({
             const currentValueClassName = clampedPercentage >= 86 ? "text-white" : valueClassName;
 
             return (
-              <div key={item.key} className="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-4">
-                <div className={cn("text-sm font-medium", labelClassName)}>{item.label}</div>
+              <div key={item.key} className="grid grid-cols-[4.75rem_minmax(0,1fr)] items-center gap-2 sm:grid-cols-[6rem_minmax(0,1fr)] sm:gap-4">
+                <div className={cn("text-xs font-medium sm:text-sm", labelClassName)}>{item.label}</div>
                 <div className="relative">
                   <div
-                    className={cn("relative h-10 overflow-hidden rounded-xl border", trackClassName)}
+                    className={cn("relative h-9 overflow-hidden rounded-xl border sm:h-10", trackClassName)}
                     aria-hidden="true"
                   >
                     <div

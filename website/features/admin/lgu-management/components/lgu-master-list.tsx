@@ -43,8 +43,8 @@ export default function LguMasterList({
         <CardTitle className="text-base text-slate-900">LGU Master List</CardTitle>
       </CardHeader>
 
-      <CardContent className="p-6 space-y-4">
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_200px]">
+      <CardContent className="space-y-4 p-4 sm:p-6">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_180px_200px]">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
@@ -52,7 +52,7 @@ export default function LguMasterList({
               value={query}
               onChange={(e) => onQueryChange(e.target.value)}
               placeholder="Search by LGU name or code"
-              className="h-11 border-slate-200 bg-slate-50 pl-9"
+              className="h-10 border-slate-200 bg-slate-50 pl-9 sm:h-11"
               aria-label="Search by LGU name or code"
             />
           </div>
@@ -61,7 +61,7 @@ export default function LguMasterList({
             value={typeFilter}
             onValueChange={(v) => onTypeChange(v as TypeFilter)}
           >
-            <SelectTrigger className="h-11 w-full border-slate-200 bg-slate-50">
+            <SelectTrigger className="h-10 w-full border-slate-200 bg-slate-50 sm:h-11">
               <SelectValue placeholder="All Types" />
             </SelectTrigger>
             <SelectContent>
@@ -78,7 +78,7 @@ export default function LguMasterList({
             value={statusFilter}
             onValueChange={(v) => onStatusChange(v as StatusFilter)}
           >
-            <SelectTrigger className="h-11 w-full border-slate-200 bg-slate-50">
+            <SelectTrigger className="h-10 w-full border-slate-200 bg-slate-50 sm:h-11">
               <SelectValue placeholder="All Statuses" />
             </SelectTrigger>
             <SelectContent>

@@ -133,18 +133,20 @@ export function KpiCard({
       <div className="flex items-start justify-between gap-3">
         <div className={cn("min-w-0", iconNode ? "flex items-center gap-2" : "block")}>
           {iconNode && resolvedIconPlacement === "left" ? iconNode : null}
-          <p className="truncate text-xs text-slate-500">{label}</p>
+          <p className="text-xs text-slate-500 break-words">{label}</p>
         </div>
         <div className="flex items-center gap-2">
           {badgeNode}
           {iconNode && resolvedIconPlacement === "right" ? iconNode : null}
         </div>
       </div>
-      <div className={cn("break-words text-3xl font-semibold leading-tight", valueClass)}>{value}</div>
+      <div className={cn("break-words text-2xl font-semibold leading-tight sm:text-3xl", valueClass)}>
+        {value}
+      </div>
       {(subtext || meta) ? (
-        <div className="mt-auto space-y-1 pt-3">
-          {subtext ? <div className="text-xs text-slate-500">{subtext}</div> : null}
-          {meta ? <div className="text-xs leading-relaxed text-slate-500">{meta}</div> : null}
+        <div className="mt-auto space-y-1 pt-2.5 sm:pt-3">
+          {subtext ? <div className="text-xs leading-relaxed text-slate-500 break-words">{subtext}</div> : null}
+          {meta ? <div className="text-xs leading-relaxed text-slate-500 break-words">{meta}</div> : null}
         </div>
       ) : null}
     </div>
@@ -153,14 +155,16 @@ export function KpiCard({
   const compactLayout = (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between gap-2">
-        <p className="truncate text-xs text-slate-500">{label}</p>
+        <p className="text-xs text-slate-500 break-words">{label}</p>
         {badgeNode}
       </div>
-      <div className={cn("break-words text-2xl font-semibold leading-tight", valueClass)}>{value}</div>
+      <div className={cn("break-words text-xl font-semibold leading-tight sm:text-2xl", valueClass)}>
+        {value}
+      </div>
       {(subtext || meta) ? (
         <div className="mt-auto space-y-1 pt-2">
-          {subtext ? <div className="text-xs text-slate-500">{subtext}</div> : null}
-          {meta ? <div className="text-[11px] leading-relaxed text-slate-500">{meta}</div> : null}
+          {subtext ? <div className="text-xs leading-relaxed text-slate-500 break-words">{subtext}</div> : null}
+          {meta ? <div className="text-[11px] leading-relaxed text-slate-500 break-words">{meta}</div> : null}
         </div>
       ) : null}
     </div>
@@ -169,12 +173,14 @@ export function KpiCard({
   const splitLayout = (
     <div className="flex items-start justify-between gap-4">
       <div className="flex h-full min-w-0 flex-1 flex-col">
-        <p className="truncate text-xs text-slate-500">{label}</p>
-        <div className={cn("break-words text-2xl font-semibold leading-tight", valueClass)}>{value}</div>
+        <p className="text-xs text-slate-500 break-words">{label}</p>
+        <div className={cn("break-words text-xl font-semibold leading-tight sm:text-2xl", valueClass)}>
+          {value}
+        </div>
         <div className="mt-auto space-y-2 pt-2">
-          {subtext ? <div className="text-xs text-slate-500">{subtext}</div> : null}
+          {subtext ? <div className="text-xs leading-relaxed text-slate-500 break-words">{subtext}</div> : null}
           <div className="flex flex-wrap items-center gap-2">
-            {meta ? <div className="text-[11px] leading-relaxed text-slate-500">{meta}</div> : null}
+            {meta ? <div className="text-[11px] leading-relaxed text-slate-500 break-words">{meta}</div> : null}
             {badgeNode}
           </div>
         </div>
@@ -193,7 +199,7 @@ export function KpiCard({
 
   const cardClassName = cn(
     "rounded-2xl border bg-white text-slate-900 shadow-none",
-    variant === "compact" ? "min-h-[96px] p-3" : "min-h-[112px] p-4",
+    variant === "compact" ? "min-h-[90px] p-3 sm:min-h-[96px]" : "min-h-[102px] p-3.5 sm:min-h-[112px] sm:p-4",
     borderClass,
     onClick
       ? "cursor-pointer text-left transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"

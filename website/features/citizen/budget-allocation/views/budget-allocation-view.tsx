@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DBV2_SECTOR_CODES, getSectorLabel, type DashboardSectorCode } from "@/lib/constants/dashboard";
 import type {
   AipDetailsRowVM,
@@ -76,31 +76,91 @@ type SummaryPayload = {
 
 type ProjectsPayload = {
   items: Array<{
+    project_id?: string;
     aip_ref_code: string;
     program_project_description: string;
+    source_of_funds?: string | null;
     total: number;
   }>;
-  totalPages: number;
+  page?: number;
+  pageSize?: number;
+  totalRows?: number;
+  totalPages?: number;
 };
 
-export default function CitizenBudgetAllocationView() {
+type InitialPayload = {
+  filters: FiltersPayload;
+  summary: SummaryPayload | null;
+  projects: ProjectsPayload | null;
+};
+
+type CitizenBudgetAllocationViewProps = {
+  initialData?: InitialPayload | null;
+};
+
+function toProjectRows(
+  payload: ProjectsPayload | null | undefined,
+  categoryKey: BudgetCategoryKey
+): AipDetailsRowVM[] {
+  return (payload?.items ?? []).map((item) => ({
+    categoryKey,
+    aipRefCode: item.aip_ref_code,
+    programDescription: item.program_project_description,
+    totalAmount: typeof item.total === 'number' ? item.total : 0,
+  }));
+}
+
+function toLguOptions(
+  payload: FiltersPayload | null | undefined
+): BudgetAllocationLguOptionVM[] {
+  return (payload?.lgus ?? []).map((option) => ({
+    id: option.scope_id,
+    label: option.label,
+    scopeType: option.scope_type,
+  }));
+}
+
+export default function CitizenBudgetAllocationView({
+  initialData,
+}: CitizenBudgetAllocationViewProps) {
   const vm = CITIZEN_BUDGET_ALLOCATION_MOCK;
+  const initialFilters = initialData?.filters ?? null;
+  const initialSelected = initialFilters?.selected ?? null;
+  const hasInitialPublishedData = Boolean(initialFilters?.has_data && initialSelected);
+  const skipInitialSummaryFetch = useRef(Boolean(initialData?.summary && hasInitialPublishedData));
+  const skipInitialProjectsFetch = useRef(
+    Boolean(initialData?.projects && hasInitialPublishedData)
+  );
 
   const [activeTab, setActiveTab] = useState<BudgetCategoryKey>(DEFAULT_TAB);
   const [detailsSearch, setDetailsSearch] = useState<string>('');
-  const [selectedYear, setSelectedYear] = useState<number | null>(null);
-  const [selectedScopeType, setSelectedScopeType] = useState<"city" | "barangay" | null>(null);
-  const [selectedScopeId, setSelectedScopeId] = useState<string>('');
-  const [availableYears, setAvailableYears] = useState<number[]>([]);
-  const [availableLGUs, setAvailableLGUs] = useState<BudgetAllocationLguOptionVM[]>([]);
+  const [selectedYear, setSelectedYear] = useState<number | null>(
+    initialSelected?.fiscal_year ?? null
+  );
+  const [selectedScopeType, setSelectedScopeType] = useState<"city" | "barangay" | null>(
+    initialSelected?.scope_type ?? null
+  );
+  const [selectedScopeId, setSelectedScopeId] = useState<string>(initialSelected?.scope_id ?? '');
+  const [availableYears, setAvailableYears] = useState<number[]>(initialFilters?.years ?? []);
+  const [availableLGUs, setAvailableLGUs] = useState<BudgetAllocationLguOptionVM[]>(
+    toLguOptions(initialFilters)
+  );
   const [projectPage, setProjectPage] = useState<number>(1);
-  const [isFiltersLoading, setIsFiltersLoading] = useState<boolean>(true);
-  const [hasPublishedData, setHasPublishedData] = useState<boolean>(false);
+  const [isFiltersLoading, setIsFiltersLoading] = useState<boolean>(() => !initialFilters);
+  const [isSummaryLoading, setIsSummaryLoading] = useState<boolean>(false);
+  const [isProjectsLoading, setIsProjectsLoading] = useState<boolean>(false);
+  const [hasPublishedData, setHasPublishedData] = useState<boolean>(hasInitialPublishedData);
   const [filtersError, setFiltersError] = useState<string | null>(null);
 
-  const [summaryPayload, setSummaryPayload] = useState<SummaryPayload | null>(null);
-  const [projectItems, setProjectItems] = useState<AipDetailsRowVM[]>([]);
-  const [projectTotalPages, setProjectTotalPages] = useState<number>(1);
+  const [summaryPayload, setSummaryPayload] = useState<SummaryPayload | null>(
+    initialData?.summary ?? null
+  );
+  const [projectItems, setProjectItems] = useState<AipDetailsRowVM[]>(
+    toProjectRows(initialData?.projects ?? null, DEFAULT_TAB)
+  );
+  const [projectTotalPages, setProjectTotalPages] = useState<number>(
+    Math.max(1, Number(initialData?.projects?.totalPages ?? 1))
+  );
 
   const canFetchLiveData =
     hasPublishedData &&
@@ -132,7 +192,7 @@ export default function CitizenBudgetAllocationView() {
         params.set("prefer", input.prefer);
       }
 
-      const response = await fetch(`/api/citizen/budget-allocation/filters?${params.toString()}`, { cache: 'no-store' });
+      const response = await fetch(`/api/citizen/budget-allocation/filters?${params.toString()}`);
       const payload = (await response.json()) as FiltersPayload;
       if (!response.ok) {
         throw new Error("Failed to load budget allocation filters.");
@@ -148,18 +208,14 @@ export default function CitizenBudgetAllocationView() {
         setSummaryPayload(null);
         setProjectItems([]);
         setProjectTotalPages(1);
+        skipInitialSummaryFetch.current = false;
+        skipInitialProjectsFetch.current = false;
         return;
       }
 
       setHasPublishedData(true);
       setAvailableYears(payload.years ?? []);
-      setAvailableLGUs(
-        (payload.lgus ?? []).map((option) => ({
-          id: option.scope_id,
-          label: option.label,
-          scopeType: option.scope_type,
-        }))
-      );
+      setAvailableLGUs(toLguOptions(payload));
       setSelectedYear(payload.selected.fiscal_year);
       setSelectedScopeType(payload.selected.scope_type);
       setSelectedScopeId(payload.selected.scope_id);
@@ -168,6 +224,11 @@ export default function CitizenBudgetAllocationView() {
   );
 
   useEffect(() => {
+    if (initialFilters) {
+      setIsFiltersLoading(false);
+      return;
+    }
+
     let cancelled = false;
     setIsFiltersLoading(true);
     setFiltersError(null);
@@ -185,28 +246,42 @@ export default function CitizenBudgetAllocationView() {
     return () => {
       cancelled = true;
     };
-  }, [syncFilters]);
+  }, [initialFilters, syncFilters]);
 
   useEffect(() => {
-    if (!canFetchLiveData || typeof selectedYear !== "number" || !selectedScopeType) return;
+    if (!canFetchLiveData || typeof selectedYear !== "number" || !selectedScopeType) {
+      setIsSummaryLoading(false);
+      return;
+    }
+
+    if (skipInitialSummaryFetch.current) {
+      skipInitialSummaryFetch.current = false;
+      return;
+    }
+
     let cancelled = false;
 
     const loadSummary = async () => {
+      setIsSummaryLoading(true);
       const params = new URLSearchParams({
         fiscal_year: String(selectedYear),
         scope_type: selectedScopeType,
         scope_id: selectedScopeId,
       });
 
-      const response = await fetch(`/api/citizen/budget-allocation/summary?${params.toString()}`, { cache: 'no-store' });
+      const response = await fetch(`/api/citizen/budget-allocation/summary?${params.toString()}`);
       const payload = (await response.json()) as SummaryPayload;
       if (!cancelled) {
         setSummaryPayload(response.ok ? payload : null);
+        setIsSummaryLoading(false);
       }
     };
 
     loadSummary().catch(() => {
-      if (!cancelled) setSummaryPayload(null);
+      if (!cancelled) {
+        setSummaryPayload(null);
+        setIsSummaryLoading(false);
+      }
     });
 
     return () => {
@@ -215,10 +290,26 @@ export default function CitizenBudgetAllocationView() {
   }, [canFetchLiveData, selectedYear, selectedScopeType, selectedScopeId]);
 
   useEffect(() => {
-    if (!canFetchLiveData || typeof selectedYear !== "number" || !selectedScopeType) return;
+    if (!canFetchLiveData || typeof selectedYear !== "number" || !selectedScopeType) {
+      setIsProjectsLoading(false);
+      return;
+    }
+
+    if (
+      skipInitialProjectsFetch.current &&
+      activeTab === DEFAULT_TAB &&
+      projectPage === 1 &&
+      detailsSearch.trim().length === 0
+    ) {
+      skipInitialProjectsFetch.current = false;
+      return;
+    }
+    skipInitialProjectsFetch.current = false;
+
     let cancelled = false;
 
     const loadProjects = async () => {
+      setIsProjectsLoading(true);
       const params = new URLSearchParams({
         fiscal_year: String(selectedYear),
         scope_type: selectedScopeType,
@@ -232,24 +323,19 @@ export default function CitizenBudgetAllocationView() {
         params.set('q', detailsSearch.trim());
       }
 
-      const response = await fetch(`/api/citizen/budget-allocation/projects?${params.toString()}`, { cache: 'no-store' });
+      const response = await fetch(`/api/citizen/budget-allocation/projects?${params.toString()}`);
       const payload = (await response.json()) as ProjectsPayload;
       if (!cancelled) {
         if (!response.ok) {
           setProjectItems([]);
           setProjectTotalPages(1);
+          setIsProjectsLoading(false);
           return;
         }
 
-        setProjectItems(
-          (payload.items ?? []).map((item) => ({
-            categoryKey: activeTab,
-            aipRefCode: item.aip_ref_code,
-            programDescription: item.program_project_description,
-            totalAmount: typeof item.total === 'number' ? item.total : 0,
-          }))
-        );
+        setProjectItems(toProjectRows(payload, activeTab));
         setProjectTotalPages(Math.max(1, Number(payload.totalPages ?? 1)));
+        setIsProjectsLoading(false);
       }
     };
 
@@ -257,6 +343,7 @@ export default function CitizenBudgetAllocationView() {
       if (!cancelled) {
         setProjectItems([]);
         setProjectTotalPages(1);
+        setIsProjectsLoading(false);
       }
     });
 
@@ -314,15 +401,15 @@ export default function CitizenBudgetAllocationView() {
   };
 
   return (
-    <section className="pb-16">
-      <div className="mx-auto max-w-6xl px-6 pt-2">
+    <section className="overflow-x-hidden pb-12 md:pb-16">
+      <div className="mx-auto max-w-6xl px-3 pt-2 sm:px-4 md:px-6">
         <CitizenPageHero
           title={vm.hero.title.toUpperCase()}
           subtitle={vm.hero.subtitle}
           imageSrc="/citizen-dashboard/hero2.webp"
         />
       </div>
-      <section className="mx-auto max-w-6xl px-6 pt-6 pb-3">
+      <section className="mx-auto max-w-6xl px-3 pb-2 pt-4 sm:px-4 md:px-6 md:pt-6 md:pb-3">
         <CitizenExplainerCard title="What is Budget Allocation?">
           <p className="text-xs leading-6 text-slate-600 md:text-sm md:leading-6">
             {vm.explainer.body}
@@ -330,19 +417,23 @@ export default function CitizenBudgetAllocationView() {
         </CitizenExplainerCard>
       </section>
       {isFiltersLoading ? (
-        <section className="mx-auto max-w-6xl px-6 pb-12">
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
-            Loading published budget allocation data...
+        <section className="mx-auto max-w-6xl px-3 pb-10 sm:px-4 md:px-6 md:pb-12">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="space-y-3" role="status" aria-live="polite" aria-busy="true">
+              <div className="h-5 w-64 animate-pulse rounded-full bg-slate-200" />
+              <div className="h-4 w-11/12 animate-pulse rounded-full bg-slate-100" />
+              <div className="h-4 w-2/3 animate-pulse rounded-full bg-slate-100" />
+            </div>
           </div>
         </section>
       ) : filtersError ? (
-        <section className="mx-auto max-w-6xl px-6 pb-12">
+        <section className="mx-auto max-w-6xl px-3 pb-10 sm:px-4 md:px-6 md:pb-12">
           <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-700">
             {filtersError}
           </div>
         </section>
       ) : !hasPublishedData ? (
-        <section className="mx-auto max-w-6xl px-6 pb-12">
+        <section className="mx-auto max-w-6xl px-3 pb-10 sm:px-4 md:px-6 md:pb-12">
           <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
             No published AIP budget allocation data is currently available for city or barangay scope.
           </div>
@@ -361,6 +452,8 @@ export default function CitizenBudgetAllocationView() {
             onYearChange={(year) => {
               setProjectPage(1);
               setFiltersError(null);
+              skipInitialSummaryFetch.current = false;
+              skipInitialProjectsFetch.current = false;
               syncFilters({
                 fiscalYear: year,
                 scopeType: selectedScopeType ?? undefined,
@@ -374,6 +467,8 @@ export default function CitizenBudgetAllocationView() {
             onLguChange={(scopeType, scopeId) => {
               setProjectPage(1);
               setFiltersError(null);
+              skipInitialSummaryFetch.current = false;
+              skipInitialProjectsFetch.current = false;
               syncFilters({
                 scopeType,
                 scopeId,
@@ -389,28 +484,51 @@ export default function CitizenBudgetAllocationView() {
             title={`${summaryPayload?.scope?.scope_name ?? selectedLguLabel} Budget Allocation Breakdown`}
             subtitle={`Total budget and allocation by category for FY ${selectedYear ?? ""}`}
           />
-          <ChartsGrid
-            fiscalYear={selectedYear ?? vm.filters.selectedYear}
-            totalBudget={donutTotal}
-            sectors={donutSectors}
-            trendSubtitle={trendSubtitle}
-            trendData={trendData}
-          />
-          <AipDetailsSection
-            vm={detailsVm}
-            onTabChange={(tab) => {
-              setActiveTab(tab);
-              setProjectPage(1);
-            }}
-            onSearchChange={(value) => {
-              setDetailsSearch(value);
-              setProjectPage(1);
-            }}
-            viewAllHref={viewAllHref}
-            page={projectPage}
-            totalPages={projectTotalPages}
-            onPageChange={setProjectPage}
-          />
+          {isSummaryLoading ? (
+            <section className="mx-auto max-w-6xl px-3 pb-4 pt-6 sm:px-4 md:px-6 md:pt-10 md:pb-5">
+              <div className="grid gap-4 md:gap-6 lg:grid-cols-[0.95fr_1.35fr]">
+                <div className="h-[320px] animate-pulse rounded-2xl border border-slate-200 bg-white shadow-sm" />
+                <div className="h-[320px] animate-pulse rounded-2xl border border-slate-200 bg-white shadow-sm" />
+              </div>
+            </section>
+          ) : (
+            <ChartsGrid
+              fiscalYear={selectedYear ?? vm.filters.selectedYear}
+              totalBudget={donutTotal}
+              sectors={donutSectors}
+              trendSubtitle={trendSubtitle}
+              trendData={trendData}
+            />
+          )}
+          {isProjectsLoading ? (
+            <section className="mx-auto max-w-6xl px-3 pb-10 pt-3 sm:px-4 md:px-6 md:pb-12">
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-6">
+                <div className="space-y-3" role="status" aria-live="polite" aria-busy="true">
+                  <div className="h-6 w-72 animate-pulse rounded-full bg-slate-200" />
+                  <div className="h-10 animate-pulse rounded-xl bg-slate-100" />
+                  <div className="h-10 animate-pulse rounded-xl bg-slate-100" />
+                  <div className="h-10 animate-pulse rounded-xl bg-slate-100" />
+                  <div className="h-10 animate-pulse rounded-xl bg-slate-100" />
+                </div>
+              </div>
+            </section>
+          ) : (
+            <AipDetailsSection
+              vm={detailsVm}
+              onTabChange={(tab) => {
+                setActiveTab(tab);
+                setProjectPage(1);
+              }}
+              onSearchChange={(value) => {
+                setDetailsSearch(value);
+                setProjectPage(1);
+              }}
+              viewAllHref={viewAllHref}
+              page={projectPage}
+              totalPages={projectTotalPages}
+              onPageChange={setProjectPage}
+            />
+          )}
         </>
       )}
     </section>

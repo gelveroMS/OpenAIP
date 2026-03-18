@@ -15,12 +15,12 @@ export function FeedbackCategorySummaryCard({
 }) {
   return (
     <Card className="bg-card text-card-foreground border border-border rounded-xl py-0">
-      <CardContent className="p-5">
+      <CardContent className="p-4 sm:p-5">
         <FeedbackCategorySummaryChart
           items={items}
           footerLabel={`${fiscalYear} Data`}
           tone="light"
-          className="rounded-lg border border-dashed border-border bg-transparent p-4"
+          className="rounded-lg border border-dashed border-border bg-transparent p-3 sm:p-4"
         />
       </CardContent>
     </Card>
@@ -32,18 +32,18 @@ export function FeedbackTargetsCard({ targets }: { targets: Array<{ label: strin
   const isEmptyState = targets.every((target) => target.value === 0);
   return (
     <Card className="bg-card text-card-foreground border border-border rounded-xl py-0">
-      <CardContent className="p-5">
-        <div className="mb-2 text-lg font-medium text-foreground">Feedback Targets</div>
-        <div className="border border-dashed border-border rounded-lg p-6 text-sm text-muted-foreground">
-          <div className="grid grid-cols-3 items-end gap-3 border-b border-border pb-1 pt-4">
+      <CardContent className="p-4 sm:p-5">
+        <div className="mb-2 text-base font-medium text-foreground sm:text-lg">Feedback Targets</div>
+        <div className="border border-dashed border-border rounded-lg p-4 text-sm text-muted-foreground sm:p-6">
+          <div className="grid grid-cols-3 items-end gap-2 border-b border-border pb-1 pt-3 sm:gap-3 sm:pt-4">
             {targets.map((target) => (
               <div key={target.label} className="space-y-2 text-center">
                 <div
                   data-testid={`feedback-target-bar-${target.label.toLowerCase()}`}
                   className={`mx-auto w-full max-w-[140px] rounded-t-sm ${isEmptyState ? "bg-slate-300" : "bg-chart-2"}`}
-                  style={{ height: `${Math.max(16, Math.round((target.value / max) * 120))}px` }}
+                  style={{ height: `${Math.max(14, Math.round((target.value / max) * 120))}px` }}
                 />
-                <div className="text-xs text-muted-foreground">{target.label}</div>
+                <div className="text-[11px] text-muted-foreground sm:text-xs">{target.label}</div>
               </div>
             ))}
           </div>
@@ -66,22 +66,22 @@ export function RecentFeedbackCard({
 }) {
   return (
     <Card className="bg-card text-card-foreground border border-border rounded-xl py-0">
-      <CardContent className="p-5">
-        <div className="mb-2 text-lg font-medium text-foreground">Recent Feedback</div>
-        <div className="space-y-3 max-h-[520px] overflow-auto">
+      <CardContent className="p-4 sm:p-5">
+        <div className="mb-2 text-base font-medium text-foreground sm:text-lg">Recent Feedback</div>
+        <div className="max-h-[460px] space-y-3 overflow-auto sm:max-h-[520px]">
           {rows.map((item) => (
             <div key={item.id} className="rounded-lg border border-border bg-secondary p-3 hover:bg-accent">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                 <div className="truncate text-sm font-medium text-foreground capitalize">{item.kind.replaceAll("_", " ")}</div>
                 <div className="text-xs text-muted-foreground tabular-nums">{formatDateTime(item.createdAt)}</div>
               </div>
-              <div className="mt-2 truncate text-sm text-foreground">{item.body}</div>
+              <div className="mt-2 text-sm text-foreground line-clamp-2">{item.body}</div>
               <div className="mt-2 text-xs text-muted-foreground">Status: {item.parentFeedbackId ? "Replied" : "Awaiting reply"}</div>
               {replyAction && (
-                <form action={replyAction} className="mt-3 flex gap-2">
+                <form action={replyAction} className="mt-3 flex flex-col gap-2 sm:flex-row">
                   <input type="hidden" name="parentFeedbackId" value={item.id} />
-                  <Input name="body" placeholder="Write quick reply..." />
-                  <Button type="submit" variant="outline">Reply</Button>
+                  <Input name="body" placeholder="Write quick reply..." className="h-10" />
+                  <Button type="submit" variant="outline" className="h-10 sm:w-auto">Reply</Button>
                 </form>
               )}
             </div>
@@ -113,7 +113,7 @@ export function CitizenEngagementPulseColumn({
     <section className="space-y-4">
       <div className="flex items-center gap-2">
         <MessageSquare className="h-5 w-5 text-foreground" />
-        <h2 className="text-xl font-semibold text-foreground">Citizen Engagement Pulse</h2>
+        <h2 className="text-lg font-semibold text-foreground sm:text-xl">Citizen Engagement Pulse</h2>
       </div>
       <FeedbackCategorySummaryCard items={feedbackCategorySummary} fiscalYear={selectedFiscalYear} />
       <FeedbackTargetsCard targets={feedbackTargets} />

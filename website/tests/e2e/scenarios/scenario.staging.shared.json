@@ -1,0 +1,33 @@
+{
+  "aipWorkflow": {
+    "uploadFiscalYear": 2027,
+    "submissionAipId": "846445aa-bef2-48d0-be09-5dd5a73410d4",
+    "publishedAipId": "2a27063a-83d1-4efd-be93-851c3c1c5a12",
+    "revisionComment": "E2E revision request: please update supporting line-item details.",
+    "resubmissionReply": "E2E resubmission: revised line items and justifications updated."
+  },
+  "citizen": {
+    "feedbackMessage": "E2E feedback check: published AIP details remain clear and accessible."
+  },
+  "admin": {
+    "usageControls": {
+      "chatbotMaxRequests": 51,
+      "chatbotTimeWindow": "per_day"
+    },
+    "createLguAccount": {
+      "fullName": "E2E Official Staging",
+      "email": "e2e.official.staging@openaip.gov.ph",
+      "role": "barangay_official",
+      "lguKey": "barangay:733f6387-ed6e-47ef-ac41-7770304d924f"
+    },
+    "addLgu": {
+      "type": "barangay",
+      "name": "Brgy E2E Staging",
+      "code": "043404901",
+      "regionId": "2b770020-69b3-4188-9de5-27b9939b7c4b",
+      "provinceId": "6b90d322-9f52-4a46-b7c5-d2916a6ba910",
+      "parentType": "city",
+      "parentId": "a21038c2-685d-4dbc-9d9f-bf64fad1b4d8"
+    }
+  }
+}
