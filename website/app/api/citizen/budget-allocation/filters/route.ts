@@ -75,7 +75,7 @@ export async function GET(request: Request) {
     return errorResponse(
       400,
       "BAD_REQUEST",
-      "Invalid query params. Optional: fiscal_year, and paired scope_type (city|barangay) + scope_id (UUID)."
+      "Invalid query params. Optional: fiscal_year and paired scope_type (city|barangay) + scope_id (UUID)."
     );
   }
 

@@ -27,16 +27,19 @@ vi.mock("@/features/citizen/components/citizen-explainer-card", () => ({
 vi.mock("@/features/citizen/budget-allocation/components", () => ({
   FiltersSection: ({
     onYearChange,
-    onLguChange,
+    onCityChange,
+    onBarangayChange,
   }: {
     onYearChange: (year: number) => void;
-    onLguChange: (scopeType: "city" | "barangay", scopeId: string) => void;
+    onCityChange: (scopeId: string) => void;
+    onBarangayChange: (scopeId: string) => void;
   }) => (
     <div data-testid="filters-section">
       <button onClick={() => onYearChange(2025)}>Set Year 2025</button>
-      <button
-        onClick={() => onLguChange("barangay", "33333333-3333-4333-8333-333333333333")}
-      >
+      <button onClick={() => onCityChange("11111111-1111-4111-8111-111111111111")}>
+        Set City
+      </button>
+      <button onClick={() => onBarangayChange("33333333-3333-4333-8333-333333333333")}>
         Set Brgy
       </button>
     </div>
@@ -69,6 +72,44 @@ vi.mock("@/features/citizen/budget-allocation/components", () => ({
   ),
 }));
 
+const CITY_ID = "11111111-1111-4111-8111-111111111111";
+const BRGY_ID = "33333333-3333-4333-8333-333333333333";
+
+function createFiltersPayload(input?: {
+  selectedYear?: number;
+  scopeType?: "city" | "barangay";
+  scopeId?: string;
+}) {
+  const selectedYear = input?.selectedYear ?? 2026;
+  const scopeType = input?.scopeType ?? "city";
+  const scopeId = input?.scopeId ?? CITY_ID;
+  return {
+    has_data: true,
+    years: scopeType === "city" ? [2026, 2025] : [2026, 2024],
+    lgus: [
+      {
+        scope_type: "city",
+        scope_id: CITY_ID,
+        label: "City of Alpha",
+        city_scope_id: CITY_ID,
+        city_scope_label: "City of Alpha",
+      },
+      {
+        scope_type: "barangay",
+        scope_id: BRGY_ID,
+        label: "Brgy. One",
+        city_scope_id: CITY_ID,
+        city_scope_label: "City of Alpha",
+      },
+    ],
+    selected: {
+      fiscal_year: selectedYear,
+      scope_type: scopeType,
+      scope_id: scopeId,
+    },
+  };
+}
+
 describe("CitizenBudgetAllocationView", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -84,25 +125,10 @@ describe("CitizenBudgetAllocationView", () => {
       const url = String(input);
 
       if (url.includes("/api/citizen/budget-allocation/filters")) {
-        return new Response(
-          JSON.stringify({
-            has_data: true,
-            years: [2026],
-            lgus: [
-              {
-                scope_type: "city",
-                scope_id: "11111111-1111-4111-8111-111111111111",
-                label: "City of Alpha",
-              },
-            ],
-            selected: {
-              fiscal_year: 2026,
-              scope_type: "city",
-              scope_id: "11111111-1111-4111-8111-111111111111",
-            },
-          }),
-          { status: 200, headers: { "content-type": "application/json" } }
-        );
+        return new Response(JSON.stringify(createFiltersPayload()), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
 
       if (url.includes("/api/citizen/budget-allocation/summary")) {
@@ -130,7 +156,6 @@ describe("CitizenBudgetAllocationView", () => {
     });
 
     vi.stubGlobal("fetch", fetchMock);
-
     render(<CitizenBudgetAllocationView />);
 
     await waitFor(() =>
@@ -143,8 +168,133 @@ describe("CitizenBudgetAllocationView", () => {
 
     const urls = fetchMock.mock.calls.map((call) => String(call[0]));
     expect(urls[0]).toContain("/api/citizen/budget-allocation/filters");
-    expect(urls.some((url) => url.includes("/api/citizen/budget-allocation/summary?fiscal_year=2026"))).toBe(true);
-    expect(urls.some((url) => url.includes("/api/citizen/budget-allocation/projects?fiscal_year=2026"))).toBe(true);
+    expect(
+      urls.some((url) =>
+        url.includes(`/api/citizen/budget-allocation/summary?fiscal_year=2026&scope_type=city&scope_id=${CITY_ID}`)
+      )
+    ).toBe(true);
+    expect(
+      urls.some((url) =>
+        url.includes(`/api/citizen/budget-allocation/projects?fiscal_year=2026&scope_type=city&scope_id=${CITY_ID}`)
+      )
+    ).toBe(true);
+  });
+
+  it("syncs filters without scope_level and switches scope by city/barangay selectors", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url.includes("/api/citizen/budget-allocation/filters")) {
+        if (url.includes(`scope_type=barangay&scope_id=${BRGY_ID}`)) {
+          return new Response(
+            JSON.stringify(
+              createFiltersPayload({
+                selectedYear: 2026,
+                scopeType: "barangay",
+                scopeId: BRGY_ID,
+              })
+            ),
+            { status: 200, headers: { "content-type": "application/json" } }
+          );
+        }
+        if (url.includes(`scope_type=city&scope_id=${CITY_ID}`)) {
+          return new Response(
+            JSON.stringify(
+              createFiltersPayload({
+                selectedYear: 2026,
+                scopeType: "city",
+                scopeId: CITY_ID,
+              })
+            ),
+            { status: 200, headers: { "content-type": "application/json" } }
+          );
+        }
+        if (url.includes("fiscal_year=2025")) {
+          return new Response(
+            JSON.stringify(
+              createFiltersPayload({
+                selectedYear: 2025,
+                scopeType: "city",
+                scopeId: CITY_ID,
+              })
+            ),
+            { status: 200, headers: { "content-type": "application/json" } }
+          );
+        }
+        return new Response(JSON.stringify(createFiltersPayload()), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (url.includes("/api/citizen/budget-allocation/summary")) {
+        return new Response(
+          JSON.stringify({
+            scope: { scope_name: "City of Alpha" },
+            totals: { by_sector: [] },
+            trend: { years: [], series: [] },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+
+      if (url.includes("/api/citizen/budget-allocation/projects")) {
+        return new Response(
+          JSON.stringify({
+            items: [],
+            totalPages: 1,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+    render(<CitizenBudgetAllocationView />);
+
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("page=1"))).toBe(true)
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Set Brgy" }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((call) =>
+          String(call[0]).includes(
+            `/api/citizen/budget-allocation/filters?scope_type=barangay&scope_id=${BRGY_ID}&prefer=lgu`
+          )
+        )
+      ).toBe(true)
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Set City" }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((call) =>
+          String(call[0]).includes(
+            `/api/citizen/budget-allocation/filters?scope_type=city&scope_id=${CITY_ID}&prefer=lgu`
+          )
+        )
+      ).toBe(true)
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Set Year 2025" }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((call) =>
+          String(call[0]).includes(
+            `/api/citizen/budget-allocation/filters?fiscal_year=2025&scope_type=city&scope_id=${CITY_ID}&prefer=year`
+          )
+        )
+      ).toBe(true)
+    );
+
+    const filterUrls = fetchMock.mock.calls
+      .map((call) => String(call[0]))
+      .filter((url) => url.includes("/api/citizen/budget-allocation/filters"));
+    expect(filterUrls.every((url) => !url.includes("scope_level="))).toBe(true);
   });
 
   it("shows empty published-data state when filters endpoint returns no published AIPs", async () => {
@@ -166,7 +316,6 @@ describe("CitizenBudgetAllocationView", () => {
     });
 
     vi.stubGlobal("fetch", fetchMock);
-
     render(<CitizenBudgetAllocationView />);
 
     await waitFor(() => {
@@ -186,25 +335,10 @@ describe("CitizenBudgetAllocationView", () => {
       const url = String(input);
 
       if (url.includes("/api/citizen/budget-allocation/filters")) {
-        return new Response(
-          JSON.stringify({
-            has_data: true,
-            years: [2026],
-            lgus: [
-              {
-                scope_type: "city",
-                scope_id: "11111111-1111-4111-8111-111111111111",
-                label: "City of Alpha",
-              },
-            ],
-            selected: {
-              fiscal_year: 2026,
-              scope_type: "city",
-              scope_id: "11111111-1111-4111-8111-111111111111",
-            },
-          }),
-          { status: 200, headers: { "content-type": "application/json" } }
-        );
+        return new Response(JSON.stringify(createFiltersPayload()), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
 
       if (url.includes("/api/citizen/budget-allocation/summary")) {
@@ -232,7 +366,6 @@ describe("CitizenBudgetAllocationView", () => {
     });
 
     vi.stubGlobal("fetch", fetchMock);
-
     render(<CitizenBudgetAllocationView />);
 
     await waitFor(() =>
@@ -251,25 +384,10 @@ describe("CitizenBudgetAllocationView", () => {
       const url = String(input);
 
       if (url.includes("/api/citizen/budget-allocation/filters")) {
-        return new Response(
-          JSON.stringify({
-            has_data: true,
-            years: [2026],
-            lgus: [
-              {
-                scope_type: "city",
-                scope_id: "11111111-1111-4111-8111-111111111111",
-                label: "City of Alpha",
-              },
-            ],
-            selected: {
-              fiscal_year: 2026,
-              scope_type: "city",
-              scope_id: "11111111-1111-4111-8111-111111111111",
-            },
-          }),
-          { status: 200, headers: { "content-type": "application/json" } }
-        );
+        return new Response(JSON.stringify(createFiltersPayload()), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
 
       if (url.includes("/api/citizen/budget-allocation/summary")) {
@@ -303,7 +421,6 @@ describe("CitizenBudgetAllocationView", () => {
     });
 
     vi.stubGlobal("fetch", fetchMock);
-
     render(<CitizenBudgetAllocationView />);
 
     await waitFor(() => {

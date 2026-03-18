@@ -5,6 +5,7 @@ import { UpdatePasswordForm } from "@/features/account/update-password-form";
 const mockPush = vi.fn();
 const mockGetSession = vi.fn();
 const mockExchangeCodeForSession = vi.fn();
+const mockVerifyOtp = vi.fn();
 const mockSetSession = vi.fn();
 
 vi.mock("next/navigation", () => ({
@@ -18,6 +19,7 @@ vi.mock("@/lib/supabase/client", () => ({
     auth: {
       getSession: (...args: unknown[]) => mockGetSession(...args),
       exchangeCodeForSession: (...args: unknown[]) => mockExchangeCodeForSession(...args),
+      verifyOtp: (...args: unknown[]) => mockVerifyOtp(...args),
       setSession: (...args: unknown[]) => mockSetSession(...args),
     },
   }),
@@ -32,7 +34,86 @@ describe("UpdatePasswordForm", () => {
       },
     });
     mockExchangeCodeForSession.mockResolvedValue({ error: null });
+    mockVerifyOtp.mockResolvedValue({ error: null });
     mockSetSession.mockResolvedValue({ error: null });
+  });
+
+  it("accepts token_hash invite/recovery links on update-password route", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/auth/password-policy") {
+        return {
+          ok: true,
+          json: async () => ({
+            ok: true,
+            passwordPolicy: {
+              minLength: 12,
+              requireUppercase: true,
+              requireLowercase: true,
+              requireNumbers: true,
+              requireSpecialCharacters: true,
+            },
+          }),
+        };
+      }
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    window.history.pushState(
+      null,
+      "",
+      "/city/update-password?token_hash=abc123&type=invite"
+    );
+
+    render(<UpdatePasswordForm role="city" baseURL="http://localhost:3000" />);
+
+    await waitFor(() => {
+      expect(mockVerifyOtp).toHaveBeenCalledWith({
+        token_hash: "abc123",
+        type: "invite",
+      });
+    });
+    expect(window.location.search).toBe("");
+  });
+
+  it("prefers invite hash tokens over any existing browser session", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/auth/password-policy") {
+        return {
+          ok: true,
+          json: async () => ({
+            ok: true,
+            passwordPolicy: {
+              minLength: 12,
+              requireUppercase: true,
+              requireLowercase: true,
+              requireNumbers: true,
+              requireSpecialCharacters: true,
+            },
+          }),
+        };
+      }
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    window.history.pushState(
+      null,
+      "",
+      "/city/update-password#access_token=invite_access&refresh_token=invite_refresh"
+    );
+
+    render(<UpdatePasswordForm role="city" baseURL="http://localhost:3000" />);
+
+    await waitFor(() => {
+      expect(mockSetSession).toHaveBeenCalledWith({
+        access_token: "invite_access",
+        refresh_token: "invite_refresh",
+      });
+    });
+    expect(window.location.hash).toBe("");
   });
 
   it("blocks submit until policy and confirm-password requirements are satisfied", async () => {
@@ -141,5 +222,56 @@ describe("UpdatePasswordForm", () => {
       );
     });
     expect(screen.getByText("Server rejected password.")).toBeInTheDocument();
+  });
+
+  it("treats non-JSON successful responses as failure", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/auth/password-policy") {
+        return {
+          ok: true,
+          json: async () => ({
+            ok: true,
+            passwordPolicy: {
+              minLength: 12,
+              requireUppercase: true,
+              requireLowercase: true,
+              requireNumbers: true,
+              requireSpecialCharacters: true,
+            },
+          }),
+        };
+      }
+      if (url === "/auth/update-password") {
+        return {
+          ok: true,
+          json: async () => {
+            throw new Error("Invalid JSON");
+          },
+        };
+      }
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<UpdatePasswordForm role="city" baseURL="http://localhost:3000" />);
+
+    const passwordInput = screen.getByLabelText("New password");
+    const confirmPasswordInput = screen.getByLabelText("Confirm new password");
+    const submitButton = screen.getByRole("button", { name: "Save new password" });
+
+    fireEvent.change(passwordInput, { target: { value: "ValidPassword123!" } });
+    fireEvent.change(confirmPasswordInput, { target: { value: "ValidPassword123!" } });
+
+    await waitFor(() => {
+      expect(submitButton).toBeEnabled();
+    });
+
+    fireEvent.click(submitButton);
+
+    await waitFor(() => {
+      expect(screen.getByText("Unable to update password.")).toBeInTheDocument();
+    });
+    expect(mockPush).not.toHaveBeenCalled();
   });
 });

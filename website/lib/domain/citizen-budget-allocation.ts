@@ -4,6 +4,19 @@ export type BudgetAllocationLguOptionVM = {
   id: string;
   label: string;
   scopeType: "city" | "barangay";
+  cityScopeId: string | null;
+  cityScopeLabel: string | null;
+};
+
+export type BudgetAllocationScopeOptionVM = {
+  id: string;
+  label: string;
+};
+
+export type BudgetAllocationBarangayOptionVM = {
+  id: string;
+  label: string;
+  cityScopeId: string | null;
 };
 
 export type BudgetAllocationFiltersVM = {
@@ -11,7 +24,11 @@ export type BudgetAllocationFiltersVM = {
   availableYears: number[];
   selectedScopeType: "city" | "barangay";
   selectedScopeId: string;
+  selectedCityScopeId: string;
+  selectedBarangayScopeId: string;
   availableLGUs: BudgetAllocationLguOptionVM[];
+  availableCities: BudgetAllocationScopeOptionVM[];
+  availableBarangays: BudgetAllocationBarangayOptionVM[];
   searchText: string;
 };
 
