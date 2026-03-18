@@ -21,10 +21,10 @@ type MockAipTotalRow = {
   total_investment_program: number | string | null;
 };
 
-const mockSupabaseServer = vi.fn();
+const mocksupabasePublicServer = vi.fn();
 
-vi.mock("@/lib/supabase/server", () => ({
-  supabaseServer: () => mockSupabaseServer(),
+vi.mock("@/lib/supabase/public-server", () => ({
+  supabasePublicServer: () => mocksupabasePublicServer(),
 }));
 
 function createMockClient(input: {
@@ -223,7 +223,7 @@ describe("GET /api/citizen/budget-allocation/summary total source", () => {
   });
 
   it("uses canonical AIP display total and folds residual to Other Services", async () => {
-    mockSupabaseServer.mockResolvedValue(
+    mocksupabasePublicServer.mockReturnValue(
       createMockClient({
         cityName: "City of Alpha",
         cityId: CITY_ID,
@@ -270,7 +270,7 @@ describe("GET /api/citizen/budget-allocation/summary total source", () => {
   });
 
   it("falls back to project totals when no aip_totals record exists", async () => {
-    mockSupabaseServer.mockResolvedValue(
+    mocksupabasePublicServer.mockReturnValue(
       createMockClient({
         cityName: "City of Alpha",
         cityId: CITY_ID,
@@ -329,7 +329,7 @@ describe("GET /api/citizen/budget-allocation/summary total source", () => {
       })),
     ];
 
-    mockSupabaseServer.mockResolvedValue(
+    mocksupabasePublicServer.mockReturnValue(
       createMockClient({
         cityName: "City of Alpha",
         cityId: CITY_ID,

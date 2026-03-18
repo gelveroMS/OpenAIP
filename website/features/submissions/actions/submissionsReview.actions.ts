@@ -1,6 +1,7 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
+import { CITIZEN_DASHBOARD_CACHE_TAGS } from "@/lib/cache/citizen-dashboard";
 import { getActorContext } from "@/lib/domain/get-actor-context";
 import { notifySafely } from "@/lib/notifications";
 import { getAipSubmissionsReviewRepo } from "@/lib/repos/submissions/repo.server";
@@ -121,6 +122,10 @@ export async function publishAipAction(input: {
       note: trimmed || null,
       transition: "under_review->published",
     });
+    revalidateTag(CITIZEN_DASHBOARD_CACHE_TAGS.landingContent, "max");
+    revalidateTag(CITIZEN_DASHBOARD_CACHE_TAGS.budgetFilters, "max");
+    revalidateTag(CITIZEN_DASHBOARD_CACHE_TAGS.budgetSummary, "max");
+    revalidateTag(CITIZEN_DASHBOARD_CACHE_TAGS.budgetProjects, "max");
     return { ok: true };
   } catch (error) {
     return {

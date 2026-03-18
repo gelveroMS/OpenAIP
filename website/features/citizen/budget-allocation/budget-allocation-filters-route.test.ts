@@ -15,10 +15,10 @@ type MockScopeRow = {
   psgc_code?: string | null;
 };
 
-const mockSupabaseServer = vi.fn();
+const mocksupabasePublicServer = vi.fn();
 
-vi.mock("@/lib/supabase/server", () => ({
-  supabaseServer: () => mockSupabaseServer(),
+vi.mock("@/lib/supabase/public-server", () => ({
+  supabasePublicServer: () => mocksupabasePublicServer(),
 }));
 
 function createAipQueryBuilder(rows: MockAipRow[]) {
@@ -126,7 +126,7 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
   });
 
   it("returns only published-backed years and LGUs across city and barangay scopes", async () => {
-    mockSupabaseServer.mockResolvedValue(
+    mocksupabasePublicServer.mockReturnValue(
       createMockClient({
         aips: [
           {
@@ -178,7 +178,7 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
   });
 
   it("defaults to Cabuyao city AIP by highest fiscal year even when other LGUs have newer years", async () => {
-    mockSupabaseServer.mockResolvedValue(
+    mocksupabasePublicServer.mockReturnValue(
       createMockClient({
         aips: [
           {
@@ -236,7 +236,7 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
   });
 
   it("defaults to the most recently uploaded barangay AIP when Cabuyao city has no published AIP", async () => {
-    mockSupabaseServer.mockResolvedValue(
+    mocksupabasePublicServer.mockReturnValue(
       createMockClient({
         aips: [
           {
@@ -294,11 +294,11 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
     );
 
     expect(response.status).toBe(400);
-    expect(mockSupabaseServer).not.toHaveBeenCalled();
+    expect(mocksupabasePublicServer).not.toHaveBeenCalled();
   });
 
   it("auto-selects a valid LGU for a valid year when requested LGU is invalid for that year", async () => {
-    mockSupabaseServer.mockResolvedValue(
+    mocksupabasePublicServer.mockReturnValue(
       createMockClient({
         aips: [
           {
@@ -355,7 +355,7 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
   });
 
   it("auto-selects a valid year for a valid LGU when requested year is invalid for that LGU", async () => {
-    mockSupabaseServer.mockResolvedValue(
+    mocksupabasePublicServer.mockReturnValue(
       createMockClient({
         aips: [
           {
@@ -398,7 +398,7 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
   });
 
   it("returns has_data=false when there are no published AIPs", async () => {
-    mockSupabaseServer.mockResolvedValue(
+    mocksupabasePublicServer.mockReturnValue(
       createMockClient({
         aips: [],
         cities: [],
@@ -420,7 +420,7 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
   });
 
   it("normalizes LGU labels by scope type only when type prefix is missing", async () => {
-    mockSupabaseServer.mockResolvedValue(
+    mocksupabasePublicServer.mockReturnValue(
       createMockClient({
         aips: [
           {

@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
+import {
+  CITIZEN_DASHBOARD_REVALIDATE_SECONDS,
+} from "@/lib/cache/citizen-dashboard";
 import type { LandingContentQuery, LandingScopeType } from "@/lib/domain/landing-content";
-import { getLandingContentRepoServer } from "@/lib/repos/landing-content";
+import { getCachedCitizenLandingContent } from "@/lib/repos/landing-content/public-cache.server";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+export const revalidate = 300;
 
 function parseScopeType(value: string | null): LandingScopeType | null {
   return value === "city" || value === "barangay" ? value : null;
@@ -35,8 +37,7 @@ export async function GET(request: Request) {
   try {
     const searchParams = new URL(request.url).searchParams;
     const query = toQuery(searchParams);
-    const repo = getLandingContentRepoServer();
-    const result = await repo.getLandingContent(query);
+    const result = await getCachedCitizenLandingContent(query);
 
     return NextResponse.json(
       {
@@ -57,7 +58,7 @@ export async function GET(request: Request) {
       {
         status: 200,
         headers: {
-          "Cache-Control": "no-store, max-age=0",
+          "Cache-Control": `public, s-maxage=${CITIZEN_DASHBOARD_REVALIDATE_SECONDS}, stale-while-revalidate=60`,
         },
       }
     );
