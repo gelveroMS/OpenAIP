@@ -131,10 +131,9 @@ function createMockClient(input: {
 
 const CITY_A = "11111111-1111-4111-8111-111111111111";
 const CITY_B = "22222222-2222-4222-8222-222222222222";
+const CITY_C = "55555555-5555-4555-8555-555555555555";
 const BRGY_A = "33333333-3333-4333-8333-333333333333";
 const BRGY_B = "44444444-4444-4444-8444-444444444444";
-const CITY_C = "55555555-5555-4555-8555-555555555555";
-const BRGY_C = "66666666-6666-4666-8666-666666666666";
 const CABUYAO_PSGC = "043404";
 const OTHER_CITY_PSGC = "043405";
 
@@ -144,69 +143,7 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
     vi.clearAllMocks();
   });
 
-  it("returns only published-backed years and LGUs across city and barangay scopes", async () => {
-    mocksupabasePublicServer.mockReturnValue(
-      createMockClient({
-        aips: [
-          {
-            id: "aip-city-2026",
-            status: "published",
-            fiscal_year: 2026,
-            city_id: CITY_A,
-            barangay_id: null,
-            created_at: "2026-01-15T00:00:00.000Z",
-          },
-          {
-            id: "aip-brgy-2025",
-            status: "published",
-            fiscal_year: 2025,
-            city_id: null,
-            barangay_id: BRGY_A,
-            created_at: "2025-01-15T00:00:00.000Z",
-          },
-          {
-            id: "aip-draft",
-            status: "draft",
-            fiscal_year: 2027,
-            city_id: CITY_B,
-            barangay_id: null,
-            created_at: "2027-01-15T00:00:00.000Z",
-          },
-        ],
-        cities: [
-          { id: CITY_A, name: "City of Alpha", psgc_code: CABUYAO_PSGC },
-          { id: CITY_B, name: "City of Beta", psgc_code: OTHER_CITY_PSGC },
-        ],
-        barangays: [{ id: BRGY_A, name: "Brgy. One", city_id: CITY_A }],
-      })
-    );
-
-    const { GET } = await import("@/app/api/citizen/budget-allocation/filters/route");
-    const response = await GET(new Request("http://localhost/api/citizen/budget-allocation/filters"));
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(body.has_data).toBe(true);
-    expect(body.scope_level).toBe("both");
-    expect(body.years).toEqual([2026]);
-    expect(body.lgus).toEqual([
-      {
-        scope_type: "city",
-        scope_id: CITY_A,
-        label: "City of Alpha",
-        city_scope_id: CITY_A,
-        city_scope_label: "City of Alpha",
-      },
-    ]);
-    expect(body.selected).toEqual({
-      fiscal_year: 2026,
-      scope_level: "both",
-      scope_type: "city",
-      scope_id: CITY_A,
-    });
-  });
-
-  it("defaults to Cabuyao city AIP by highest fiscal year even when other LGUs have newer years", async () => {
+  it("defaults to Cabuyao city and uses its latest fiscal year", async () => {
     mocksupabasePublicServer.mockReturnValue(
       createMockClient({
         aips: [
@@ -258,35 +195,83 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
     expect(response.status).toBe(200);
     expect(body.selected).toEqual({
       fiscal_year: 2026,
-      scope_level: "both",
       scope_type: "city",
       scope_id: CITY_A,
     });
     expect(body.years).toEqual([2026, 2025]);
+    expect(body.lgus).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ scope_type: "city", scope_id: CITY_A }),
+        expect.objectContaining({ scope_type: "city", scope_id: CITY_B }),
+        expect.objectContaining({ scope_type: "barangay", scope_id: BRGY_A }),
+      ])
+    );
   });
 
-  it("defaults to the most recently uploaded barangay AIP when Cabuyao city has no published AIP", async () => {
+  it("falls back to most recent city-level AIP when Cabuyao city has no published city AIP", async () => {
     mocksupabasePublicServer.mockReturnValue(
       createMockClient({
         aips: [
           {
-            id: "aip-other-city-2030",
-            status: "published",
-            fiscal_year: 2030,
-            city_id: CITY_B,
-            barangay_id: null,
-            created_at: "2030-01-01T00:00:00.000Z",
-          },
-          {
-            id: "aip-brgy-a-2027",
+            id: "aip-city-b",
             status: "published",
             fiscal_year: 2027,
+            city_id: CITY_B,
+            barangay_id: null,
+            created_at: "2025-01-01T00:00:00.000Z",
+          },
+          {
+            id: "aip-city-c",
+            status: "published",
+            fiscal_year: 2024,
+            city_id: CITY_C,
+            barangay_id: null,
+            created_at: "2026-01-01T00:00:00.000Z",
+          },
+          {
+            id: "aip-brgy",
+            status: "published",
+            fiscal_year: 2030,
+            city_id: null,
+            barangay_id: BRGY_A,
+            created_at: "2030-01-01T00:00:00.000Z",
+          },
+        ],
+        cities: [
+          { id: CITY_B, name: "City of Beta", psgc_code: OTHER_CITY_PSGC },
+          { id: CITY_C, name: "City of Gamma", psgc_code: OTHER_CITY_PSGC },
+        ],
+        barangays: [{ id: BRGY_A, name: "Brgy. One", city_id: CITY_B }],
+      })
+    );
+
+    const { GET } = await import("@/app/api/citizen/budget-allocation/filters/route");
+    const response = await GET(new Request("http://localhost/api/citizen/budget-allocation/filters"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.selected).toEqual({
+      fiscal_year: 2024,
+      scope_type: "city",
+      scope_id: CITY_C,
+    });
+    expect(body.years).toEqual([2024]);
+  });
+
+  it("falls back to most recently uploaded barangay AIP when no city-level AIPs exist", async () => {
+    mocksupabasePublicServer.mockReturnValue(
+      createMockClient({
+        aips: [
+          {
+            id: "aip-brgy-a",
+            status: "published",
+            fiscal_year: 2026,
             city_id: null,
             barangay_id: BRGY_A,
             created_at: "2024-01-01T00:00:00.000Z",
           },
           {
-            id: "aip-brgy-b-2025",
+            id: "aip-brgy-b",
             status: "published",
             fiscal_year: 2025,
             city_id: null,
@@ -294,7 +279,7 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
             created_at: "2025-12-31T00:00:00.000Z",
           },
         ],
-        cities: [{ id: CITY_B, name: "City of Beta", psgc_code: OTHER_CITY_PSGC }],
+        cities: [],
         barangays: [
           { id: BRGY_A, name: "Brgy. One", city_id: CITY_B },
           { id: BRGY_B, name: "Brgy. Two", city_id: CITY_B },
@@ -309,7 +294,6 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
     expect(response.status).toBe(200);
     expect(body.selected).toEqual({
       fiscal_year: 2025,
-      scope_level: "both",
       scope_type: "barangay",
       scope_id: BRGY_B,
     });
@@ -328,17 +312,7 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
     expect(mocksupabasePublicServer).not.toHaveBeenCalled();
   });
 
-  it("returns 400 for invalid scope_level", async () => {
-    const { GET } = await import("@/app/api/citizen/budget-allocation/filters/route");
-    const response = await GET(
-      new Request("http://localhost/api/citizen/budget-allocation/filters?scope_level=invalid")
-    );
-
-    expect(response.status).toBe(400);
-    expect(mocksupabasePublicServer).not.toHaveBeenCalled();
-  });
-
-  it("constrains LGU options by scope_level", async () => {
+  it("keeps requested scope-year pair when both are valid", async () => {
     mocksupabasePublicServer.mockReturnValue(
       createMockClient({
         aips: [
@@ -351,186 +325,23 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
             created_at: "2026-01-10T00:00:00.000Z",
           },
           {
-            id: "aip-brgy-2026",
-            status: "published",
-            fiscal_year: 2026,
-            city_id: null,
-            barangay_id: BRGY_A,
-            created_at: "2026-01-09T00:00:00.000Z",
-          },
-        ],
-        cities: [{ id: CITY_A, name: "City of Alpha", psgc_code: CABUYAO_PSGC }],
-        barangays: [{ id: BRGY_A, name: "Brgy. One", city_id: CITY_A }],
-      })
-    );
-
-    const { GET } = await import("@/app/api/citizen/budget-allocation/filters/route");
-    const response = await GET(
-      new Request("http://localhost/api/citizen/budget-allocation/filters?scope_level=city")
-    );
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(body.scope_level).toBe("city");
-    expect((body.lgus as Array<{ scope_type: string }>).every((row) => row.scope_type === "city")).toBe(true);
-    expect(body.selected.scope_type).toBe("city");
-  });
-
-  it("falls back to barangay under requested city when scope_level=barangay", async () => {
-    mocksupabasePublicServer.mockReturnValue(
-      createMockClient({
-        aips: [
-          {
-            id: "aip-city-2026",
-            status: "published",
-            fiscal_year: 2026,
-            city_id: CITY_A,
-            barangay_id: null,
-            created_at: "2026-01-11T00:00:00.000Z",
-          },
-          {
-            id: "aip-brgy-a-2026",
-            status: "published",
-            fiscal_year: 2026,
-            city_id: null,
-            barangay_id: BRGY_A,
-            created_at: "2026-01-10T00:00:00.000Z",
-          },
-          {
-            id: "aip-brgy-b-2025",
+            id: "aip-city-2025",
             status: "published",
             fiscal_year: 2025,
-            city_id: null,
-            barangay_id: BRGY_B,
+            city_id: CITY_A,
+            barangay_id: null,
             created_at: "2025-01-10T00:00:00.000Z",
           },
         ],
         cities: [{ id: CITY_A, name: "City of Alpha", psgc_code: CABUYAO_PSGC }],
-        barangays: [
-          { id: BRGY_A, name: "Brgy. One", city_id: CITY_A },
-          { id: BRGY_B, name: "Brgy. Two", city_id: CITY_A },
-        ],
+        barangays: [],
       })
     );
 
     const { GET } = await import("@/app/api/citizen/budget-allocation/filters/route");
     const response = await GET(
       new Request(
-        `http://localhost/api/citizen/budget-allocation/filters?scope_level=barangay&fiscal_year=2026&scope_type=city&scope_id=${CITY_A}`
-      )
-    );
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(body.scope_level).toBe("barangay");
-    expect(body.selected).toEqual({
-      fiscal_year: 2026,
-      scope_level: "barangay",
-      scope_type: "barangay",
-      scope_id: BRGY_A,
-    });
-  });
-
-  it("auto-selects a valid LGU for a valid year when requested LGU is invalid for that year", async () => {
-    mocksupabasePublicServer.mockReturnValue(
-      createMockClient({
-        aips: [
-          {
-            id: "aip-city-2026",
-            status: "published",
-            fiscal_year: 2026,
-            city_id: CITY_A,
-            barangay_id: null,
-            created_at: "2026-03-01T00:00:00.000Z",
-          },
-          {
-            id: "aip-brgy-2026",
-            status: "published",
-            fiscal_year: 2026,
-            city_id: null,
-            barangay_id: BRGY_A,
-            created_at: "2026-02-01T00:00:00.000Z",
-          },
-          {
-            id: "aip-brgy-2025",
-            status: "published",
-            fiscal_year: 2025,
-            city_id: null,
-            barangay_id: BRGY_B,
-            created_at: "2025-02-01T00:00:00.000Z",
-          },
-        ],
-        cities: [{ id: CITY_A, name: "City of Alpha", psgc_code: CABUYAO_PSGC }],
-        barangays: [
-          { id: BRGY_A, name: "Brgy. One", city_id: CITY_A },
-          { id: BRGY_B, name: "Brgy. Two", city_id: CITY_A },
-        ],
-      })
-    );
-
-    const { GET } = await import("@/app/api/citizen/budget-allocation/filters/route");
-    const response = await GET(
-      new Request(
-        `http://localhost/api/citizen/budget-allocation/filters?fiscal_year=2026&scope_type=barangay&scope_id=${BRGY_B}`
-      )
-    );
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(body.selected).toEqual({
-      fiscal_year: 2026,
-      scope_level: "both",
-      scope_type: "city",
-      scope_id: CITY_A,
-    });
-    expect(body.lgus).toEqual([
-      {
-        scope_type: "city",
-        scope_id: CITY_A,
-        label: "City of Alpha",
-        city_scope_id: CITY_A,
-        city_scope_label: "City of Alpha",
-      },
-      {
-        scope_type: "barangay",
-        scope_id: BRGY_A,
-        label: "Brgy. One",
-        city_scope_id: CITY_A,
-        city_scope_label: "City of Alpha",
-      },
-    ]);
-  });
-
-  it("auto-selects a valid year for a valid LGU when requested year is invalid for that LGU", async () => {
-    mocksupabasePublicServer.mockReturnValue(
-      createMockClient({
-        aips: [
-          {
-            id: "aip-city-2026",
-            status: "published",
-            fiscal_year: 2026,
-            city_id: CITY_A,
-            barangay_id: null,
-            created_at: "2026-01-10T00:00:00.000Z",
-          },
-          {
-            id: "aip-brgy-2025",
-            status: "published",
-            fiscal_year: 2025,
-            city_id: null,
-            barangay_id: BRGY_B,
-            created_at: "2025-01-10T00:00:00.000Z",
-          },
-        ],
-        cities: [{ id: CITY_A, name: "City of Alpha", psgc_code: CABUYAO_PSGC }],
-        barangays: [{ id: BRGY_B, name: "Brgy. Two", city_id: CITY_A }],
-      })
-    );
-
-    const { GET } = await import("@/app/api/citizen/budget-allocation/filters/route");
-    const response = await GET(
-      new Request(
-        `http://localhost/api/citizen/budget-allocation/filters?fiscal_year=2030&scope_type=barangay&scope_id=${BRGY_B}`
+        `http://localhost/api/citizen/budget-allocation/filters?fiscal_year=2025&scope_type=city&scope_id=${CITY_A}`
       )
     );
     const body = await response.json();
@@ -538,11 +349,110 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
     expect(response.status).toBe(200);
     expect(body.selected).toEqual({
       fiscal_year: 2025,
-      scope_level: "both",
-      scope_type: "barangay",
-      scope_id: BRGY_B,
+      scope_type: "city",
+      scope_id: CITY_A,
     });
-    expect(body.years).toEqual([2025]);
+    expect(body.years).toEqual([2026, 2025]);
+  });
+
+  it("falls back to latest year for requested scope when requested year is invalid for that scope", async () => {
+    mocksupabasePublicServer.mockReturnValue(
+      createMockClient({
+        aips: [
+          {
+            id: "aip-city-2026",
+            status: "published",
+            fiscal_year: 2026,
+            city_id: CITY_A,
+            barangay_id: null,
+            created_at: "2026-01-10T00:00:00.000Z",
+          },
+          {
+            id: "aip-city-2024",
+            status: "published",
+            fiscal_year: 2024,
+            city_id: CITY_A,
+            barangay_id: null,
+            created_at: "2024-01-10T00:00:00.000Z",
+          },
+        ],
+        cities: [{ id: CITY_A, name: "City of Alpha", psgc_code: CABUYAO_PSGC }],
+        barangays: [],
+      })
+    );
+
+    const { GET } = await import("@/app/api/citizen/budget-allocation/filters/route");
+    const response = await GET(
+      new Request(
+        `http://localhost/api/citizen/budget-allocation/filters?fiscal_year=2030&scope_type=city&scope_id=${CITY_A}`
+      )
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.selected).toEqual({
+      fiscal_year: 2026,
+      scope_type: "city",
+      scope_id: CITY_A,
+    });
+  });
+
+  it("keeps full LGU option list even when a fiscal year is selected", async () => {
+    mocksupabasePublicServer.mockReturnValue(
+      createMockClient({
+        aips: [
+          {
+            id: "aip-city-2026",
+            status: "published",
+            fiscal_year: 2026,
+            city_id: CITY_A,
+            barangay_id: null,
+            created_at: "2026-01-10T00:00:00.000Z",
+          },
+          {
+            id: "aip-city-2025",
+            status: "published",
+            fiscal_year: 2025,
+            city_id: CITY_B,
+            barangay_id: null,
+            created_at: "2025-01-10T00:00:00.000Z",
+          },
+          {
+            id: "aip-brgy-2024",
+            status: "published",
+            fiscal_year: 2024,
+            city_id: null,
+            barangay_id: BRGY_A,
+            created_at: "2024-01-10T00:00:00.000Z",
+          },
+        ],
+        cities: [
+          { id: CITY_A, name: "City of Alpha", psgc_code: CABUYAO_PSGC },
+          { id: CITY_B, name: "City of Beta", psgc_code: OTHER_CITY_PSGC },
+        ],
+        barangays: [{ id: BRGY_A, name: "Brgy. One", city_id: CITY_A }],
+      })
+    );
+
+    const { GET } = await import("@/app/api/citizen/budget-allocation/filters/route");
+    const response = await GET(
+      new Request(`http://localhost/api/citizen/budget-allocation/filters?fiscal_year=2026`)
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.selected).toEqual({
+      fiscal_year: 2026,
+      scope_type: "city",
+      scope_id: CITY_A,
+    });
+    expect(body.lgus).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ scope_type: "city", scope_id: CITY_A }),
+        expect.objectContaining({ scope_type: "city", scope_id: CITY_B }),
+        expect.objectContaining({ scope_type: "barangay", scope_id: BRGY_A }),
+      ])
+    );
   });
 
   it("returns has_data=false when there are no published AIPs", async () => {
@@ -561,86 +471,9 @@ describe("GET /api/citizen/budget-allocation/filters", () => {
     expect(response.status).toBe(200);
     expect(body).toEqual({
       has_data: false,
-      scope_level: "both",
       years: [],
       lgus: [],
       selected: null,
     });
-  });
-
-  it("normalizes LGU labels by scope type only when type prefix is missing", async () => {
-    mocksupabasePublicServer.mockReturnValue(
-      createMockClient({
-        aips: [
-          {
-            id: "aip-city-raw",
-            status: "published",
-            fiscal_year: 2026,
-            city_id: CITY_A,
-            barangay_id: null,
-            created_at: "2026-04-01T00:00:00.000Z",
-          },
-          {
-            id: "aip-city-typed",
-            status: "published",
-            fiscal_year: 2026,
-            city_id: CITY_C,
-            barangay_id: null,
-            created_at: "2026-04-02T00:00:00.000Z",
-          },
-          {
-            id: "aip-brgy-raw",
-            status: "published",
-            fiscal_year: 2026,
-            city_id: null,
-            barangay_id: BRGY_A,
-            created_at: "2026-04-03T00:00:00.000Z",
-          },
-          {
-            id: "aip-brgy-brgy",
-            status: "published",
-            fiscal_year: 2026,
-            city_id: null,
-            barangay_id: BRGY_B,
-            created_at: "2026-04-04T00:00:00.000Z",
-          },
-          {
-            id: "aip-brgy-barangay",
-            status: "published",
-            fiscal_year: 2026,
-            city_id: null,
-            barangay_id: BRGY_C,
-            created_at: "2026-04-05T00:00:00.000Z",
-          },
-        ],
-        cities: [
-          { id: CITY_A, name: "Cabuyao", psgc_code: CABUYAO_PSGC },
-          { id: CITY_C, name: "City of Cabuyao", psgc_code: OTHER_CITY_PSGC },
-        ],
-        barangays: [
-          { id: BRGY_A, name: "Mamatid", city_id: CITY_A },
-          { id: BRGY_B, name: "Brgy. Banay-banay", city_id: CITY_C },
-          { id: BRGY_C, name: "Barangay Pulo", city_id: CITY_C },
-        ],
-      })
-    );
-
-    const { GET } = await import("@/app/api/citizen/budget-allocation/filters/route");
-    const response = await GET(
-      new Request("http://localhost/api/citizen/budget-allocation/filters?fiscal_year=2026")
-    );
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-
-    const labelByScopeId = new Map(
-      (body.lgus as Array<{ scope_id: string; label: string }>).map((item) => [item.scope_id, item.label])
-    );
-
-    expect(labelByScopeId.get(CITY_A)).toBe("City of Cabuyao");
-    expect(labelByScopeId.get(CITY_C)).toBe("City of Cabuyao");
-    expect(labelByScopeId.get(BRGY_A)).toBe("Brgy. Mamatid");
-    expect(labelByScopeId.get(BRGY_B)).toBe("Brgy. Banay-banay");
-    expect(labelByScopeId.get(BRGY_C)).toBe("Barangay Pulo");
   });
 });

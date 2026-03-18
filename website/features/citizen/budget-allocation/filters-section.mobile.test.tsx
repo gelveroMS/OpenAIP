@@ -9,7 +9,6 @@ describe("FiltersSection mobile layout", () => {
         filters={{
           selectedYear: 2026,
           availableYears: [2026, 2025],
-          selectedScopeLevel: "city",
           selectedScopeType: "city",
           selectedScopeId: "11111111-1111-4111-8111-111111111111",
           selectedCityScopeId: "11111111-1111-4111-8111-111111111111",
@@ -33,21 +32,19 @@ describe("FiltersSection mobile layout", () => {
           searchText: "",
         }}
         onYearChange={vi.fn()}
-        onScopeLevelChange={vi.fn()}
         onCityChange={vi.fn()}
         onBarangayChange={vi.fn()}
       />
     );
 
     expect(screen.getByText("Fiscal Year")).toBeInTheDocument();
-    expect(screen.getByText("AIP Level")).toBeInTheDocument();
     expect(screen.getByText("City")).toBeInTheDocument();
-    expect(screen.queryByText("Barangay")).not.toBeInTheDocument();
+    expect(screen.getByText("Barangay")).toBeInTheDocument();
 
     const grid = container.querySelector("div.grid");
     expect(grid).not.toBeNull();
     expect(grid?.className).toContain("w-full");
-    expect(grid?.className).toContain("md:grid-cols-4");
+    expect(grid?.className).toContain("md:grid-cols-3");
 
     const triggers = container.querySelectorAll("[data-slot='select-trigger']");
     expect(triggers).toHaveLength(3);

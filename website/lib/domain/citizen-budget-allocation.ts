@@ -1,5 +1,4 @@
 export type BudgetCategoryKey = "general" | "social" | "economic" | "other";
-export type BudgetAllocationScopeLevel = "city" | "barangay" | "both";
 
 export type BudgetAllocationLguOptionVM = {
   id: string;
@@ -23,7 +22,6 @@ export type BudgetAllocationBarangayOptionVM = {
 export type BudgetAllocationFiltersVM = {
   selectedYear: number;
   availableYears: number[];
-  selectedScopeLevel: BudgetAllocationScopeLevel;
   selectedScopeType: "city" | "barangay";
   selectedScopeId: string;
   selectedCityScopeId: string;

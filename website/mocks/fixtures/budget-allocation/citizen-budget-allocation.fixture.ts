@@ -13,7 +13,6 @@ export const CITIZEN_BUDGET_ALLOCATION_MOCK: CitizenBudgetAllocationVM = {
   filters: {
     selectedYear: 2026,
     availableYears: [2026, 2025, 2024],
-    selectedScopeLevel: "both" as const,
     selectedScopeType: "city" as const,
     selectedScopeId: "cabuyao",
     selectedCityScopeId: "cabuyao",
