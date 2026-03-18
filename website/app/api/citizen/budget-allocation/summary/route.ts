@@ -5,6 +5,7 @@ import {
   fetchAipFileTotalsByAipIds,
   resolveAipDisplayTotal,
 } from "@/lib/repos/_shared/aip-totals";
+import { collectInChunksPaged } from "@/lib/repos/_shared/supabase-batching";
 import { supabaseServer } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +22,7 @@ type PublishedAipRow = {
 };
 
 type ProjectRow = {
+  id: string;
   aip_id: string;
   sector_code: string | null;
   total: number | null;
@@ -61,6 +63,33 @@ function toDashboardSectorCodeOrOther(value: string | null | undefined): Dashboa
   if (normalized.startsWith("3000")) return "3000";
   if (normalized.startsWith("8000")) return "8000";
   return "9000";
+}
+
+async function listProjectsByAipIds(
+  client: Awaited<ReturnType<typeof supabaseServer>>,
+  aipIds: string[]
+): Promise<ProjectRow[]> {
+  const dedupedAipIds = Array.from(new Set(aipIds.filter((value) => typeof value === "string" && value.length > 0)));
+  if (dedupedAipIds.length === 0) return [];
+
+  return collectInChunksPaged(
+    dedupedAipIds,
+    async (aipIdChunk, from, to) => {
+      const { data, error } = await client
+        .from("projects")
+        .select("id,aip_id,sector_code,total")
+        .in("aip_id", aipIdChunk)
+        .order("aip_id", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to);
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      return (data ?? []) as ProjectRow[];
+    }
+  );
 }
 
 export async function GET(request: Request) {
@@ -137,31 +166,27 @@ export async function GET(request: Request) {
     const trendAipIds = trendAips.map((aip) => aip.id);
     const yearByAipId = new Map(trendAips.map((aip) => [aip.id, aip.fiscal_year]));
 
-    const [{ data: selectedProjects, error: selectedProjectsError }, { data: trendProjects, error: trendProjectsError }] =
-      await Promise.all([
-        client
-          .from("projects")
-          .select("aip_id,sector_code,total")
-          .in("aip_id", [selectedAipId]),
-        client
-          .from("projects")
-          .select("aip_id,sector_code,total")
-          .in("aip_id", trendAipIds),
-      ]);
-
-    if (selectedProjectsError || trendProjectsError) {
+    let selectedProjects: ProjectRow[] = [];
+    let trendProjects: ProjectRow[] = [];
+    try {
+      const relevantAipIds = Array.from(new Set([selectedAipId, ...trendAipIds]));
+      const allRelevantProjects = await listProjectsByAipIds(client, relevantAipIds);
+      const trendAipIdSet = new Set(trendAipIds);
+      selectedProjects = allRelevantProjects.filter((project) => project.aip_id === selectedAipId);
+      trendProjects = allRelevantProjects.filter((project) => trendAipIdSet.has(project.aip_id));
+    } catch {
       return errorResponse(500, "INTERNAL_ERROR", "Failed to load project budget totals.");
     }
 
     const totalsBySector = new Map<DashboardSectorCode, number>(DBV2_SECTOR_CODES.map((code) => [code, 0]));
 
-    (selectedProjects ?? []).forEach((project) => {
+    selectedProjects.forEach((project) => {
       const code = toDashboardSectorCodeOrOther(project.sector_code);
       totalsBySector.set(code, (totalsBySector.get(code) ?? 0) + toAmount(project.total));
     });
 
     const fallbackTotalsByAipId = buildProjectTotalsByAipId(
-      ((selectedProjects ?? []) as ProjectRow[]).map((row) => ({
+      selectedProjects.map((row) => ({
         aip_id: row.aip_id,
         total: row.total,
       }))
@@ -196,7 +221,7 @@ export async function GET(request: Request) {
       yearSectorTotals.set(year, new Map<DashboardSectorCode, number>(DBV2_SECTOR_CODES.map((code) => [code, 0])));
     });
 
-    (trendProjects ?? []).forEach((project) => {
+    trendProjects.forEach((project) => {
       const year = yearByAipId.get(project.aip_id);
       const code = toDashboardSectorCodeOrOther(project.sector_code);
       if (typeof year !== "number" || !yearSectorTotals.has(year)) return;
