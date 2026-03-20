@@ -7,6 +7,8 @@ const mockGetSession = vi.fn();
 const mockExchangeCodeForSession = vi.fn();
 const mockVerifyOtp = vi.fn();
 const mockSetSession = vi.fn();
+const MISSING_SESSION_MESSAGE =
+  "Your reset session is missing or expired. Reopen the latest invite/reset link from your email.";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -114,6 +116,85 @@ describe("UpdatePasswordForm", () => {
       });
     });
     expect(window.location.hash).toBe("");
+  });
+
+  it("suppresses PKCE exchange warnings when code exists but session is already active", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/auth/password-policy") {
+        return {
+          ok: true,
+          json: async () => ({
+            ok: true,
+            passwordPolicy: {
+              minLength: 12,
+              requireUppercase: true,
+              requireLowercase: true,
+              requireNumbers: true,
+              requireSpecialCharacters: true,
+            },
+          }),
+        };
+      }
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    mockExchangeCodeForSession.mockResolvedValue({
+      error: { message: "PKCE code verifier not found in storage." },
+    });
+
+    window.history.pushState(null, "", "/city/update-password?code=stale-code");
+
+    render(<UpdatePasswordForm role="city" baseURL="http://localhost:3000" />);
+
+    await waitFor(() => {
+      expect(window.location.search).toBe("");
+    });
+
+    expect(mockExchangeCodeForSession).not.toHaveBeenCalled();
+    expect(screen.queryByText(/PKCE code verifier/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a user-friendly message when session bootstrap fails", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/auth/password-policy") {
+        return {
+          ok: true,
+          json: async () => ({
+            ok: true,
+            passwordPolicy: {
+              minLength: 12,
+              requireUppercase: true,
+              requireLowercase: true,
+              requireNumbers: true,
+              requireSpecialCharacters: true,
+            },
+          }),
+        };
+      }
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    mockGetSession.mockResolvedValue({
+      data: {
+        session: null,
+      },
+    });
+    mockExchangeCodeForSession.mockResolvedValue({
+      error: { message: "PKCE code verifier not found in storage." },
+    });
+
+    window.history.pushState(null, "", "/city/update-password?code=broken-code");
+
+    render(<UpdatePasswordForm role="city" baseURL="http://localhost:3000" />);
+
+    await waitFor(() => {
+      expect(screen.getByText(MISSING_SESSION_MESSAGE)).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/PKCE code verifier/i)).not.toBeInTheDocument();
   });
 
   it("blocks submit until policy and confirm-password requirements are satisfied", async () => {
