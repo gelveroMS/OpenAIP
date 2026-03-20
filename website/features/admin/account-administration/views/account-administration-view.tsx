@@ -31,6 +31,7 @@ export default function AccountAdministrationView() {
     total,
     loading,
     error,
+    mutationError,
     notice,
     mutating,
 
@@ -185,6 +186,7 @@ export default function AccountAdministrationView() {
         lguOptions={lguOptions}
         onSave={createOfficial}
         loading={mutating}
+        submitError={openModal === "create" ? mutationError : null}
       />
 
       <EditAccountModal
@@ -228,6 +230,7 @@ export default function AccountAdministrationView() {
         account={selectedAccount}
         onConfirm={deleteSelected}
         loading={mutating}
+        submitError={openModal === "delete" ? mutationError : null}
       />
 
       <ResetPasswordModal
