@@ -33,6 +33,9 @@ import {
 } from '@/lib/security/password-policy'
 import type { EmailOtpType } from '@supabase/supabase-js'
 
+const MISSING_SESSION_MESSAGE =
+  "Your reset session is missing or expired. Reopen the latest invite/reset link from your email."
+
 function readTokensFromHash() {
   if (typeof window === "undefined" || !window.location.hash) return null
   const params = new URLSearchParams(window.location.hash.slice(1))
@@ -109,10 +112,28 @@ export function UpdatePasswordForm({role}:AuthParameters) {
     policyErrors.length === 0
 
   const ensureInviteSession = useCallback(async () => {
+    const hasSession = async () => {
+      const { data } = await supabase.auth.getSession()
+      return Boolean(data.session)
+    }
+
     const code = readCodeFromQuery()
     if (code) {
+      // Some flows already establish a session before reaching this page.
+      // In that case, skip code exchange to avoid noisy PKCE errors.
+      if (await hasSession()) {
+        scrubSensitiveAuthParams()
+        return
+      }
+
       const { error } = await supabase.auth.exchangeCodeForSession(code)
-      if (error) throw error
+      if (error) {
+        if (await hasSession()) {
+          scrubSensitiveAuthParams()
+          return
+        }
+        throw new Error(MISSING_SESSION_MESSAGE)
+      }
       scrubSensitiveAuthParams()
       return
     }
@@ -123,7 +144,13 @@ export function UpdatePasswordForm({role}:AuthParameters) {
         token_hash: tokenHash.tokenHash,
         type: tokenHash.type,
       })
-      if (error) throw error
+      if (error) {
+        if (await hasSession()) {
+          scrubSensitiveAuthParams()
+          return
+        }
+        throw new Error(MISSING_SESSION_MESSAGE)
+      }
       scrubSensitiveAuthParams()
       return
     }
@@ -134,7 +161,10 @@ export function UpdatePasswordForm({role}:AuthParameters) {
         access_token: tokens.accessToken,
         refresh_token: tokens.refreshToken,
       })
-      if (error) throw error
+      if (error) {
+        if (await hasSession()) return
+        throw new Error(MISSING_SESSION_MESSAGE)
+      }
 
       // Drop sensitive tokens from the URL once session cookies are set.
       window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`)
@@ -147,7 +177,7 @@ export function UpdatePasswordForm({role}:AuthParameters) {
 
   useEffect(() => {
     void ensureInviteSession().catch((err: unknown) => {
-      setError(err instanceof Error ? err.message : "Failed to initialize auth session.")
+      setError(err instanceof Error ? err.message : MISSING_SESSION_MESSAGE)
     })
   }, [ensureInviteSession])
 
@@ -173,7 +203,7 @@ export function UpdatePasswordForm({role}:AuthParameters) {
       await ensureInviteSession()
       const { data: sessionData } = await supabase.auth.getSession()
       if (!sessionData.session) {
-        throw new Error("Auth session missing. Reopen the invite/reset link from your email.")
+        throw new Error(MISSING_SESSION_MESSAGE)
       }
 
       if (!passwordsMatch) {
