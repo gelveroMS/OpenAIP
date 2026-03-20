@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { getPdfPathForProject } from "./helpers/env";
 import { loadScenarioForProject } from "./helpers/scenario";
-import { ensureClaimedReview, ensureSelectValue, withRolePage } from "./helpers/ui";
+import { ensureClaimedReview, ensureSelectValue, gotoLguPathWithAuth, withRolePage } from "./helpers/ui";
 
 const PROCESSING_TIMEOUT_MS = 300_000;
 
@@ -12,7 +12,10 @@ test.describe.serial("LGU AIP workflows", () => {
     const pdfPath = getPdfPathForProject(testInfo.project.name);
 
     await withRolePage(browser, "barangay", async (page) => {
-      await page.goto("/barangay/aips", { waitUntil: "domcontentloaded" });
+      await gotoLguPathWithAuth(page, "barangay", "/barangay/aips", {
+        landingPath: "/barangay",
+      });
+      await expect(page.getByTestId("aip-upload-open-button")).toBeVisible();
       await page.getByTestId("aip-upload-open-button").click();
       await page.getByTestId("aip-upload-file-input").setInputFiles(pdfPath);
       await ensureSelectValue(
@@ -41,9 +44,7 @@ test.describe.serial("LGU AIP workflows", () => {
     const scenario = loadScenarioForProject(testInfo.project.name);
 
     await withRolePage(browser, "barangay", async (page) => {
-      await page.goto(`/barangay/aips/${scenario.aipWorkflow.submissionAipId}`, {
-        waitUntil: "domcontentloaded",
-      });
+      await gotoLguPathWithAuth(page, "barangay", `/barangay/aips/${scenario.aipWorkflow.submissionAipId}`);
 
       const submitForReviewButton = page.getByTestId("aip-submit-review-button");
       const resubmitButton = page.getByTestId("aip-resubmit-button");
@@ -68,9 +69,11 @@ test.describe.serial("LGU AIP workflows", () => {
     const scenario = loadScenarioForProject(testInfo.project.name);
 
     await withRolePage(browser, "city", async (page) => {
-      await page.goto(`/city/submissions/aip/${scenario.aipWorkflow.submissionAipId}?mode=review`, {
-        waitUntil: "domcontentloaded",
-      });
+      await gotoLguPathWithAuth(
+        page,
+        "city",
+        `/city/submissions/aip/${scenario.aipWorkflow.submissionAipId}?mode=review`
+      );
 
       await ensureClaimedReview(page);
       await page.getByTestId("city-review-note-input").fill(scenario.aipWorkflow.revisionComment);
@@ -87,9 +90,7 @@ test.describe.serial("LGU AIP workflows", () => {
     const scenario = loadScenarioForProject(testInfo.project.name);
 
     await withRolePage(browser, "barangay", async (page) => {
-      await page.goto(`/barangay/aips/${scenario.aipWorkflow.submissionAipId}`, {
-        waitUntil: "domcontentloaded",
-      });
+      await gotoLguPathWithAuth(page, "barangay", `/barangay/aips/${scenario.aipWorkflow.submissionAipId}`);
 
       await page.getByTestId("aip-revision-reply-input").fill(scenario.aipWorkflow.resubmissionReply);
       await page.getByTestId("aip-save-revision-reply-button").click();
@@ -105,9 +106,11 @@ test.describe.serial("LGU AIP workflows", () => {
     const scenario = loadScenarioForProject(testInfo.project.name);
 
     await withRolePage(browser, "city", async (page) => {
-      await page.goto(`/city/submissions/aip/${scenario.aipWorkflow.submissionAipId}?mode=review`, {
-        waitUntil: "domcontentloaded",
-      });
+      await gotoLguPathWithAuth(
+        page,
+        "city",
+        `/city/submissions/aip/${scenario.aipWorkflow.submissionAipId}?mode=review`
+      );
 
       await ensureClaimedReview(page);
       await page.getByTestId("city-publish-aip-button").click();

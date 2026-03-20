@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 
 export type RoleKey = "citizen" | "barangay" | "city" | "admin";
@@ -41,6 +42,26 @@ const ROLE_ENV: Record<RoleKey, { email: string; password: string }> = {
   },
 };
 
+function isWebsiteRoot(candidate: string): boolean {
+  return (
+    fs.existsSync(path.join(candidate, "playwright.config.ts")) &&
+    fs.existsSync(path.join(candidate, "tests", "e2e"))
+  );
+}
+
+function resolveWebsiteRoot(): string {
+  const cwd = process.cwd();
+  if (isWebsiteRoot(cwd)) return cwd;
+
+  const nestedWebsite = path.resolve(cwd, "website");
+  if (isWebsiteRoot(nestedWebsite)) return nestedWebsite;
+
+  // Keep fallback deterministic even if command is launched from an unexpected directory.
+  return cwd;
+}
+
+const WEBSITE_ROOT = resolveWebsiteRoot();
+
 function normalizeEnvValue(name: string): string | null {
   const value = process.env[name];
   if (!value) return null;
@@ -63,7 +84,7 @@ export function getE2EBaseUrl(): string {
 export function getStorageStateDir(): string {
   const configured = normalizeEnvValue("E2E_STORAGE_STATE_DIR") ?? ".playwright/.auth";
   if (path.isAbsolute(configured)) return configured;
-  return path.resolve(process.cwd(), configured);
+  return path.resolve(WEBSITE_ROOT, configured);
 }
 
 export function getStorageStatePath(role: RoleKey): string {
@@ -89,12 +110,12 @@ export function getScenarioPathForProject(name: string): string {
   const projectName = asProjectName(name);
   const envName = SCENARIO_ENV_BY_PROJECT[projectName];
   const raw = requireEnv(envName);
-  return path.isAbsolute(raw) ? raw : path.resolve(process.cwd(), raw);
+  return path.isAbsolute(raw) ? raw : path.resolve(WEBSITE_ROOT, raw);
 }
 
 export function getPdfPathForProject(name: string): string {
   const projectName = asProjectName(name);
   const envName = PDF_ENV_BY_PROJECT[projectName];
   const raw = requireEnv(envName);
-  return path.isAbsolute(raw) ? raw : path.resolve(process.cwd(), raw);
+  return path.isAbsolute(raw) ? raw : path.resolve(WEBSITE_ROOT, raw);
 }
