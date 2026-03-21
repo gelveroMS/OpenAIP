@@ -44,6 +44,8 @@ export function SignUpForm({role, baseURL}:AuthParameters) {
   const [isLoading, setIsLoading] = useState(false)
   const [password, setPassword] = useState('')
   const [repeatPassword, setRepeatPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showRepeatPassword, setShowRepeatPassword] = useState(false)
   const [passwordPolicy, setPasswordPolicy] = useState<PasswordPolicyLike | null>(null)
   
   const fullNameRef = useRef('');
@@ -232,13 +234,25 @@ export function SignUpForm({role, baseURL}:AuthParameters) {
                 <div className="flex items-center">
                   <Label htmlFor="password">Password</Label>
                 </div>
-                <Input
-                  id="password"
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="pr-16"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    disabled={isLoading}
+                    className="absolute inset-y-0 right-2 my-auto h-8 rounded-md px-2 text-sm font-medium text-slate-600 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {showPassword ? "Hide" : "Show"}
+                  </button>
+                </div>
               </div>
               {passwordPolicy ? (
                 <PasswordPolicyChecklist rules={policyRules} className="space-y-1" />
@@ -247,13 +261,25 @@ export function SignUpForm({role, baseURL}:AuthParameters) {
                 <div className="flex items-center">
                   <Label htmlFor="repeat-password">Repeat Password</Label>
                 </div>
-                <Input
-                  id="repeat-password"
-                  type="password"
-                  required
-                  value={repeatPassword}
-                  onChange={(e) => setRepeatPassword(e.target.value)}
-                />
+                <div className="relative">
+                  <Input
+                    id="repeat-password"
+                    type={showRepeatPassword ? "text" : "password"}
+                    required
+                    value={repeatPassword}
+                    onChange={(e) => setRepeatPassword(e.target.value)}
+                    className="pr-16"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowRepeatPassword((prev) => !prev)}
+                    aria-label={showRepeatPassword ? "Hide password" : "Show password"}
+                    disabled={isLoading}
+                    className="absolute inset-y-0 right-2 my-auto h-8 rounded-md px-2 text-sm font-medium text-slate-600 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {showRepeatPassword ? "Hide" : "Show"}
+                  </button>
+                </div>
               </div>
               {repeatPassword.length > 0 && !passwordsMatch ? (
                 <p className="text-sm text-red-500">Passwords do not match.</p>

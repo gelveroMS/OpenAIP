@@ -70,8 +70,8 @@ describe("SignUpForm", () => {
     render(<SignUpForm role="admin" baseURL="http://localhost:3000" />);
 
     const emailInput = screen.getByLabelText("Email");
-    const passwordInput = screen.getByLabelText("Password");
-    const repeatPasswordInput = screen.getByLabelText("Repeat Password");
+    const passwordInput = screen.getByLabelText("Password") as HTMLInputElement;
+    const repeatPasswordInput = screen.getByLabelText("Repeat Password") as HTMLInputElement;
     const submitButton = screen.getByRole("button", { name: "Sign up" });
 
     await waitFor(() => {
@@ -80,6 +80,28 @@ describe("SignUpForm", () => {
         expect.objectContaining({ cache: "no-store" })
       );
     });
+
+    expect(passwordInput.type).toBe("password");
+    expect(repeatPasswordInput.type).toBe("password");
+
+    const passwordToggle = passwordInput.parentElement?.querySelector("button");
+    const repeatPasswordToggle = repeatPasswordInput.parentElement?.querySelector("button");
+    if (!(passwordToggle instanceof HTMLButtonElement) || !(repeatPasswordToggle instanceof HTMLButtonElement)) {
+      throw new Error("Expected password toggle buttons to be rendered.");
+    }
+
+    fireEvent.click(passwordToggle);
+    expect(passwordInput.type).toBe("text");
+    expect(repeatPasswordInput.type).toBe("password");
+
+    fireEvent.click(repeatPasswordToggle);
+    expect(passwordInput.type).toBe("text");
+    expect(repeatPasswordInput.type).toBe("text");
+
+    fireEvent.click(passwordToggle);
+    fireEvent.click(repeatPasswordToggle);
+    expect(passwordInput.type).toBe("password");
+    expect(repeatPasswordInput.type).toBe("password");
 
     fireEvent.change(emailInput, { target: { value: "admin@example.com" } });
     fireEvent.change(passwordInput, { target: { value: "weakpass" } });
