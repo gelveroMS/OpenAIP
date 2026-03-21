@@ -152,6 +152,7 @@ type FilterableQuery = {
   in: (...args: unknown[]) => FilterableQuery;
   gte: (...args: unknown[]) => FilterableQuery;
   lt: (...args: unknown[]) => FilterableQuery;
+  not: (...args: unknown[]) => FilterableQuery;
   or: (...args: unknown[]) => FilterableQuery;
   order: (...args: unknown[]) => FilterableQuery;
   range: (
@@ -168,7 +169,7 @@ function applyActivityLogFilters(
   query: FilterableQuery,
   filters: ActivityLogFilters
 ): FilterableQuery {
-  let next = query;
+  let next = query.not("action", "like", "privileged_%") as FilterableQuery;
 
   if (filters.actorId) {
     next = next.eq("actor_id", filters.actorId) as FilterableQuery;

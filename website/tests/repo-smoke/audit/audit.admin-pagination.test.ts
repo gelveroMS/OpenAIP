@@ -76,6 +76,25 @@ export async function runAuditAdminPaginationTests() {
       },
       createdAt: "2025-06-10T10:00:00.000Z",
     },
+    {
+      id: "admin_hidden_privileged",
+      actorId: "admin_hidden_privileged_actor",
+      actorRole: "admin",
+      action: "privileged_embed_dispatch_requested",
+      entityType: "aips",
+      entityId: "aip-hidden-privileged",
+      scope: {
+        scope_type: "none",
+        barangay_id: null,
+        city_id: null,
+        municipality_id: null,
+      },
+      metadata: {
+        actor_name: "Privileged Hidden",
+        details: "internal-only action should not surface in audit tab",
+      },
+      createdAt: "2026-02-28T12:01:00.000Z",
+    },
   ];
 
   ACTIVITY_LOG_FIXTURE.push(...injectedRows);
@@ -107,6 +126,16 @@ export async function runAuditAdminPaginationTests() {
     assert(
       pageTwo.rows.every((row) => !pageOneIds.has(row.id)),
       "Expected page two to return non-overlapping rows."
+    );
+    assert(
+      !pageOne.rows.some((row) => row.action.startsWith("privileged_")) &&
+        !pageTwo.rows.some((row) => row.action.startsWith("privileged_")),
+      "Expected admin pages to suppress privileged_* rows."
+    );
+    assert(
+      !pageOne.rows.some((row) => row.id === "admin_hidden_privileged") &&
+        !pageTwo.rows.some((row) => row.id === "admin_hidden_privileged"),
+      "Expected privileged fixture row to be hidden from admin pagination output."
     );
 
     const citizenOnly = await repo.listActivityPage({

@@ -31,9 +31,12 @@ export async function runAuditServiceTests() {
   };
 
   const adminFeed = await getAuditFeedForActor(admin);
+  const expectedAdmin = ACTIVITY_LOG_FIXTURE.filter(
+    (row) => !row.action.startsWith("privileged_")
+  );
   assert(
-    adminFeed.length === ACTIVITY_LOG_FIXTURE.length,
-    "Expected admin to receive all activity logs"
+    adminFeed.length === expectedAdmin.length,
+    "Expected admin to receive all non-privileged activity logs"
   );
 
   const barangayFeed = await getAuditFeedForActor(barangayOfficial);
@@ -128,5 +131,65 @@ export async function runAuditServiceTests() {
 
   const citizenFeed = await getAuditFeedForActor(citizen);
   assert(citizenFeed.length === 0, "Expected citizen to receive no activity logs");
+
+  const privilegedRows: ActivityFixtureRow[] = [
+    {
+      id: "privileged_hidden_admin",
+      actorId: "admin_001",
+      actorRole: "admin",
+      action: "privileged_chat_quota_consumed",
+      entityType: "profiles",
+      entityId: "citizen_001",
+      scope: {
+        scope_type: "none",
+        barangay_id: null,
+        city_id: null,
+        municipality_id: null,
+      },
+      metadata: {
+        source: "privileged",
+      },
+      createdAt: "2026-02-28T04:00:00.000Z",
+    },
+    {
+      id: "privileged_hidden_barangay",
+      actorId: "user_001",
+      actorRole: "barangay_official",
+      action: "privileged_project_media_uploaded",
+      entityType: "projects",
+      entityId: "project-001",
+      scope: {
+        scope_type: "barangay",
+        barangay_id: "brgy_mamadid",
+        city_id: null,
+        municipality_id: null,
+      },
+      metadata: {
+        source: "privileged",
+      },
+      createdAt: "2026-02-28T04:01:00.000Z",
+    },
+  ];
+
+  ACTIVITY_LOG_FIXTURE.push(...privilegedRows);
+  try {
+    const adminWithPrivileged = await getAuditFeedForActor(admin);
+    assert(
+      !adminWithPrivileged.some((row) => row.id === "privileged_hidden_admin"),
+      "Expected admin feed to suppress privileged_* rows"
+    );
+
+    const barangayWithPrivileged = await getAuditFeedForActor(barangayOfficial);
+    assert(
+      !barangayWithPrivileged.some((row) => row.id === "privileged_hidden_barangay"),
+      "Expected barangay feed to suppress privileged_* rows"
+    );
+  } finally {
+    for (let index = ACTIVITY_LOG_FIXTURE.length - 1; index >= 0; index -= 1) {
+      if (privilegedRows.some((row) => row.id === ACTIVITY_LOG_FIXTURE[index].id)) {
+        ACTIVITY_LOG_FIXTURE.splice(index, 1);
+      }
+    }
+  }
 }
 

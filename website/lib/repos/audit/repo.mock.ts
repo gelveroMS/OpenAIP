@@ -6,6 +6,10 @@ function sortNewestFirst(rows: ActivityLogRow[]): ActivityLogRow[] {
   return [...rows].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 }
 
+function isPrivilegedAction(action: string): boolean {
+  return action.startsWith("privileged_");
+}
+
 function getMetadataString(
   metadata: ActivityLogRow["metadata"],
   key: string
@@ -18,6 +22,7 @@ function getMetadataString(
 function filterRows(rows: ActivityLogRow[], input: AuditListInput): ActivityLogRow[] {
   const q = input.q.trim().toLowerCase();
   const filtered = rows
+    .filter((row) => !isPrivilegedAction(row.action))
     .filter((row) => {
       if (input.role === "all") return true;
       if (input.role === "admin") return row.actorRole === "admin";
@@ -67,7 +72,9 @@ export function createMockAuditRepo(): AuditRepo {
   return {
     async listMyActivity(actorId: string) {
       return sortNewestFirst(
-        ACTIVITY_LOG_FIXTURE.filter((row) => row.actorId === actorId)
+        ACTIVITY_LOG_FIXTURE.filter(
+          (row) => row.actorId === actorId && !isPrivilegedAction(row.action)
+        )
       );
     },
     async listBarangayOfficialActivity(barangayId: string) {
@@ -75,6 +82,7 @@ export function createMockAuditRepo(): AuditRepo {
         ACTIVITY_LOG_FIXTURE.filter(
           (row) =>
             row.actorRole === "barangay_official" &&
+            !isPrivilegedAction(row.action) &&
             row.scope?.scope_type === "barangay" &&
             row.scope.barangay_id === barangayId
         )
@@ -85,13 +93,16 @@ export function createMockAuditRepo(): AuditRepo {
         ACTIVITY_LOG_FIXTURE.filter(
           (row) =>
             row.actorRole === "city_official" &&
+            !isPrivilegedAction(row.action) &&
             row.scope?.scope_type === "city" &&
             row.scope.city_id === cityId
         )
       );
     },
     async listAllActivity() {
-      return sortNewestFirst(ACTIVITY_LOG_FIXTURE);
+      return sortNewestFirst(
+        ACTIVITY_LOG_FIXTURE.filter((row) => !isPrivilegedAction(row.action))
+      );
     },
     async listActivityPage(input: AuditListInput): Promise<AuditListResult> {
       const filtered = filterRows(ACTIVITY_LOG_FIXTURE, input);
