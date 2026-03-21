@@ -2,6 +2,7 @@
 
 import { Lock, Mail } from "lucide-react";
 import Link from "next/link";
+import { useState } from "react";
 import { PasswordPolicyChecklist } from "@/components/auth/password-policy-checklist";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,6 +43,7 @@ export default function CitizenEmailPasswordStep({
   onToggleMode,
 }: CitizenEmailPasswordStepProps) {
   const isLogin = mode === "login";
+  const [showPassword, setShowPassword] = useState(false);
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-white px-5 py-6 sm:px-6 sm:py-7 md:p-10">
@@ -99,14 +101,23 @@ export default function CitizenEmailPasswordStep({
               />
               <Input
                 id="citizen-auth-password"
-                type="password"
+                type={showPassword ? "text" : "password"}
                 autoComplete={isLogin ? "current-password" : "new-password"}
                 required
                 data-testid="citizen-auth-password-input"
                 value={password}
                 onChange={(event) => onPasswordChange(event.target.value)}
-                className="h-12 rounded-xl border-slate-300 bg-white pl-11 text-base text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-[#0EA5C6]/40"
+                className="h-12 rounded-xl border-slate-300 bg-white pl-11 pr-16 text-base text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-[#0EA5C6]/40"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword((prev) => !prev)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                disabled={isLoading}
+                className="absolute inset-y-0 right-2 my-auto h-8 rounded-md px-2 text-sm font-medium text-slate-600 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0EA5C6]/40 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {showPassword ? "Hide" : "Show"}
+              </button>
             </div>
           </div>
           {!isLogin && policyRules.length > 0 ? (
@@ -149,7 +160,7 @@ export default function CitizenEmailPasswordStep({
                 : "Create account"}
           </Button>
 
-          <div className="text-center text-sm text-slate-600">
+          <div className="text-center text-sm text-slate-600 md:hidden">
             {isLogin ? "Need an account?" : "Already have an account?"}{" "}
             <button
               type="button"

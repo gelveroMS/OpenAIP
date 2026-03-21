@@ -20,7 +20,7 @@ const signupRules: PasswordPolicyRuleStatus[] = [
 ];
 
 describe("CitizenEmailPasswordStep", () => {
-  it("shows policy checklist in signup mode and blocks submit when disabled", () => {
+  it("shows policy checklist in signup mode, keeps mode switch mobile-only, and blocks submit when disabled", () => {
     const onSubmit = vi.fn();
     render(
       <CitizenEmailPasswordStep
@@ -43,11 +43,13 @@ describe("CitizenEmailPasswordStep", () => {
     expect(screen.getByText("At least 12 characters")).toBeInTheDocument();
     const submitButton = screen.getByRole("button", { name: "Create account" });
     expect(submitButton).toBeDisabled();
+    const modeSwitchText = screen.getByText("Already have an account?");
+    expect(modeSwitchText.closest("div")).toHaveClass("md:hidden");
     fireEvent.click(submitButton);
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it("keeps login mode free from signup-only checklist gating", () => {
+  it("keeps login mode free from signup-only checklist gating and supports show/hide password", () => {
     render(
       <CitizenEmailPasswordStep
         titleId="title"
@@ -68,5 +70,14 @@ describe("CitizenEmailPasswordStep", () => {
 
     expect(screen.queryByText("At least 12 characters")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign in" })).toBeEnabled();
+
+    const passwordInput = screen.getByTestId("citizen-auth-password-input") as HTMLInputElement;
+    expect(passwordInput.type).toBe("password");
+
+    fireEvent.click(screen.getByRole("button", { name: "Show password" }));
+    expect(passwordInput.type).toBe("text");
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide password" }));
+    expect(passwordInput.type).toBe("password");
   });
 });

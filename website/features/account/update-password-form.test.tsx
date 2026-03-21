@@ -197,6 +197,66 @@ describe("UpdatePasswordForm", () => {
     expect(screen.queryByText(/PKCE code verifier/i)).not.toBeInTheDocument();
   });
 
+  it("toggles visibility for new and confirm password fields independently", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/auth/password-policy") {
+        return {
+          ok: true,
+          json: async () => ({
+            ok: true,
+            passwordPolicy: {
+              minLength: 12,
+              requireUppercase: true,
+              requireLowercase: true,
+              requireNumbers: true,
+              requireSpecialCharacters: true,
+            },
+          }),
+        };
+      }
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<UpdatePasswordForm role="citizen" baseURL="http://localhost:3000" />);
+
+    const passwordInput = screen.getByLabelText("New password") as HTMLInputElement;
+    const confirmPasswordInput = screen.getByLabelText("Confirm new password") as HTMLInputElement;
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/auth/password-policy",
+        expect.objectContaining({ cache: "no-store" })
+      );
+    });
+
+    expect(passwordInput.type).toBe("password");
+    expect(confirmPasswordInput.type).toBe("password");
+
+    const passwordToggle = passwordInput.parentElement?.querySelector("button");
+    const confirmPasswordToggle = confirmPasswordInput.parentElement?.querySelector("button");
+    if (
+      !(passwordToggle instanceof HTMLButtonElement) ||
+      !(confirmPasswordToggle instanceof HTMLButtonElement)
+    ) {
+      throw new Error("Expected password toggle buttons to be rendered.");
+    }
+
+    fireEvent.click(passwordToggle);
+    expect(passwordInput.type).toBe("text");
+    expect(confirmPasswordInput.type).toBe("password");
+
+    fireEvent.click(confirmPasswordToggle);
+    expect(passwordInput.type).toBe("text");
+    expect(confirmPasswordInput.type).toBe("text");
+
+    fireEvent.click(passwordToggle);
+    fireEvent.click(confirmPasswordToggle);
+    expect(passwordInput.type).toBe("password");
+    expect(confirmPasswordInput.type).toBe("password");
+  });
+
   it("blocks submit until policy and confirm-password requirements are satisfied", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
