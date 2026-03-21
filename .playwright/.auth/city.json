@@ -1,0 +1,45 @@
+{
+  "cookies": [
+    {
+      "name": "oa_session_timeout_ms",
+      "value": "1800000",
+      "domain": "open-aip-theta.vercel.app",
+      "path": "/",
+      "expires": 1774003130.820794,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "oa_session_warning_ms",
+      "value": "300000",
+      "domain": "open-aip-theta.vercel.app",
+      "path": "/",
+      "expires": 1774003130.820918,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "oa_last_activity_at",
+      "value": "1774001330729",
+      "domain": "open-aip-theta.vercel.app",
+      "path": "/",
+      "expires": 1774003130.820944,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "sb-vtnbmqxvpactapmgasyc-auth-token",
+      "value": "base64-eyJhY2Nlc3NfdG9rZW4iOiJleUpoYkdjaU9pSkZVekkxTmlJc0ltdHBaQ0k2SWpjNU1tSmhZakkyTFRrME5EUXRORFkxTXkxaFpEWTBMV1U1TlRZeE1XWmlPR0U1T0NJc0luUjVjQ0k2SWtwWFZDSjkuZXlKcGMzTWlPaUpvZEhSd2N6b3ZMM1owYm1KdGNYaDJjR0ZqZEdGd2JXZGhjM2xqTG5OMWNHRmlZWE5sTG1OdkwyRjFkR2d2ZGpFaUxDSnpkV0lpT2lJMlptTXpOems1TXkwd1pHWTRMVFExT0RrdE9ERTFaaTFtWW1FNFpXRmhPVGd3T0dNaUxDSmhkV1FpT2lKaGRYUm9aVzUwYVdOaGRHVmtJaXdpWlhod0lqb3hOemMwTURBME9UTXdMQ0pwWVhRaU9qRTNOelF3TURFek16QXNJbVZ0WVdsc0lqb2ljR0ZrZFdGalpXUnBaV3BoYldWek16WkFaMjFoYVd3dVkyOXRJaXdpY0dodmJtVWlPaUlpTENKaGNIQmZiV1YwWVdSaGRHRWlPbnNpY0hKdmRtbGtaWElpT2lKbGJXRnBiQ0lzSW5CeWIzWnBaR1Z5Y3lJNld5SmxiV0ZwYkNKZGZTd2lkWE5sY2w5dFpYUmhaR0YwWVNJNmV5SmxiV0ZwYkY5MlpYSnBabWxsWkNJNmRISjFaU3dpYVc1MFpXNWtaV1JmY205c1pTSTZJbU5wZEhsZmIyWm1hV05wWVd3aWZTd2ljbTlzWlNJNkltRjFkR2hsYm5ScFkyRjBaV1FpTENKaFlXd2lPaUpoWVd3eElpd2lZVzF5SWpwYmV5SnRaWFJvYjJRaU9pSndZWE56ZDI5eVpDSXNJblJwYldWemRHRnRjQ0k2TVRjM05EQXdNVE16TUgxZExDSnpaWE56YVc5dVgybGtJam9pT1dZek1qUTVPR1l0T0dZM05DMDBZMkV6TFdGa09EZ3RZbVkzTnpaa1l6azNNMkZpSWl3aWFYTmZZVzV2Ym5sdGIzVnpJanBtWVd4elpYMC5PTlg4OVY0VkFNeUUwRzAtRXF1ajZKNlBua1hvajc3dGFXWnVXY1pXN0hzNmxZU19oZ0d1WDJRR1VqSUd3UllaYUJ6VkpnYVF6M05Bc2ZaaGNHSUYyZyIsInRva2VuX3R5cGUiOiJiZWFyZXIiLCJleHBpcmVzX2luIjozNjAwLCJleHBpcmVzX2F0IjoxNzc0MDA0OTMwLCJyZWZyZXNoX3Rva2VuIjoiM3Zzd3ppcG1sN29lIiwidXNlciI6eyJpZCI6IjZmYzM3OTkzLTBkZjgtNDU4OS04MTVmLWZiYThlYWE5ODA4YyIsImF1ZCI6ImF1dGhlbnRpY2F0ZWQiLCJyb2xlIjoiYXV0aGVudGljYXRlZCIsImVtYWlsIjoicGFkdWFjZWRpZWphbWVzMzZAZ21haWwuY29tIiwiZW1haWxfY29uZmlybWVkX2F0IjoiMjAyNi0wMy0xMFQxODoxOTo0NC44NTY4ODRaIiwiaW52aXRlZF9hdCI6IjIwMjYtMDMtMTBUMTg6MTc6MjMuOTc2MDYxWiIsInBob25lIjoiIiwiY29uZmlybWVkX2F0IjoiMjAyNi0wMy0xMFQxODoxOTo0NC44NTY4ODRaIiwibGFzdF9zaWduX2luX2F0IjoiMjAyNi0wMy0yMFQxMDowODo1MC4xMzE5MDk4NTNaIiwiYXBwX21ldGFkYXRhIjp7InByb3ZpZGVyIjoiZW1haWwiLCJwcm92aWRlcnMiOlsiZW1haWwiXX0sInVzZXJfbWV0YWRhdGEiOnsiZW1haWxfdmVyaWZpZWQiOnRydWUsImludGVuZGVkX3JvbGUiOiJjaXR5X29mZmljaWFsIn0sImlkZW50aXRpZXMiOlt7ImlkZW50aXR5X2lkIjoiNmE1NTNjYTctNTA0Ny00YmQ5LWEwNTAtOTY3MTJjY2M2MzY1IiwiaWQiOiI2ZmMzNzk5My0wZGY4LTQ1ODktODE1Zi1mYmE4ZWFhOTgwOGMiLCJ1c2VyX2lkIjoiNmZjMzc5OTMtMGRmOC00NTg5LTgxNWYtZmJhOGVhYTk4MDhjIiwiaWRlbnRpdHlfZGF0YSI6eyJlbWFpbCI6InBhZHVhY2VkaWVqYW1lczM2QGdtYWlsLmNvbSIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlLCJwaG9uZV92ZXJpZmllZCI6ZmFsc2UsInN1YiI6IjZmYzM3OTkzLTBkZjgtNDU4OS04MTVmLWZiYThlYWE5ODA4YyJ9LCJwcm92aWRlciI6ImVtYWlsIiwibGFzdF9zaWduX2luX2F0IjoiMjAyNi0wMy0xMFQxODoxNzoyMy45Njc2MzdaIiwiY3JlYXRlZF9hdCI6IjIwMjYtMDMtMTBUMTg6MTc6MjMuOTY3Njg4WiIsInVwZGF0ZWRfYXQiOiIyMDI2LTAzLTEwVDE4OjE3OjIzLjk2NzY4OFoiLCJlbWFpbCI6InBhZHVhY2VkaWVqYW1lczM2QGdtYWlsLmNvbSJ9XSwiY3JlYXRlZF9hdCI6IjIwMjYtMDMtMTBUMTg6MTc6MjMuOTM5NTI1WiIsInVwZGF0ZWRfYXQiOiIyMDI2LTAzLTIwVDEwOjA4OjUwLjEzOTI2NFoiLCJpc19hbm9ueW1vdXMiOmZhbHNlfSwid2Vha19wYXNzd29yZCI6bnVsbH0",
+      "domain": "open-aip-theta.vercel.app",
+      "path": "/",
+      "expires": 1808561330.820969,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": []
+}

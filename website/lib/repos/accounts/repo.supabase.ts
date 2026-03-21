@@ -50,6 +50,17 @@ type AuthUserSnapshot = {
   bannedUntil: string | null;
 };
 
+type ProfileDeleteBlocker = {
+  blocker: string;
+  row_count: number | string | null;
+};
+
+const PROFILE_DELETE_BLOCKER_LABELS: Record<string, string> = {
+  uploaded_files: "uploaded files",
+  aip_reviews: "AIP reviews",
+  project_updates: "project updates",
+};
+
 const PROFILE_SELECT = `
   id,
   role,
@@ -298,6 +309,30 @@ function toNonEmptyString(value: string | null | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function toPositiveCount(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return Math.floor(value);
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function formatDeleteBlockersMessage(rows: ProfileDeleteBlocker[]): string {
+  const formatted = rows.map((row) => {
+    const label =
+      PROFILE_DELETE_BLOCKER_LABELS[row.blocker] ??
+      row.blocker.replace(/_/g, " ");
+    const count = toPositiveCount(row.row_count);
+    return count ? `${label} (${count})` : label;
+  });
+  return `Cannot delete account because dependent records exist: ${formatted.join(", ")}. Reassign or remove these records first.`;
+}
+
 async function getAuthUsersByIds(ids: string[]): Promise<Map<string, AuthUserSnapshot>> {
   const map = new Map<string, AuthUserSnapshot>();
   if (ids.length === 0) return map;
@@ -492,6 +527,16 @@ async function resolveRowById(id: string) {
   return data;
 }
 
+async function getProfileDeleteBlockers(profileId: string): Promise<ProfileDeleteBlocker[]> {
+  const admin = supabaseAdmin();
+  const { data, error } = await admin.rpc("get_profile_delete_blockers", {
+    p_profile_id: profileId,
+  });
+  if (error) throw new Error(error.message);
+  if (!Array.isArray(data)) return [];
+  return data as ProfileDeleteBlocker[];
+}
+
 export function createSupabaseAccountsRepo(): AccountsRepo {
   return {
     async list(input: AccountListInput): Promise<AccountListResult> {
@@ -676,6 +721,11 @@ export function createSupabaseAccountsRepo(): AccountsRepo {
 
       const target = await resolveRowById(id);
       await assertCanMutateAdminAccount(target.role, target.is_active);
+
+      const blockers = await getProfileDeleteBlockers(id);
+      if (blockers.length > 0) {
+        throw new Error(formatDeleteBlockersMessage(blockers));
+      }
 
       const admin = supabaseAdmin();
       const { error: authDeleteError } = await admin.auth.admin.deleteUser(id);

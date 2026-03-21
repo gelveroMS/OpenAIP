@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Loader2 } from 'lucide-react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -39,8 +40,11 @@ export function LoginForm({role, baseURL}:AuthParameters) {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (isLoading) return
+
     setIsLoading(true)
     setError(null)
+    let shouldResetLoading = true
 
     try {
       const endpoint = isStaffRole ? "/auth/staff-sign-in" : "/auth/sign-in";
@@ -67,11 +71,14 @@ export function LoginForm({role, baseURL}:AuthParameters) {
       // Refresh the App Router tree after auth so RSC/cached payloads re-read fresh auth cookies.
       router.replace(targetPath);
       router.refresh();
+      shouldResetLoading = false;
 
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : 'An error occurred')
     } finally {
-      setIsLoading(false)
+      if (shouldResetLoading) {
+        setIsLoading(false)
+      }
     }
   }
 
@@ -119,7 +126,7 @@ export function LoginForm({role, baseURL}:AuthParameters) {
                 </span>
               </CardHeader>
               <CardContent className="px-5 pb-5 pt-2 sm:px-8 sm:pb-7 sm:pt-3 lg:px-12 lg:pb-11">
-                <form onSubmit={handleLogin} className="space-y-3.5 sm:space-y-4">
+                <form onSubmit={handleLogin} aria-busy={isLoading} className="space-y-3.5 sm:space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="email" className="text-sm font-medium text-slate-700">
                       Email
@@ -133,6 +140,7 @@ export function LoginForm({role, baseURL}:AuthParameters) {
                       required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
+                      disabled={isLoading}
                       className="h-11 border-slate-300 bg-white text-base text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-primary/40 sm:h-12"
                     />
                   </div>
@@ -149,13 +157,15 @@ export function LoginForm({role, baseURL}:AuthParameters) {
                         required
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
+                        disabled={isLoading}
                         className="h-11 border-slate-300 bg-white pr-16 text-base text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-primary/40 sm:h-12"
                       />
                       <button
                         type="button"
                         onClick={() => setShowPassword((prev) => !prev)}
                         aria-label={showPassword ? "Hide password" : "Show password"}
-                        className="absolute inset-y-0 right-2 my-auto h-8 rounded-md px-2 text-sm font-medium text-slate-600 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                        disabled={isLoading}
+                        className="absolute inset-y-0 right-2 my-auto h-8 rounded-md px-2 text-sm font-medium text-slate-600 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {showPassword ? "Hide" : "Show"}
                       </button>
@@ -176,12 +186,30 @@ export function LoginForm({role, baseURL}:AuthParameters) {
                     className="h-11 w-full bg-[#022437] text-base font-medium text-white hover:bg-[#022437]/90 focus-visible:ring-2 focus-visible:ring-[#022437]/40 sm:h-12"
                     disabled={isLoading}
                   >
-                    {isLoading ? 'Logging in...' : 'Sign in'}
+                    {isLoading ? (
+                      <>
+                        <Loader2
+                          className="h-4 w-4 animate-spin"
+                          aria-hidden
+                          data-testid="auth-login-submit-spinner"
+                        />
+                        Logging in...
+                      </>
+                    ) : (
+                      'Sign in'
+                    )}
                   </Button>
                   <div>
                     <Link
                       href={`${rolePath}/forgot-password`}
-                      className="inline-flex rounded-sm text-sm font-medium text-slate-700 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                      onClick={(event) => {
+                        if (isLoading) {
+                          event.preventDefault();
+                        }
+                      }}
+                      aria-disabled={isLoading}
+                      tabIndex={isLoading ? -1 : undefined}
+                      className={`inline-flex rounded-sm text-sm font-medium text-slate-700 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${isLoading ? 'pointer-events-none opacity-60' : ''}`}
                     >
                       Forgot password?
                     </Link>
@@ -232,7 +260,7 @@ export function LoginForm({role, baseURL}:AuthParameters) {
           <CardDescription>Enter your email below to login to your account</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleLogin}>
+          <form onSubmit={handleLogin} aria-busy={isLoading}>
             <div className="flex flex-col gap-6">
               <div className="grid gap-2">
                 <Label htmlFor="email">Email</Label>

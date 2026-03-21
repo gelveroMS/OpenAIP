@@ -54,6 +54,7 @@ export function useAccountAdministration() {
   const [listResult, setListResult] = useState<AccountListResult>(initialListResult());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [mutating, setMutating] = useState(false);
 
@@ -130,6 +131,7 @@ export function useAccountAdministration() {
 
   function closeModal() {
     setOpenModal(null);
+    setMutationError(null);
   }
 
   function openFor(id: string, modal: Exclude<OpenModal, null>) {
@@ -140,19 +142,24 @@ export function useAccountAdministration() {
     }
     setOpenModal(modal);
     setNotice(null);
-    setError(null);
+    setMutationError(null);
   }
 
-  async function performMutation(run: () => Promise<void>) {
+  async function performMutation(
+    run: () => Promise<void>,
+    fallbackErrorMessage = "Operation failed."
+  ) {
     setMutating(true);
-    setError(null);
+    setMutationError(null);
     setNotice(null);
     try {
       await run();
       await load();
       closeModal();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Operation failed.");
+      setMutationError(
+        err instanceof Error ? err.message : fallbackErrorMessage
+      );
     } finally {
       setMutating(false);
     }
@@ -162,7 +169,7 @@ export function useAccountAdministration() {
     await performMutation(async () => {
       await createOfficialAccountAction(input);
       setNotice("Official account invited successfully.");
-    });
+    }, "Failed to create account.");
   }
 
   async function updateSelected(input: { fullName: string; role: AccountRole; lguKey: string | "none" }) {
@@ -209,7 +216,7 @@ export function useAccountAdministration() {
       await deleteAccountAction(selectedAccount.id);
       setSelectedAccountId(null);
       setNotice("Account deleted.");
-    });
+    }, "Failed to delete account.");
   }
 
   async function resetPasswordSelected() {
@@ -241,6 +248,7 @@ export function useAccountAdministration() {
     total: listResult.total,
     loading,
     error,
+    mutationError,
     notice,
     mutating,
 
