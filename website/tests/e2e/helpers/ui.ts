@@ -1,5 +1,28 @@
 import { expect, type Browser, type Page } from "@playwright/test";
 import { getE2EBaseUrl, getStorageStatePath, type RoleKey } from "./env";
+import { loginAsRole } from "./auth";
+
+type LguRole = "barangay" | "city";
+
+type GotoLguPathWithAuthOptions = {
+  landingPath?: string;
+};
+
+const LGU_SIDEBAR_TEST_ID: Record<LguRole, string> = {
+  barangay: "barangay-sidebar",
+  city: "city-sidebar",
+};
+
+function signInPathPattern(role: LguRole): RegExp {
+  return new RegExp(`/${role}/sign-in(?:$|[/?#])`);
+}
+
+async function assertLguAuthenticated(page: Page, role: LguRole): Promise<void> {
+  await expect(page).not.toHaveURL(signInPathPattern(role), { timeout: 30_000 });
+  await expect(page.getByTestId(LGU_SIDEBAR_TEST_ID[role])).toBeVisible({
+    timeout: 30_000,
+  });
+}
 
 export async function withRolePage<T>(
   browser: Browser,
@@ -34,4 +57,26 @@ export async function ensureSelectValue(
 ): Promise<void> {
   await page.getByTestId(triggerTestId).click();
   await page.getByTestId(optionTestId).click();
+}
+
+export async function gotoLguPathWithAuth(
+  page: Page,
+  role: LguRole,
+  targetPath: string,
+  options: GotoLguPathWithAuthOptions = {}
+): Promise<void> {
+  const landingPath = options.landingPath ?? targetPath;
+
+  await page.goto(landingPath, { waitUntil: "domcontentloaded" });
+
+  const redirectedToSignIn = signInPathPattern(role).test(page.url());
+  if (redirectedToSignIn) {
+    await loginAsRole(page, role);
+  }
+
+  if (landingPath !== targetPath || redirectedToSignIn) {
+    await page.goto(targetPath, { waitUntil: "domcontentloaded" });
+  }
+
+  await assertLguAuthenticated(page, role);
 }

@@ -51,6 +51,7 @@ export default function CreateOfficialModal({
   lguOptions,
   onSave,
   loading,
+  submitError,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -58,6 +59,7 @@ export default function CreateOfficialModal({
   lguOptions: LguOption[];
   onSave: (input: CreateOfficialAccountInput) => Promise<void>;
   loading: boolean;
+  submitError: string | null;
 }) {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -69,6 +71,7 @@ export default function CreateOfficialModal({
     const scopeType = scopeTypeForRole(role);
     return lguOptions.filter((option) => option.scopeType === scopeType);
   }, [lguOptions, role]);
+  const displayedError = error ?? submitError;
 
   function resetForm() {
     setFullName("");
@@ -194,9 +197,9 @@ export default function CreateOfficialModal({
             </Select>
           </div>
 
-          {error ? (
+          {displayedError ? (
             <div data-testid="admin-create-official-error" className="text-sm text-rose-600">
-              {error}
+              {displayedError}
             </div>
           ) : null}
 

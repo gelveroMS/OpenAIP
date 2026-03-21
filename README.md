@@ -411,6 +411,7 @@ Recommended workflow:
    - `website/docs/sql/2026-03-10_notifications_aip_embed_terminal_status.sql`
    - `website/docs/sql/2026-03-10_notifications_aip_embed_action_url_scoped.sql`
    - `website/docs/sql/2026-03-10_realtime_publication_extraction_notifications.sql`
+   - `website/docs/sql/2026-03-20_account_delete_preflight_blockers.sql`
    - Note: `2026-02-26_projects_status_proposed_rename.sql` renames existing `projects.status` values from `planning` to `proposed`.
 3. Create Supabase storage buckets manually:
    - `aip-pdfs` (uploaded source PDFs)

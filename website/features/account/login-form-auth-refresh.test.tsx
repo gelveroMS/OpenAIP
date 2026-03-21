@@ -53,6 +53,16 @@ describe("LoginForm auth navigation refresh", () => {
         expect.objectContaining({ method: "POST" })
       );
     });
+    const submitButton = screen.getByTestId("auth-login-submit");
+    const form = submitButton.closest("form");
+    expect(form).not.toBeNull();
+
+    await waitFor(() => {
+      expect(submitButton).toBeDisabled();
+      expect(screen.getByTestId("auth-login-submit-spinner")).toBeInTheDocument();
+      expect(form).toHaveAttribute("aria-busy", "true");
+    });
+
     await waitFor(() => {
       expect(mockReplace).toHaveBeenCalledWith("/admin");
       expect(mockRefresh).toHaveBeenCalledTimes(1);
@@ -80,6 +90,13 @@ describe("LoginForm auth navigation refresh", () => {
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent("Role Validation Failed.");
     });
+
+    const submitButton = screen.getByTestId("auth-login-submit");
+    const form = submitButton.closest("form");
+    expect(form).not.toBeNull();
+    expect(submitButton).not.toBeDisabled();
+    expect(screen.queryByTestId("auth-login-submit-spinner")).not.toBeInTheDocument();
+    expect(form).toHaveAttribute("aria-busy", "false");
 
     expect(mockReplace).not.toHaveBeenCalled();
     expect(mockRefresh).not.toHaveBeenCalled();
