@@ -101,4 +101,17 @@ describe("LoginForm auth navigation refresh", () => {
     expect(mockReplace).not.toHaveBeenCalled();
     expect(mockRefresh).not.toHaveBeenCalled();
   });
+
+  it("toggles password visibility for non-staff login", () => {
+    render(<LoginForm role="citizen" baseURL="http://localhost:3000" />);
+
+    const passwordInput = screen.getByTestId("auth-login-password") as HTMLInputElement;
+    expect(passwordInput.type).toBe("password");
+
+    fireEvent.click(screen.getByRole("button", { name: "Show password" }));
+    expect(passwordInput.type).toBe("text");
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide password" }));
+    expect(passwordInput.type).toBe("password");
+  });
 });

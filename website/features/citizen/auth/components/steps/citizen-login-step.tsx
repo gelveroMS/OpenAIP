@@ -2,6 +2,7 @@
 
 import { Lock, Mail } from "lucide-react";
 import Link from "next/link";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,6 +31,8 @@ export default function CitizenLoginStep({
   onPasswordChange,
   onSubmit,
 }: CitizenLoginStepProps) {
+  const [showPassword, setShowPassword] = useState(false);
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-white px-5 py-6 sm:px-6 sm:py-7 md:p-10">
       <div className="m-auto w-full max-w-[380px] space-y-6 md:max-w-md md:space-y-8">
@@ -84,13 +87,22 @@ export default function CitizenLoginStep({
               />
               <Input
                 id="citizen-login-password"
-                type="password"
+                type={showPassword ? "text" : "password"}
                 autoComplete="current-password"
                 required
                 value={password}
                 onChange={(event) => onPasswordChange(event.target.value)}
-                className="h-12 rounded-xl border-slate-300 bg-white pl-11 text-base text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-[#0EA5C6]/40"
+                className="h-12 rounded-xl border-slate-300 bg-white pl-11 pr-16 text-base text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-[#0EA5C6]/40"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword((prev) => !prev)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                disabled={isLoading}
+                className="absolute inset-y-0 right-2 my-auto h-8 rounded-md px-2 text-sm font-medium text-slate-600 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0EA5C6]/40 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {showPassword ? "Hide" : "Show"}
+              </button>
             </div>
           </div>
 
