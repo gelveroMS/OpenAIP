@@ -8,12 +8,18 @@ import {
 
 type ResetPhase = "beforeAll" | "afterAll";
 
+export type E2EChatbotRateLimitInput = {
+  maxRequests: number;
+  timeWindow: "per_hour" | "per_day";
+};
+
 type ResetResponse = {
   ok?: boolean;
   deleted?: boolean;
   aipId?: string | null;
   statusBefore?: string | null;
   storageDeleted?: Array<{ bucket: string; count: number }>;
+  chatbotRateLimit?: E2EChatbotRateLimitInput | null;
   error?: string;
 };
 
@@ -22,6 +28,7 @@ type ResetWorkflowAipFixtureOptions = {
   phase: ResetPhase;
   projectName: string;
   aipId?: string | null;
+  chatbotRateLimit?: E2EChatbotRateLimitInput;
   bestEffort?: boolean;
 };
 
@@ -66,7 +73,16 @@ export async function resetWorkflowAipFixture(
 
   const endpoint = toAbsoluteEndpoint(getE2EResetEndpoint());
   const aipId = normalizeAipId(options.aipId);
-  const body = aipId ? { aipId } : {};
+  const body: {
+    aipId?: string;
+    chatbotRateLimit?: E2EChatbotRateLimitInput;
+  } = {};
+  if (aipId) {
+    body.aipId = aipId;
+  }
+  if (options.chatbotRateLimit) {
+    body.chatbotRateLimit = options.chatbotRateLimit;
+  }
 
   try {
     const response = await options.request.post(endpoint, {
@@ -91,8 +107,11 @@ export async function resetWorkflowAipFixture(
       throw new Error(payload?.error ?? "Reset endpoint returned ok=false.");
     }
 
+    const chatbotRateLimitLabel = payload.chatbotRateLimit
+      ? `${payload.chatbotRateLimit.maxRequests}/${payload.chatbotRateLimit.timeWindow}`
+      : "unchanged";
     console.info(
-      `[e2e-reset] ${options.phase} project=${options.projectName} deleted=${payload.deleted === true} aipId=${payload.aipId ?? "none"}`
+      `[e2e-reset] ${options.phase} project=${options.projectName} deleted=${payload.deleted === true} aipId=${payload.aipId ?? "none"} chatbot=${chatbotRateLimitLabel}`
     );
   } catch (error) {
     const message =

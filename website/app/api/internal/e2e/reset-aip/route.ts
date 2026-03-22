@@ -1,15 +1,25 @@
 import { NextResponse } from "next/server";
 import { getAppEnv } from "@/lib/config/appEnv";
 import { deleteAipRootWithStorageCleanup } from "@/lib/repos/aip/delete-root.server";
+import { setTypedAppSetting } from "@/lib/settings/app-settings";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 type ResetAipBody = {
   aipId?: string;
+  chatbotRateLimit?: {
+    maxRequests?: unknown;
+    timeWindow?: unknown;
+  };
 };
 
 type FixtureAipRow = {
   id: string;
   status: string;
+};
+
+type ChatbotRateLimitPayload = {
+  maxRequests: number;
+  timeWindow: "per_hour" | "per_day";
 };
 
 const RESET_TOKEN_HEADER = "x-e2e-reset-token";
@@ -67,6 +77,46 @@ function conflict(message: string) {
   return NextResponse.json({ ok: false, error: message }, { status: 409 });
 }
 
+function parseRequestedChatbotRateLimit(body: ResetAipBody): {
+  value: ChatbotRateLimitPayload | null;
+  error: string | null;
+} {
+  const raw = body.chatbotRateLimit;
+  if (typeof raw === "undefined") {
+    return { value: null, error: null };
+  }
+
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { value: null, error: "chatbotRateLimit must be an object." };
+  }
+
+  const maxRequestsRaw = (raw as { maxRequests?: unknown }).maxRequests;
+  const maxRequests =
+    typeof maxRequestsRaw === "number" ? Math.floor(maxRequestsRaw) : Number.NaN;
+  if (!Number.isFinite(maxRequests) || maxRequests < 1 || maxRequests > 10_000) {
+    return {
+      value: null,
+      error: "chatbotRateLimit.maxRequests must be an integer between 1 and 10000.",
+    };
+  }
+
+  const timeWindowRaw = (raw as { timeWindow?: unknown }).timeWindow;
+  if (timeWindowRaw !== "per_hour" && timeWindowRaw !== "per_day") {
+    return {
+      value: null,
+      error: "chatbotRateLimit.timeWindow must be per_hour or per_day.",
+    };
+  }
+
+  return {
+    value: {
+      maxRequests,
+      timeWindow: timeWindowRaw,
+    },
+    error: null,
+  };
+}
+
 export async function POST(request: Request) {
   if (getAppEnv() !== "staging") {
     return notFound();
@@ -106,6 +156,10 @@ export async function POST(request: Request) {
   }
 
   const requestedAipId = parseRequestedAipId(body);
+  const requestedChatbotRateLimit = parseRequestedChatbotRateLimit(body);
+  if (requestedChatbotRateLimit.error) {
+    return badRequest(requestedChatbotRateLimit.error);
+  }
 
   const admin = supabaseAdmin();
   const { data, error } = await admin
@@ -126,6 +180,38 @@ export async function POST(request: Request) {
   }
 
   const fixtureAip = (data ?? null) as FixtureAipRow | null;
+  if (fixtureAip && requestedAipId && requestedAipId !== fixtureAip.id) {
+    return conflict("Requested aipId does not match the configured fixture scope.");
+  }
+
+  let appliedChatbotRateLimit: ChatbotRateLimitPayload | null = null;
+  if (requestedChatbotRateLimit.value) {
+    const now = new Date().toISOString();
+    try {
+      const next = await setTypedAppSetting("controls.chatbot_rate_limit", {
+        maxRequests: requestedChatbotRateLimit.value.maxRequests,
+        timeWindow: requestedChatbotRateLimit.value.timeWindow,
+        updatedAt: now,
+        updatedBy: "e2e-reset",
+      });
+      appliedChatbotRateLimit = {
+        maxRequests: next.maxRequests,
+        timeWindow: next.timeWindow,
+      };
+    } catch (error) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to update chatbot rate limit during reset.",
+        },
+        { status: 500 }
+      );
+    }
+  }
+
   if (!fixtureAip) {
     return NextResponse.json(
       {
@@ -134,13 +220,10 @@ export async function POST(request: Request) {
         aipId: null,
         statusBefore: null,
         storageDeleted: [],
+        chatbotRateLimit: appliedChatbotRateLimit,
       },
       { status: 200 }
     );
-  }
-
-  if (requestedAipId && requestedAipId !== fixtureAip.id) {
-    return conflict("Requested aipId does not match the configured fixture scope.");
   }
 
   try {
@@ -156,6 +239,7 @@ export async function POST(request: Request) {
         aipId: fixtureAip.id,
         statusBefore: fixtureAip.status,
         storageDeleted: deletion.storageDeleted,
+        chatbotRateLimit: appliedChatbotRateLimit,
       },
       { status: 200 }
     );
