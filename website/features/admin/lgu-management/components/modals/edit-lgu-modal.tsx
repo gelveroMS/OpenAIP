@@ -57,6 +57,29 @@ function isNcrRegion(region: LguRecord | null) {
   );
 }
 
+type LguSelectOption = {
+  id: string;
+  label: string;
+  disabled: boolean;
+};
+
+function toSelectableLguOptions(rows: LguRecord[], selectedId: string): LguSelectOption[] {
+  const activeRows = rows.filter((row) => row.status === "active");
+  const selectedDeactivatedRow =
+    selectedId
+      ? rows.find((row) => row.id === selectedId && row.status === "deactivated") ?? null
+      : null;
+  const mergedRows = selectedDeactivatedRow
+    ? [...activeRows, selectedDeactivatedRow]
+    : activeRows;
+
+  return mergedRows.map((row) => ({
+    id: row.id,
+    label: row.status === "deactivated" ? `${row.name} (Deactivated)` : row.name,
+    disabled: row.status === "deactivated",
+  }));
+}
+
 export default function EditLguModal({
   open,
   onOpenChange,
@@ -153,6 +176,19 @@ export default function EditLguModal({
     if (parentType === "municipality") return filteredMunicipalityParents;
     return [];
   }, [filteredCityParents, filteredMunicipalityParents, parentType]);
+
+  const regionOptions = useMemo(
+    () => toSelectableLguOptions(regions, regionId),
+    [regionId, regions]
+  );
+  const provinceOptions = useMemo(
+    () => toSelectableLguOptions(filteredProvinces, provinceId),
+    [filteredProvinces, provinceId]
+  );
+  const parentLguOptions = useMemo(
+    () => toSelectableLguOptions(parentOptions, parentId),
+    [parentId, parentOptions]
+  );
 
   async function handleSave() {
     if (!lgu) return;
@@ -280,9 +316,14 @@ export default function EditLguModal({
                     {lgu.type === "barangay" ? (
                       <SelectItem value="all">All regions</SelectItem>
                     ) : null}
-                    {regions.map((row) => (
-                      <SelectItem key={row.id} value={row.id}>
-                        {row.name}
+                    {regionOptions.map((option) => (
+                      <SelectItem
+                        key={option.id}
+                        value={option.id}
+                        disabled={option.disabled}
+                        className={option.disabled ? "text-slate-400" : undefined}
+                      >
+                        {option.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -325,9 +366,14 @@ export default function EditLguModal({
                     {lgu.type === "barangay" ? (
                       <SelectItem value="all">All provinces</SelectItem>
                     ) : null}
-                    {filteredProvinces.map((row) => (
-                      <SelectItem key={row.id} value={row.id}>
-                        {row.name}
+                    {provinceOptions.map((option) => (
+                      <SelectItem
+                        key={option.id}
+                        value={option.id}
+                        disabled={option.disabled}
+                        className={option.disabled ? "text-slate-400" : undefined}
+                      >
+                        {option.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -378,9 +424,14 @@ export default function EditLguModal({
                       <SelectValue placeholder="Select parent city/municipality" />
                     </SelectTrigger>
                     <SelectContent>
-                      {parentOptions.map((row) => (
-                        <SelectItem key={row.id} value={row.id}>
-                          {row.name}
+                      {parentLguOptions.map((option) => (
+                        <SelectItem
+                          key={option.id}
+                          value={option.id}
+                          disabled={option.disabled}
+                          className={option.disabled ? "text-slate-400" : undefined}
+                        >
+                          {option.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
