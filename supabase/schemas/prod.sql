@@ -1861,6 +1861,55 @@ $$;
 ALTER FUNCTION "public"."feedback_enforce_parent_target"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."get_profile_delete_blockers"("p_profile_id" "uuid") RETURNS TABLE("blocker" "text", "row_count" bigint)
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'pg_catalog', 'public'
+    AS $$
+  with blockers as (
+    select 'uploaded_files'::text as blocker, count(*)::bigint as row_count
+    from public.uploaded_files uf
+    where uf.uploaded_by = p_profile_id
+
+    union all
+
+    select 'aip_reviews'::text as blocker, count(*)::bigint as row_count
+    from public.aip_reviews ar
+    where ar.reviewer_id = p_profile_id
+
+    union all
+
+    select 'project_updates'::text as blocker, count(*)::bigint as row_count
+    from public.project_updates pu
+    where pu.posted_by = p_profile_id
+  )
+  select b.blocker, b.row_count
+  from blockers b
+  where b.row_count > 0
+  order by b.blocker;
+$$;
+
+
+ALTER FUNCTION "public"."get_profile_delete_blockers"("p_profile_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."get_published_aip_file_totals"() RETURNS TABLE("aip_id" "uuid", "file_total_investment_program" numeric)
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'pg_catalog', 'public'
+    AS $$
+  select
+    at.aip_id,
+    max(at.total_investment_program)::numeric as file_total_investment_program
+  from public.aip_totals at
+  join public.aips a on a.id = at.aip_id
+  where at.source_label = 'total_investment_program'
+    and a.status = 'published'
+  group by at.aip_id
+$$;
+
+
+ALTER FUNCTION "public"."get_published_aip_file_totals"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."get_top_projects"("p_limit" integer DEFAULT 10, "p_fiscal_year" integer DEFAULT NULL::integer, "p_barangay_id" "uuid" DEFAULT NULL::"uuid") RETURNS TABLE("line_item_id" "uuid", "aip_id" "uuid", "fiscal_year" integer, "barangay_id" "uuid", "aip_ref_code" "text", "program_project_title" "text", "fund_source" "text", "start_date" "date", "end_date" "date", "total" numeric, "page_no" integer, "row_no" integer, "table_no" integer)
     LANGUAGE "sql" STABLE SECURITY DEFINER
     SET "search_path" TO 'pg_catalog', 'public'
@@ -4049,6 +4098,107 @@ CREATE OR REPLACE VIEW "public"."v_aip_public_status" WITH ("security_invoker"='
 ALTER VIEW "public"."v_aip_public_status" OWNER TO "postgres";
 
 
+CREATE OR REPLACE VIEW "public"."v_citizen_dashboard_published_rollups" WITH ("security_invoker"='true', "security_barrier"='true') AS
+ WITH "scoped_aips" AS (
+         SELECT "a"."id" AS "aip_id",
+            "a"."fiscal_year",
+            "a"."published_at",
+            "a"."updated_at",
+            "a"."created_at",
+                CASE
+                    WHEN ("a"."city_id" IS NOT NULL) THEN 'city'::"text"
+                    WHEN ("a"."barangay_id" IS NOT NULL) THEN 'barangay'::"text"
+                    WHEN ("a"."municipality_id" IS NOT NULL) THEN 'municipality'::"text"
+                    ELSE 'unknown'::"text"
+                END AS "scope_type",
+            COALESCE("a"."city_id", "a"."barangay_id", "a"."municipality_id") AS "scope_id",
+            COALESCE("c"."name", "b"."name", "m"."name", 'Unknown Scope'::"text") AS "scope_name",
+            "row_number"() OVER (PARTITION BY
+                CASE
+                    WHEN ("a"."city_id" IS NOT NULL) THEN 'city'::"text"
+                    WHEN ("a"."barangay_id" IS NOT NULL) THEN 'barangay'::"text"
+                    WHEN ("a"."municipality_id" IS NOT NULL) THEN 'municipality'::"text"
+                    ELSE 'unknown'::"text"
+                END, COALESCE("a"."city_id", "a"."barangay_id", "a"."municipality_id"), "a"."fiscal_year" ORDER BY "a"."published_at" DESC NULLS LAST, "a"."updated_at" DESC, "a"."id" DESC) AS "scope_year_rank"
+           FROM ((("public"."aips" "a"
+             LEFT JOIN "public"."cities" "c" ON (("c"."id" = "a"."city_id")))
+             LEFT JOIN "public"."barangays" "b" ON (("b"."id" = "a"."barangay_id")))
+             LEFT JOIN "public"."municipalities" "m" ON (("m"."id" = "a"."municipality_id")))
+          WHERE (("a"."status" = 'published'::"public"."aip_status") AND (("a"."city_id" IS NOT NULL) OR ("a"."barangay_id" IS NOT NULL) OR ("a"."municipality_id" IS NOT NULL)))
+        ), "project_rollups" AS (
+         SELECT "p"."aip_id",
+            ("count"(*))::integer AS "project_count",
+            COALESCE("sum"(COALESCE("p"."total", (0)::numeric)), (0)::numeric) AS "project_total_budget",
+            COALESCE("sum"(
+                CASE
+                    WHEN ("p"."sector_code" ~~ '1000%'::"text") THEN COALESCE("p"."total", (0)::numeric)
+                    ELSE (0)::numeric
+                END), (0)::numeric) AS "sector_1000_total",
+            COALESCE("sum"(
+                CASE
+                    WHEN ("p"."sector_code" ~~ '3000%'::"text") THEN COALESCE("p"."total", (0)::numeric)
+                    ELSE (0)::numeric
+                END), (0)::numeric) AS "sector_3000_total",
+            COALESCE("sum"(
+                CASE
+                    WHEN ("p"."sector_code" ~~ '8000%'::"text") THEN COALESCE("p"."total", (0)::numeric)
+                    ELSE (0)::numeric
+                END), (0)::numeric) AS "sector_8000_total",
+            COALESCE("sum"(
+                CASE
+                    WHEN (("p"."sector_code" IS NULL) OR (("p"."sector_code" !~~ '1000%'::"text") AND ("p"."sector_code" !~~ '3000%'::"text") AND ("p"."sector_code" !~~ '8000%'::"text"))) THEN COALESCE("p"."total", (0)::numeric)
+                    ELSE (0)::numeric
+                END), (0)::numeric) AS "sector_9000_total",
+            ("count"(*) FILTER (WHERE ("p"."category" = 'health'::"public"."project_category")))::integer AS "health_project_count",
+            COALESCE("sum"(
+                CASE
+                    WHEN ("p"."category" = 'health'::"public"."project_category") THEN COALESCE("p"."total", (0)::numeric)
+                    ELSE (0)::numeric
+                END), (0)::numeric) AS "health_project_total",
+            ("count"(*) FILTER (WHERE ("p"."category" = 'infrastructure'::"public"."project_category")))::integer AS "infrastructure_project_count",
+            COALESCE("sum"(
+                CASE
+                    WHEN ("p"."category" = 'infrastructure'::"public"."project_category") THEN COALESCE("p"."total", (0)::numeric)
+                    ELSE (0)::numeric
+                END), (0)::numeric) AS "infrastructure_project_total"
+           FROM "public"."projects" "p"
+          GROUP BY "p"."aip_id"
+        ), "aip_file_totals" AS (
+         SELECT "ft"."aip_id",
+            "ft"."file_total_investment_program"
+           FROM "public"."get_published_aip_file_totals"() "ft"("aip_id", "file_total_investment_program")
+        )
+ SELECT "s"."aip_id",
+    "s"."fiscal_year",
+    "s"."scope_type",
+    "s"."scope_id",
+    "s"."scope_name",
+    "s"."published_at",
+    "s"."updated_at",
+    "s"."created_at",
+    ("s"."scope_year_rank" = 1) AS "is_latest_scope_year",
+    COALESCE("pr"."project_count", 0) AS "project_count",
+    COALESCE("pr"."health_project_count", 0) AS "health_project_count",
+    COALESCE("pr"."infrastructure_project_count", 0) AS "infrastructure_project_count",
+    COALESCE("pr"."project_total_budget", (0)::numeric) AS "project_total_budget",
+    COALESCE("pr"."health_project_total", (0)::numeric) AS "health_project_total",
+    COALESCE("pr"."infrastructure_project_total", (0)::numeric) AS "infrastructure_project_total",
+    COALESCE("pr"."sector_1000_total", (0)::numeric) AS "sector_1000_total",
+    COALESCE("pr"."sector_3000_total", (0)::numeric) AS "sector_3000_total",
+    COALESCE("pr"."sector_8000_total", (0)::numeric) AS "sector_8000_total",
+    COALESCE("pr"."sector_9000_total", (0)::numeric) AS "sector_9000_total",
+        CASE
+            WHEN (("aft"."file_total_investment_program" IS NOT NULL) AND ("aft"."file_total_investment_program" > (0)::numeric) AND (COALESCE("pr"."project_total_budget", (0)::numeric) > "aft"."file_total_investment_program")) THEN COALESCE("pr"."project_total_budget", (0)::numeric)
+            ELSE COALESCE("aft"."file_total_investment_program", "pr"."project_total_budget", (0)::numeric)
+        END AS "total_budget"
+   FROM (("scoped_aips" "s"
+     LEFT JOIN "project_rollups" "pr" ON (("pr"."aip_id" = "s"."aip_id")))
+     LEFT JOIN "aip_file_totals" "aft" ON (("aft"."aip_id" = "s"."aip_id")));
+
+
+ALTER VIEW "public"."v_citizen_dashboard_published_rollups" OWNER TO "postgres";
+
+
 ALTER TABLE ONLY "app"."settings"
     ADD CONSTRAINT "settings_pkey" PRIMARY KEY ("key");
 
@@ -4414,6 +4564,14 @@ CREATE INDEX "idx_aips_municipality_scope_order" ON "public"."aips" USING "btree
 
 
 
+CREATE INDEX "idx_aips_published_barangay_fiscal_pub_updated" ON "public"."aips" USING "btree" ("barangay_id", "fiscal_year" DESC, "published_at" DESC, "updated_at" DESC, "id" DESC) WHERE (("status" = 'published'::"public"."aip_status") AND ("barangay_id" IS NOT NULL));
+
+
+
+CREATE INDEX "idx_aips_published_city_fiscal_pub_updated" ON "public"."aips" USING "btree" ("city_id", "fiscal_year" DESC, "published_at" DESC, "updated_at" DESC, "id" DESC) WHERE (("status" = 'published'::"public"."aip_status") AND ("city_id" IS NOT NULL));
+
+
+
 CREATE INDEX "idx_aips_published_fiscal_year" ON "public"."aips" USING "btree" ("fiscal_year") WHERE ("status" = 'published'::"public"."aip_status");
 
 
@@ -4582,6 +4740,10 @@ CREATE INDEX "idx_notifications_unread" ON "public"."notifications" USING "btree
 
 
 
+CREATE INDEX "idx_profiles_active_citizen_barangay" ON "public"."profiles" USING "btree" ("barangay_id") WHERE (("role" = 'citizen'::"public"."role_type") AND ("is_active" = true) AND ("barangay_id" IS NOT NULL));
+
+
+
 CREATE INDEX "idx_profiles_barangay_id" ON "public"."profiles" USING "btree" ("barangay_id");
 
 
@@ -4634,6 +4796,10 @@ CREATE INDEX "idx_project_updates_project_status_created_id" ON "public"."projec
 
 
 
+CREATE INDEX "idx_projects_aip_category_total_id" ON "public"."projects" USING "btree" ("aip_id", "category", "total" DESC, "id");
+
+
+
 CREATE INDEX "idx_projects_aip_created_id" ON "public"."projects" USING "btree" ("aip_id", "created_at" DESC, "id");
 
 
@@ -4643,6 +4809,10 @@ CREATE INDEX "idx_projects_aip_id" ON "public"."projects" USING "btree" ("aip_id
 
 
 CREATE INDEX "idx_projects_aip_id_id" ON "public"."projects" USING "btree" ("aip_id", "id");
+
+
+
+CREATE INDEX "idx_projects_aip_total_ref_id" ON "public"."projects" USING "btree" ("aip_id", "total" DESC, "aip_ref_code", "id");
 
 
 
@@ -6415,6 +6585,18 @@ GRANT ALL ON FUNCTION "public"."feedback_enforce_parent_target"() TO "service_ro
 
 
 
+REVOKE ALL ON FUNCTION "public"."get_profile_delete_blockers"("p_profile_id" "uuid") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."get_profile_delete_blockers"("p_profile_id" "uuid") TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."get_published_aip_file_totals"() FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."get_published_aip_file_totals"() TO "anon";
+GRANT ALL ON FUNCTION "public"."get_published_aip_file_totals"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_published_aip_file_totals"() TO "service_role";
+
+
+
 REVOKE ALL ON FUNCTION "public"."get_top_projects"("p_limit" integer, "p_fiscal_year" integer, "p_barangay_id" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."get_top_projects"("p_limit" integer, "p_fiscal_year" integer, "p_barangay_id" "uuid") TO "service_role";
 GRANT ALL ON FUNCTION "public"."get_top_projects"("p_limit" integer, "p_fiscal_year" integer, "p_barangay_id" "uuid") TO "authenticated";
@@ -6822,6 +7004,12 @@ GRANT ALL ON TABLE "public"."uploaded_files" TO "service_role";
 GRANT ALL ON TABLE "public"."v_aip_public_status" TO "anon";
 GRANT ALL ON TABLE "public"."v_aip_public_status" TO "authenticated";
 GRANT ALL ON TABLE "public"."v_aip_public_status" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."v_citizen_dashboard_published_rollups" TO "anon";
+GRANT ALL ON TABLE "public"."v_citizen_dashboard_published_rollups" TO "authenticated";
+GRANT ALL ON TABLE "public"."v_citizen_dashboard_published_rollups" TO "service_role";
 
 
 
