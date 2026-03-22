@@ -8,7 +8,7 @@ This folder contains Playwright end-to-end tests for ISO/IEC 25010 evidence gene
 ## Prerequisites
 
 - Install dependencies in `website/`
-- Staging dataset is freshly reseeded before each run
+- Staging dataset includes the dedicated e2e fixture tuple (`E2E_AIP_RESET_BARANGAY_ID` + `E2E_AIP_RESET_FISCAL_YEAR`)
 - Distinct valid PDF files per project are available to avoid duplicate SHA-256 upload rejection
 
 ## Required Environment Variables
@@ -27,6 +27,14 @@ Optional:
 
 - `E2E_STORAGE_STATE_DIR` (default: `website/.playwright/.auth`)
 - `E2E_COMMIT_SHA` (falls back to `GITHUB_SHA` for matrix)
+- `E2E_AIP_RESET_ENDPOINT` (default: `/api/internal/e2e/reset-aip`)
+
+Staging fixture reset variables (required when `E2E_AIP_RESET_ENABLED=true`):
+
+- `E2E_AIP_RESET_ENABLED` (`true` or `false`)
+- `E2E_AIP_RESET_TOKEN`
+- `E2E_AIP_RESET_BARANGAY_ID`
+- `E2E_AIP_RESET_FISCAL_YEAR`
 
 ## Project-Specific Inputs
 
@@ -63,25 +71,18 @@ Shared scenario now (staging snapshot, March 11, 2026):
 - `E2E_SCENARIO_IPHONE13=tests/e2e/scenarios/scenario.staging.shared.json`
 
 Note: this shared scenario is intended for the current staging snapshot and smoke execution.  
-Because all projects mutate the same AIP workflow entities, a full 4-project run can conflict unless staging is reseeded between projects or 4 isolated scenario files are prepared.
+The canonical flow includes guarded pre-clean and post-clean against the staging fixture tuple so the same published fixture AIP can be reused between runs.
 
 ## Scenario Contract
 
 A scenario file must include:
 
 - `aipWorkflow.uploadFiscalYear`
-- `aipWorkflow.submissionAipId`
-- `aipWorkflow.publishedAipId`
 - `aipWorkflow.revisionComment`
 - `aipWorkflow.resubmissionReply`
 - `citizen.feedbackMessage`
 - `admin.usageControls.chatbotMaxRequests`
 - `admin.usageControls.chatbotTimeWindow` (`per_hour` or `per_day`)
-- `admin.createLguAccount.fullName`
-- `admin.createLguAccount.email`
-- `admin.createLguAccount.role` (`barangay_official`, `city_official`, `municipal_official`)
-- `admin.createLguAccount.lguKey` (format: `<scopeType>:<scopeId>`)
-- `admin.addLgu.*` (type/name/code plus optional dependent IDs)
 
 ## Run Commands
 
@@ -107,14 +108,19 @@ npm run e2e:report
 
 ## Workflows Covered
 
-1. Barangay upload -> extraction complete -> validation visible
+1. Barangay upload -> extraction complete -> run query clears -> validation visible
 2. Barangay submit AIP to city
 3. City request revision
-4. Barangay resubmit revised AIP
+4. Barangay sees revision note -> replies -> resubmits
 5. City approve/publish AIP
 6. Citizen browse published AIP details/projects/budget allocation
 7. Citizen submit feedback
-8. Admin save usage controls and verify value
-9. Admin audit logs page + recent entries
-10. Admin create LGU account (idempotent existing-or-created)
-11. Admin add LGU entity (idempotent existing-or-created)
+8. Admin update chatbot usage controls and verify persisted effect
+9. Admin verify audit logs for moderation/publish/feedback/usage-control actions
+
+## Suite Structure
+
+- Canonical serial spec: `tests/e2e/workflows-happy-path.spec.ts`
+- Cleanup wiring:
+  - `beforeAll`: staging fixture pre-clean (`/api/internal/e2e/reset-aip`)
+  - `afterAll`: best-effort staging fixture cleanup after audit-log assertions

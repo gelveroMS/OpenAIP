@@ -81,6 +81,18 @@ export function getE2EBaseUrl(): string {
   return normalizeEnvValue("E2E_BASE_URL") ?? "http://localhost:3000";
 }
 
+export function isE2EAipResetEnabled(): boolean {
+  return normalizeEnvValue("E2E_AIP_RESET_ENABLED")?.toLowerCase() === "true";
+}
+
+export function getE2EResetToken(): string | null {
+  return normalizeEnvValue("E2E_AIP_RESET_TOKEN");
+}
+
+export function getE2EResetEndpoint(): string {
+  return normalizeEnvValue("E2E_AIP_RESET_ENDPOINT") ?? "/api/internal/e2e/reset-aip";
+}
+
 export function getStorageStateDir(): string {
   const configured = normalizeEnvValue("E2E_STORAGE_STATE_DIR") ?? ".playwright/.auth";
   if (path.isAbsolute(configured)) return configured;
