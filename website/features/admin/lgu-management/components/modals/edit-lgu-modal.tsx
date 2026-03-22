@@ -30,6 +30,7 @@ type Props = {
   lgu: LguRecord | null;
   lgus: LguRecord[];
   onSave: (id: string, patch: UpdateLguInput, nextStatus: LguStatus) => Promise<void>;
+  submitError: string | null;
 };
 
 function psgcLength(type: LguRecord["type"]) {
@@ -62,6 +63,7 @@ export default function EditLguModal({
   lgu,
   lgus,
   onSave,
+  submitError,
 }: Props) {
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
@@ -212,6 +214,8 @@ export default function EditLguModal({
     try {
       await onSave(lgu.id, patch, status);
       onOpenChange(false);
+    } catch {
+      // Parent view handles mutation errors and passes them via submitError.
     } finally {
       setSubmitting(false);
     }
@@ -418,7 +422,16 @@ export default function EditLguModal({
               </div>
             </div>
 
-            <div className="pt-2 flex items-center gap-3">
+            {submitError ? (
+              <div
+                className="pt-2 text-sm text-rose-600"
+                data-testid="admin-edit-lgu-error"
+              >
+                {submitError}
+              </div>
+            ) : null}
+
+            <div className="flex items-center gap-3">
               <Button
                 className="flex-1 bg-teal-700 hover:bg-teal-800"
                 onClick={handleSave}

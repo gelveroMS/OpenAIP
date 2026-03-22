@@ -8,6 +8,7 @@ import AddLguModal from "../components/modals/add-lgu-modal";
 import DeactivateLguModal from "../components/modals/deactivate-lgu-modal";
 import EditLguModal from "../components/modals/edit-lgu-modal";
 import { useLguManagement } from "../hooks/use-lgu-management";
+import { mapLguDeactivationError } from "../utils/map-lgu-deactivation-error";
 
 export default function LguManagementView() {
   const {
@@ -37,6 +38,35 @@ export default function LguManagementView() {
   } = useLguManagement();
 
   const [inlineError, setInlineError] = useState<string | null>(null);
+  const [deactivateSubmitting, setDeactivateSubmitting] = useState(false);
+  const [deactivateSubmitError, setDeactivateSubmitError] = useState<string | null>(
+    null
+  );
+  const [editSubmitError, setEditSubmitError] = useState<string | null>(null);
+
+  function openEditWithReset(id: string) {
+    setEditSubmitError(null);
+    openEdit(id);
+  }
+
+  function openDeactivateWithReset(id: string) {
+    setDeactivateSubmitError(null);
+    openDeactivate(id);
+  }
+
+  function handleEditOpenChange(open: boolean) {
+    setEditOpen(open);
+    if (!open) {
+      setEditSubmitError(null);
+    }
+  }
+
+  function handleDeactivateOpenChange(open: boolean) {
+    setDeactivateOpen(open);
+    if (!open) {
+      setDeactivateSubmitError(null);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -59,8 +89,8 @@ export default function LguManagementView() {
               statusFilter={statusFilter}
               onStatusChange={setStatusFilter}
               rows={filteredLgus}
-              onEdit={(id) => openEdit(id)}
-              onDeactivate={(id) => openDeactivate(id)}
+              onEdit={(id) => openEditWithReset(id)}
+              onDeactivate={(id) => openDeactivateWithReset(id)}
               onActivate={async (id) => {
                 try {
                   await setStatus(id, "active");
@@ -96,20 +126,31 @@ export default function LguManagementView() {
 
       <EditLguModal
         open={editOpen}
-        onOpenChange={setEditOpen}
+        onOpenChange={handleEditOpenChange}
         lgu={selected}
         lgus={lgus}
+        submitError={editSubmitError}
         onSave={async (id, patch, nextStatus) => {
+          const isDeactivationAttempt =
+            Boolean(selected) &&
+            selected.status !== nextStatus &&
+            nextStatus === "deactivated";
+
           setInlineError(null);
+          setEditSubmitError(null);
           try {
             await editLgu(id, patch);
             if (selected && selected.status !== nextStatus) {
               await setStatus(id, nextStatus);
             }
           } catch (err) {
-            setInlineError(
-              err instanceof Error ? err.message : "Failed to update LGU."
-            );
+            if (isDeactivationAttempt) {
+              setEditSubmitError(mapLguDeactivationError(err));
+            } else {
+              setInlineError(
+                err instanceof Error ? err.message : "Failed to update LGU."
+              );
+            }
             throw err;
           }
         }}
@@ -117,17 +158,20 @@ export default function LguManagementView() {
 
       <DeactivateLguModal
         open={deactivateOpen}
-        onOpenChange={setDeactivateOpen}
+        onOpenChange={handleDeactivateOpenChange}
         lgu={selected}
+        loading={deactivateSubmitting}
+        submitError={deactivateSubmitError}
         onConfirm={async (id) => {
-          setInlineError(null);
+          setDeactivateSubmitError(null);
+          setDeactivateSubmitting(true);
           try {
             await setStatus(id, "deactivated");
+            handleDeactivateOpenChange(false);
           } catch (err) {
-            setInlineError(
-              err instanceof Error ? err.message : "Failed to deactivate LGU."
-            );
-            throw err;
+            setDeactivateSubmitError(mapLguDeactivationError(err));
+          } finally {
+            setDeactivateSubmitting(false);
           }
         }}
       />
