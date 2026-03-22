@@ -132,7 +132,7 @@ export default function LguManagementView() {
         submitError={editSubmitError}
         onSave={async (id, patch, nextStatus) => {
           const isDeactivationAttempt =
-            Boolean(selected) &&
+            selected?.status !== undefined &&
             selected.status !== nextStatus &&
             nextStatus === "deactivated";
 
