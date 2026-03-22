@@ -5,7 +5,7 @@ import CitySubmissionReviewDetail from "./city-submission-review-detail";
 import type { AipHeader } from "@/features/aip/types";
 import type { AipRevisionFeedbackCycle } from "@/lib/repos/aip/repo";
 import type { LatestReview } from "@/lib/repos/submissions/repo";
-import { claimReviewAction } from "../actions/submissionsReview.actions";
+import { claimReviewAction, publishAipAction } from "../actions/submissionsReview.actions";
 
 const mockReplace = vi.fn();
 const mockPush = vi.fn();
@@ -44,7 +44,22 @@ vi.mock("@/features/aip/views/aip-details-table", () => ({
 }));
 
 vi.mock("../components/PublishSuccessCard", () => ({
-  PublishSuccessCard: () => <div data-testid="publish-success-card" />,
+  PublishSuccessCard: ({
+    onBackToSubmissions,
+    onViewPublishedAip,
+  }: {
+    onBackToSubmissions: () => void;
+    onViewPublishedAip: () => void;
+  }) => (
+    <div data-testid="publish-success-card">
+      <button type="button" onClick={onBackToSubmissions}>
+        Back to Submissions
+      </button>
+      <button type="button" onClick={onViewPublishedAip}>
+        View Published AIP
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock("../components/city-revision-feedback-history-card", () => ({
@@ -59,6 +74,7 @@ vi.mock("../actions/submissionsReview.actions", () => ({
 }));
 
 const mockClaimReviewAction = vi.mocked(claimReviewAction);
+const mockPublishAipAction = vi.mocked(publishAipAction);
 
 function baseAip(overrides: Partial<AipHeader> = {}): AipHeader {
   return {
@@ -90,6 +106,7 @@ describe("CitySubmissionReviewDetail sidebar behavior", () => {
     mockPush.mockReset();
     mockRefresh.mockReset();
     mockClaimReviewAction.mockResolvedValue({ ok: true });
+    mockPublishAipAction.mockResolvedValue({ ok: true });
     mockToCityRevisionFeedbackCycles.mockReset();
     mockToCityRevisionFeedbackCycles.mockReturnValue([]);
   });
@@ -265,5 +282,41 @@ describe("CitySubmissionReviewDetail sidebar behavior", () => {
     expect(mockClaimReviewAction).toHaveBeenCalledWith({ aipId: "aip-001" });
     expect(mockReplace).toHaveBeenCalledWith("/city/submissions/aip/aip-001?mode=review");
     expect(mockRefresh).toHaveBeenCalled();
+  });
+
+  it("exits the publish success card when clicking view published aip", async () => {
+    const latestReview: LatestReview = {
+      reviewerId: "city-user-001",
+      reviewerName: "City Reviewer",
+      action: "claim_review",
+      note: null,
+      createdAt: "2026-01-01T08:00:00.000Z",
+    };
+
+    render(
+      <CitySubmissionReviewDetail
+        aip={baseAip({ status: "under_review" })}
+        latestReview={latestReview}
+        actorUserId="city-user-001"
+        actorRole="city_official"
+        mode="review"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Publish AIP" }));
+    fireEvent.click(await screen.findByTestId("city-publish-confirm-button"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("city-publish-success-card")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "View Published AIP" }));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("city-publish-success-card")).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("Review Actions")).toBeInTheDocument();
+    expect(mockReplace).toHaveBeenCalledWith("/city/submissions/aip/aip-001?mode=review&result=published");
+    expect(mockReplace).toHaveBeenCalledWith("/city/submissions/aip/aip-001");
   });
 });
