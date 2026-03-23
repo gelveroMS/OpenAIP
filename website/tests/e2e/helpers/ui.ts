@@ -19,9 +19,15 @@ function signInPathPattern(role: LguRole): RegExp {
 
 async function assertLguAuthenticated(page: Page, role: LguRole): Promise<void> {
   await expect(page).not.toHaveURL(signInPathPattern(role), { timeout: 30_000 });
-  await expect(page.getByTestId(LGU_SIDEBAR_TEST_ID[role])).toBeVisible({
-    timeout: 30_000,
-  });
+  await expect(page).toHaveURL(new RegExp(`/${role}(?:$|[/?#])`), { timeout: 30_000 });
+
+  // On mobile layouts the sidebar can be hidden/collapsed.
+  // Treat a visible sidebar as additional confirmation, but do not require it.
+  const sidebar = page.getByTestId(LGU_SIDEBAR_TEST_ID[role]).first();
+  const sidebarVisible = await sidebar.isVisible().catch(() => false);
+  if (sidebarVisible) {
+    await expect(sidebar).toBeVisible({ timeout: 30_000 });
+  }
 }
 
 export async function withRolePage<T>(

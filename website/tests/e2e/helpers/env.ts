@@ -16,13 +16,6 @@ const SCENARIO_ENV_BY_PROJECT: Record<ProjectName, string> = {
   "iphone13-mobile": "E2E_SCENARIO_IPHONE13",
 };
 
-const PDF_ENV_BY_PROJECT: Record<ProjectName, string> = {
-  "chromium-desktop": "E2E_AIP_PDF_PATH_CHROMIUM",
-  "firefox-desktop": "E2E_AIP_PDF_PATH_FIREFOX",
-  "pixel5-mobile": "E2E_AIP_PDF_PATH_PIXEL5",
-  "iphone13-mobile": "E2E_AIP_PDF_PATH_IPHONE13",
-};
-
 const ROLE_ENV: Record<RoleKey, { email: string; password: string }> = {
   citizen: {
     email: "E2E_CITIZEN_EMAIL",
@@ -126,8 +119,7 @@ export function getScenarioPathForProject(name: string): string {
 }
 
 export function getPdfPathForProject(name: string): string {
-  const projectName = asProjectName(name);
-  const envName = PDF_ENV_BY_PROJECT[projectName];
-  const raw = requireEnv(envName);
+  asProjectName(name);
+  const raw = requireEnv("E2E_AIP_PDF_PATH_CHROMIUM");
   return path.isAbsolute(raw) ? raw : path.resolve(WEBSITE_ROOT, raw);
 }
