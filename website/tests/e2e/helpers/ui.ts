@@ -1,4 +1,4 @@
-import { expect, type Browser, type Page } from "@playwright/test";
+import { expect, type APIResponse, type Browser, type Page } from "@playwright/test";
 import { getE2EBaseUrl, getStorageStatePath, type RoleKey } from "./env";
 import { loginAsRole } from "./auth";
 
@@ -15,6 +15,139 @@ const LGU_SIDEBAR_TEST_ID: Record<LguRole, string> = {
 
 function signInPathPattern(role: LguRole): RegExp {
   return new RegExp(`/${role}/sign-in(?:$|[/?#])`);
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function asStringOrNull(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function toStatusMessage(payload: Record<string, unknown> | null, rawBody: string): string {
+  const payloadMessage =
+    asStringOrNull(payload?.message) ??
+    asStringOrNull(payload?.error) ??
+    asStringOrNull(payload?.errorMessage);
+  return payloadMessage ?? (rawBody.trim() || "No response body.");
+}
+
+async function parseResponseBody(
+  response: APIResponse
+): Promise<{ payload: Record<string, unknown> | null; rawBody: string }> {
+  const rawBody = await response.text();
+  if (!rawBody.trim()) {
+    return { payload: null, rawBody };
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(rawBody);
+    return { payload: asRecord(parsed), rawBody };
+  } catch {
+    return { payload: null, rawBody };
+  }
+}
+
+export type WaitForRunSettledInput = {
+  page: Page;
+  role: LguRole;
+  aipId: string;
+  runId?: string | null;
+  timeoutMs: number;
+  pollIntervalMs?: number;
+};
+
+export async function waitForRunSettled(input: WaitForRunSettledInput): Promise<void> {
+  const aipId = input.aipId.trim();
+  if (!aipId) {
+    throw new Error("waitForRunSettled requires a non-empty aipId.");
+  }
+
+  const runId = asStringOrNull(input.runId) ?? null;
+  const pollIntervalMs = input.pollIntervalMs ?? 1_500;
+  const timeoutMs = input.timeoutMs;
+  const deadline = Date.now() + timeoutMs;
+  let lastTransientError: string | null = null;
+
+  while (Date.now() < deadline) {
+    if (runId) {
+      const runStatusPath = `/api/${input.role}/aips/runs/${encodeURIComponent(runId)}`;
+      const runStatusResponse = await input.page.request.get(runStatusPath);
+      const { payload, rawBody } = await parseResponseBody(runStatusResponse);
+
+      if (!runStatusResponse.ok()) {
+        lastTransientError =
+          `GET ${runStatusPath} -> ${runStatusResponse.status()} ${runStatusResponse.statusText()} ` +
+          `(${toStatusMessage(payload, rawBody)})`;
+        await input.page.waitForTimeout(pollIntervalMs);
+        continue;
+      }
+
+      const status = asStringOrNull(payload?.status);
+      const stage = asStringOrNull(payload?.stage) ?? "unknown";
+      const errorMessage = asStringOrNull(payload?.errorMessage);
+
+      if (status === "queued" || status === "running") {
+        await input.page.waitForTimeout(pollIntervalMs);
+        continue;
+      }
+
+      if (status === "succeeded") {
+        return;
+      }
+
+      if (status === "failed") {
+        throw new Error(
+          `Extraction run ${runId} failed at stage "${stage}": ${errorMessage ?? "No error message provided."}`
+        );
+      }
+
+      lastTransientError = `Unexpected run status "${status ?? "unknown"}" for run ${runId}.`;
+      await input.page.waitForTimeout(pollIntervalMs);
+      continue;
+    }
+
+    const activeRunPath = `/api/${input.role}/aips/${encodeURIComponent(aipId)}/runs/active`;
+    const activeRunResponse = await input.page.request.get(activeRunPath);
+    const { payload, rawBody } = await parseResponseBody(activeRunResponse);
+
+    if (!activeRunResponse.ok()) {
+      lastTransientError =
+        `GET ${activeRunPath} -> ${activeRunResponse.status()} ${activeRunResponse.statusText()} ` +
+        `(${toStatusMessage(payload, rawBody)})`;
+      await input.page.waitForTimeout(pollIntervalMs);
+      continue;
+    }
+
+    const failedRun = asRecord(payload?.failedRun);
+    if (failedRun) {
+      const failedRunId = asStringOrNull(failedRun.runId) ?? "unknown";
+      const failedStage = asStringOrNull(failedRun.stage) ?? "unknown";
+      const failedMessage = asStringOrNull(failedRun.errorMessage);
+      throw new Error(
+        `Extraction run ${failedRunId} failed at stage "${failedStage}": ${failedMessage ?? "No error message provided."}`
+      );
+    }
+
+    const activeRun = asRecord(payload?.run);
+    if (activeRun) {
+      await input.page.waitForTimeout(pollIntervalMs);
+      continue;
+    }
+
+    return;
+  }
+
+  const timeoutDetails = lastTransientError
+    ? ` Last transient response: ${lastTransientError}`
+    : "";
+  throw new Error(
+    `Timed out waiting for extraction run settlement after ${timeoutMs}ms for AIP ${aipId}.${timeoutDetails}`
+  );
 }
 
 async function assertLguAuthenticated(page: Page, role: LguRole): Promise<void> {

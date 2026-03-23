@@ -32,14 +32,14 @@ for (const envName of REQUIRED_ROLE_CREDENTIAL_ENV) {
 
 const urls = [
   buildUrl(baseUrl, "/"),
+  buildUrl(baseUrl, "/barangay/aips"),
+  buildUrl(baseUrl, "/city/aips"),
+  buildUrl(baseUrl, "/admin/usage-controls"),
   buildUrl(baseUrl, "/aips"),
   buildUrl(baseUrl, "/budget-allocation"),
   buildUrl(baseUrl, "/projects"),
   buildUrl(baseUrl, "/ai-assistant"),
   buildUrl(baseUrl, "/about"),
-  buildUrl(baseUrl, "/barangay/aips"),
-  buildUrl(baseUrl, "/city/aips"),
-  buildUrl(baseUrl, "/admin/usage-controls"),
 ];
 
 module.exports = {

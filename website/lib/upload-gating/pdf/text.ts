@@ -3,7 +3,6 @@ import {
   getPdfSourceErrorDiagnostics,
   loadPdfJsModule,
   type PdfLoadingTask,
-  type PdfTextContent,
   PdfInspectError,
 } from "./inspect";
 

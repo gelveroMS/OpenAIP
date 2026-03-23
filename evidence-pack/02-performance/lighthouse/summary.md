@@ -1,6 +1,6 @@
 # Lighthouse CI Summary
 
-Generated: 2026-03-23T11:56:59.979Z
+Generated: 2026-03-23T12:04:16.066Z
 Base URL: https://open-aip-theta.vercel.app
 
 No Lighthouse JSON reports were found in `evidence-pack/02-performance/lighthouse/`.
