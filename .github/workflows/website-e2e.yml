@@ -1,11 +1,14 @@
 name: Website E2E
 
 on:
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       e2e_base_url:
         description: "Base URL to test (staging or preview)"
-        required: true
+        required: false
         type: string
       e2e_commit_sha:
         description: "Optional commit hash for compatibility matrix"
@@ -35,11 +38,20 @@ jobs:
         working-directory: website
         run: npm run e2e:install
 
+      - name: Validate E2E base URL
+        env:
+          E2E_BASE_URL: ${{ inputs.e2e_base_url || vars.E2E_BASE_URL }}
+        run: |
+          if [ -z "$E2E_BASE_URL" ]; then
+            echo "E2E_BASE_URL is required. Set workflow_dispatch input 'e2e_base_url' or repo variable 'E2E_BASE_URL'."
+            exit 1
+          fi
+
       - name: Run Website E2E
         working-directory: website
         env:
-          E2E_BASE_URL: ${{ inputs.e2e_base_url }}
-          E2E_COMMIT_SHA: ${{ inputs.e2e_commit_sha }}
+          E2E_BASE_URL: ${{ inputs.e2e_base_url || vars.E2E_BASE_URL }}
+          E2E_COMMIT_SHA: ${{ inputs.e2e_commit_sha || github.sha }}
 
           E2E_CITIZEN_EMAIL: ${{ secrets.E2E_CITIZEN_EMAIL }}
           E2E_CITIZEN_PASSWORD: ${{ secrets.E2E_CITIZEN_PASSWORD }}
@@ -50,15 +62,21 @@ jobs:
           E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
           E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
 
-          E2E_SCENARIO_CHROMIUM: ${{ secrets.E2E_SCENARIO_CHROMIUM }}
-          E2E_SCENARIO_FIREFOX: ${{ secrets.E2E_SCENARIO_FIREFOX }}
-          E2E_SCENARIO_PIXEL5: ${{ secrets.E2E_SCENARIO_PIXEL5 }}
-          E2E_SCENARIO_IPHONE13: ${{ secrets.E2E_SCENARIO_IPHONE13 }}
+          E2E_SCENARIO_CHROMIUM: tests/e2e/scenarios/scenario.staging.shared.json
+          E2E_SCENARIO_FIREFOX: tests/e2e/scenarios/scenario.staging.shared.json
+          E2E_SCENARIO_PIXEL5: tests/e2e/scenarios/scenario.staging.shared.json
+          E2E_SCENARIO_IPHONE13: tests/e2e/scenarios/scenario.staging.shared.json
 
-          E2E_AIP_PDF_PATH_CHROMIUM: ${{ secrets.E2E_AIP_PDF_PATH_CHROMIUM }}
-          E2E_AIP_PDF_PATH_FIREFOX: ${{ secrets.E2E_AIP_PDF_PATH_FIREFOX }}
-          E2E_AIP_PDF_PATH_PIXEL5: ${{ secrets.E2E_AIP_PDF_PATH_PIXEL5 }}
-          E2E_AIP_PDF_PATH_IPHONE13: ${{ secrets.E2E_AIP_PDF_PATH_IPHONE13 }}
+          E2E_AIP_PDF_PATH_CHROMIUM: tests/e2e/fixtures/aip-chromium.pdf
+          E2E_AIP_PDF_PATH_FIREFOX: tests/e2e/fixtures/aip-firefox.pdf
+          E2E_AIP_PDF_PATH_PIXEL5: tests/e2e/fixtures/aip-pixel5.pdf
+          E2E_AIP_PDF_PATH_IPHONE13: tests/e2e/fixtures/aip-iphone13.pdf
+
+          E2E_AIP_RESET_ENABLED: ${{ vars.E2E_AIP_RESET_ENABLED || 'false' }}
+          E2E_AIP_RESET_TOKEN: ${{ secrets.E2E_AIP_RESET_TOKEN }}
+          E2E_AIP_RESET_BARANGAY_ID: ${{ vars.E2E_AIP_RESET_BARANGAY_ID }}
+          E2E_AIP_RESET_FISCAL_YEAR: ${{ vars.E2E_AIP_RESET_FISCAL_YEAR }}
+          E2E_AIP_RESET_ENDPOINT: ${{ vars.E2E_AIP_RESET_ENDPOINT }}
         run: npm run e2e
 
       - name: Upload Playwright evidence
@@ -69,4 +87,6 @@ jobs:
           path: |
             evidence-pack/01-functional/playwright-report
             evidence-pack/03-compatibility/playwright-matrix.md
+            website/test-results/artifacts
+            website/test-results/playwright-results.json
           if-no-files-found: warn
