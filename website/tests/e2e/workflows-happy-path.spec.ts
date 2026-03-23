@@ -254,9 +254,12 @@ test.describe.serial("Canonical AIP happy path workflow", () => {
       await page.goto("/aips", { waitUntil: "domcontentloaded" });
       await expect(page).toHaveURL(/\/aips(?:$|[/?#])/);
 
-      const card = page.getByTestId(`citizen-aip-card-${aipId}`);
+      const card = page.locator(`[data-testid="citizen-aip-card-${aipId}"]:visible`).first();
       await expect(card).toBeVisible({ timeout: 30_000 });
-      await card.getByTestId(`citizen-aip-view-details-${aipId}`).click();
+      await card
+        .locator(`[data-testid="citizen-aip-view-details-${aipId}"]:visible`)
+        .first()
+        .click();
 
       await expect(page).toHaveURL(new RegExp(`/aips/${aipId}(?:$|[/?#])`));
       await expect(page.getByTestId("citizen-aip-overview-card")).toBeVisible();
