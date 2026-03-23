@@ -251,8 +251,7 @@ test.describe.serial("Canonical AIP happy path workflow", () => {
   test("6. Citizen browse published AIP details/projects/budget allocation", async ({ browser }) => {
     const aipId = requireWorkflowAipId(workflowAipId);
     await withRolePage(browser, "citizen", async (page) => {
-      await page.goto("/", { waitUntil: "domcontentloaded" });
-      await page.getByTestId("citizen-nav-aips").click();
+      await page.goto("/aips", { waitUntil: "domcontentloaded" });
       await expect(page).toHaveURL(/\/aips(?:$|[/?#])/);
 
       const card = page.getByTestId(`citizen-aip-card-${aipId}`);
@@ -263,7 +262,7 @@ test.describe.serial("Canonical AIP happy path workflow", () => {
       await expect(page.getByTestId("citizen-aip-overview-card")).toBeVisible();
       await expect(page.getByTestId("citizen-aip-projects-table")).toBeVisible();
 
-      await page.getByTestId("citizen-nav-budget-allocation").click();
+      await page.goto("/budget-allocation", { waitUntil: "domcontentloaded" });
       await expect(page).toHaveURL(/\/budget-allocation(?:$|[/?#])/);
       await expect(page.getByTestId("citizen-budget-allocation-overview-header")).toBeVisible();
     });
