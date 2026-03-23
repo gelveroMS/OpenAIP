@@ -14,7 +14,11 @@
         "e2e:install": "playwright install --with-deps",
         "e2e": "node scripts/e2e/run-e2e.mjs",
         "e2e:ui": "playwright test --ui",
-        "e2e:report": "playwright show-report ../evidence-pack/01-functional/playwright-report"
+        "e2e:report": "playwright show-report ../evidence-pack/01-functional/playwright-report",
+        "lhci": "node ./scripts/lighthouse/run-lhci.mjs",
+        "lhci:raw": "lhci autorun --config=./lighthouserc.js",
+        "lhci:summary": "node ./scripts/lighthouse/write-summary.mjs",
+        "lhci:healthcheck": "lhci healthcheck"
     },
     "dependencies": {
         "@hookform/resolvers": "^5.2.2",
@@ -47,6 +51,7 @@
         "zod": "^4.3.6"
     },
     "devDependencies": {
+        "@lhci/cli": "^0.15.1",
         "@playwright/test": "^1.51.1",
         "@tailwindcss/postcss": "^4",
         "@testing-library/jest-dom": "^6.9.1",
