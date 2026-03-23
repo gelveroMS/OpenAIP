@@ -32,7 +32,7 @@ type ProbeResponse = {
 };
 
 type ProbeSelectBuilder = {
-  limit: (count: number) => Promise<ProbeResponse>;
+  limit: (count: number) => PromiseLike<ProbeResponse>;
 };
 
 type ProbeFromBuilder = {
@@ -40,7 +40,10 @@ type ProbeFromBuilder = {
 };
 
 type ProbeClient = {
-  rpc: (name: string, args?: Record<string, unknown>) => Promise<ProbeResponse>;
+  rpc: (
+    name: string,
+    args?: Record<string, unknown>
+  ) => PromiseLike<ProbeResponse>;
   from: (relation: string) => ProbeFromBuilder;
 };
 

@@ -7,13 +7,22 @@ type PdfSourceErrorDiagnostics = {
   sourceMessage?: string;
 };
 
-type PdfDocumentHandle = {
+export type PdfTextContent = {
+  items: unknown[];
+};
+
+export type PdfPageHandle = {
+  getTextContent: () => Promise<PdfTextContent>;
+};
+
+export type PdfDocumentHandle = {
   numPages?: number | null;
+  getPage: (pageNumber: number) => Promise<PdfPageHandle>;
   cleanup: () => Promise<void> | void;
   destroy: () => Promise<void> | void;
 };
 
-type PdfLoadingTask<TDocument = PdfDocumentHandle> = {
+export type PdfLoadingTask<TDocument = PdfDocumentHandle> = {
   promise: Promise<TDocument>;
   destroy: () => Promise<void> | void;
 };
