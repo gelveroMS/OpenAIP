@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AdminAuditLogsView from "./admin-audit-logs-view";
 import type { ActivityLogRow } from "@/lib/repos/audit/types";
@@ -170,5 +171,47 @@ describe("AdminAuditLogsView", () => {
     const params = latestPushParams();
     expect(params.get("q")).toBe("feedback");
     expect(params.get("page")).toBe("1");
+  });
+
+  it("renders a human-friendly event label for previously unmapped actions", () => {
+    const hiddenFeedbackLog: ActivityLogRow = {
+      id: "audit-row-hidden-feedback",
+      actorId: "admin_001",
+      actorRole: "admin",
+      action: "feedback_hidden",
+      entityType: "feedback",
+      entityId: "feedback-hidden-1",
+      scope: {
+        scope_type: "none",
+        barangay_id: null,
+        city_id: null,
+        municipality_id: null,
+      },
+      metadata: {
+        actor_name: "System Admin",
+        actor_position: "Administrator",
+        details: "Hidden feedback due to moderation policy.",
+      },
+      createdAt: "2026-03-01T10:00:00.000Z",
+    };
+
+    render(
+      <AdminAuditLogsView
+        logs={[hiddenFeedbackLog]}
+        total={1}
+        filters={{
+          page: 1,
+          pageSize: 15,
+          role: "all",
+          year: "all",
+          event: "all",
+          q: "",
+        }}
+      />
+    );
+
+    const row = screen.getByTestId("admin-audit-row");
+    expect(within(row).getByText("Feedback Hidden")).toBeInTheDocument();
+    expect(screen.queryByText("feedback_hidden")).not.toBeInTheDocument();
   });
 });

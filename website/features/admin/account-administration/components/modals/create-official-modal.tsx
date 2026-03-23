@@ -69,7 +69,9 @@ export default function CreateOfficialModal({
 
   const filteredLgus = useMemo(() => {
     const scopeType = scopeTypeForRole(role);
-    return lguOptions.filter((option) => option.scopeType === scopeType);
+    return lguOptions.filter(
+      (option) => option.scopeType === scopeType && option.isActive
+    );
   }, [lguOptions, role]);
   const displayedError = error ?? submitError;
 

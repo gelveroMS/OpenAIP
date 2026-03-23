@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import socket
 from datetime import date, datetime
 from typing import Any
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 from openaip_pipeline.adapters.supabase.client import SupabaseRestClient
 from openaip_pipeline.adapters.supabase.dto import ExtractionRunDTO, UploadedFileDTO
@@ -27,6 +28,64 @@ STAGE_START_MESSAGES: dict[str, str] = {
     "categorize": "Starting categorization...",
 }
 SECTOR_PREFIXES: tuple[str, ...] = ("1000", "3000", "8000", "9000")
+PROGRESS_TRACKING_COLUMNS: tuple[str, ...] = (
+    "overall_progress_pct",
+    "stage_progress_pct",
+    "progress_message",
+    "progress_updated_at",
+)
+RETRYABLE_SUPABASE_HTTP_STATUS_CODES: tuple[int, ...] = (408, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524)
+
+
+class ProgressTrackingReadinessError(RuntimeError):
+    def __init__(self, *, reason_code: str, retryable: bool, message: str):
+        super().__init__(message)
+        self.reason_code = reason_code
+        self.retryable = retryable
+
+
+def _http_error_payload(error: HTTPError) -> dict[str, Any] | None:
+    payload = getattr(error, "supabase_error_payload", None)
+    return payload if isinstance(payload, dict) else None
+
+
+def _http_error_search_text(error: HTTPError) -> str:
+    chunks: list[str] = [str(error), str(error.msg)]
+    payload = _http_error_payload(error)
+    if payload:
+        chunks.extend(str(value) for value in payload.values() if value is not None)
+    raw = getattr(error, "supabase_error_raw", None)
+    if isinstance(raw, str):
+        chunks.append(raw)
+    return " ".join(chunks).lower()
+
+
+def _looks_like_missing_progress_column(error: HTTPError) -> bool:
+    if error.code != 400:
+        return False
+    payload = _http_error_payload(error)
+    payload_code = str(payload.get("code", "")).strip().upper() if payload else ""
+    text = _http_error_search_text(error)
+    has_progress_column = any(column in text for column in PROGRESS_TRACKING_COLUMNS)
+    if not has_progress_column:
+        return False
+    if payload_code in {"42703", "PGRST204"}:
+        return True
+    return any(
+        marker in text
+        for marker in (
+            "does not exist",
+            "not exist",
+            "not found",
+            "unknown column",
+            "could not find",
+            "undefined column",
+        )
+    )
+
+
+def _format_error_context(error: BaseException) -> str:
+    return f"{type(error).__name__}: {error}"
 
 
 def _clamp_pct(value: float) -> int:
@@ -226,10 +285,79 @@ class PipelineRepository:
                 order="created_at.desc",
                 limit=1,
             )
+        except HTTPError as error:
+            if _looks_like_missing_progress_column(error):
+                raise ProgressTrackingReadinessError(
+                    reason_code="PROGRESS_COLUMNS_MISSING",
+                    retryable=False,
+                    message=(
+                        "Progress tracking columns are unavailable in extraction_runs. "
+                        "Apply website/docs/sql/2026-02-19_extraction_run_progress.sql. "
+                        f"cause={_format_error_context(error)}"
+                    ),
+                ) from error
+            if error.code in (401, 403):
+                raise ProgressTrackingReadinessError(
+                    reason_code="SUPABASE_AUTH_FAILED",
+                    retryable=False,
+                    message=(
+                        "Supabase readiness check failed with authentication/authorization error. "
+                        "Verify SUPABASE_SERVICE_KEY and ensure it belongs to the same project as SUPABASE_URL. "
+                        f"cause={_format_error_context(error)}"
+                    ),
+                ) from error
+            if error.code in RETRYABLE_SUPABASE_HTTP_STATUS_CODES:
+                raise ProgressTrackingReadinessError(
+                    reason_code="SUPABASE_API_UNAVAILABLE",
+                    retryable=True,
+                    message=(
+                        f"Supabase readiness check failed with HTTP {error.code}. "
+                        f"cause={_format_error_context(error)}"
+                    ),
+                ) from error
+            raise ProgressTrackingReadinessError(
+                reason_code="PROGRESS_CHECK_FAILED",
+                retryable=False,
+                message=(
+                    f"Supabase readiness check failed with HTTP {error.code}. "
+                    f"cause={_format_error_context(error)}"
+                ),
+            ) from error
+        except (TimeoutError, socket.timeout) as error:
+            raise ProgressTrackingReadinessError(
+                reason_code="SUPABASE_API_TIMEOUT",
+                retryable=True,
+                message=(
+                    "Supabase readiness check timed out while calling the Data API. "
+                    f"cause={_format_error_context(error)}"
+                ),
+            ) from error
+        except URLError as error:
+            if isinstance(error.reason, (TimeoutError, socket.timeout)):
+                raise ProgressTrackingReadinessError(
+                    reason_code="SUPABASE_API_TIMEOUT",
+                    retryable=True,
+                    message=(
+                        "Supabase readiness check timed out while calling the Data API. "
+                        f"cause={_format_error_context(error)}"
+                    ),
+                ) from error
+            raise ProgressTrackingReadinessError(
+                reason_code="SUPABASE_NETWORK_ERROR",
+                retryable=True,
+                message=(
+                    "Supabase readiness check failed due to network connectivity/resolution error. "
+                    f"cause={_format_error_context(error)}"
+                ),
+            ) from error
         except Exception as error:
-            raise RuntimeError(
-                "Progress tracking columns are unavailable in extraction_runs. "
-                "Apply website/docs/sql/2026-02-19_extraction_run_progress.sql."
+            raise ProgressTrackingReadinessError(
+                reason_code="PROGRESS_CHECK_FAILED",
+                retryable=False,
+                message=(
+                    "Supabase readiness check failed with an unexpected error. "
+                    f"cause={_format_error_context(error)}"
+                ),
             ) from error
 
     def claim_next_queued_run(self) -> ExtractionRunDTO | None:

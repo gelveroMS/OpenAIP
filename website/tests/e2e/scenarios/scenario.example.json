@@ -1,8 +1,6 @@
 {
   "aipWorkflow": {
     "uploadFiscalYear": 2026,
-    "submissionAipId": "00000000-0000-0000-0000-000000000001",
-    "publishedAipId": "00000000-0000-0000-0000-000000000001",
     "revisionComment": "Please revise line items with incomplete budget details.",
     "resubmissionReply": "Updated budget line items and clarified justifications."
   },
@@ -13,21 +11,6 @@
     "usageControls": {
       "chatbotMaxRequests": 25,
       "chatbotTimeWindow": "per_hour"
-    },
-    "createLguAccount": {
-      "fullName": "E2E Official",
-      "email": "e2e.official@example.gov.ph",
-      "role": "barangay_official",
-      "lguKey": "barangay:00000000-0000-0000-0000-000000000010"
-    },
-    "addLgu": {
-      "type": "barangay",
-      "name": "Brgy E2E Sample",
-      "code": "402030101",
-      "regionId": "00000000-0000-0000-0000-000000000020",
-      "provinceId": "00000000-0000-0000-0000-000000000021",
-      "parentType": "city",
-      "parentId": "00000000-0000-0000-0000-000000000022"
     }
   }
 }

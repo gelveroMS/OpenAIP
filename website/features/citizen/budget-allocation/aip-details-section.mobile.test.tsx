@@ -11,10 +11,10 @@ describe("AipDetailsSection mobile layout", () => {
           subtitle: "Details for FY 2026",
           activeTab: "general",
           tabs: [
-            { key: "general", label: "General Sector" },
-            { key: "social", label: "Social Sector" },
-            { key: "economic", label: "Economic Sector" },
-            { key: "other", label: "Other Sector" },
+            { key: "general", label: "General Sector", count: 1 },
+            { key: "social", label: "Social Sector", count: 0 },
+            { key: "economic", label: "Economic Sector", count: 0 },
+            { key: "other", label: "Other Sector", count: 0 },
           ],
           rows: [
             {
