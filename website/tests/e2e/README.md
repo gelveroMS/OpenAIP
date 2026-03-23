@@ -9,7 +9,7 @@ This folder contains Playwright end-to-end tests for ISO/IEC 25010 evidence gene
 
 - Install dependencies in `website/`
 - Staging dataset includes the dedicated e2e fixture tuple (`E2E_AIP_RESET_BARANGAY_ID` + `E2E_AIP_RESET_FISCAL_YEAR`)
-- Distinct valid PDF files per project are available to avoid duplicate SHA-256 upload rejection
+- Canonical PDF fixture is available at `tests/e2e/fixtures/aip-chromium.pdf`
 
 ## Required Environment Variables
 
@@ -38,21 +38,13 @@ Staging fixture reset variables (required when `E2E_AIP_RESET_ENABLED=true`):
 
 ## Project-Specific Inputs
 
-Distinct PDF paths per project:
+Single shared PDF path (used by all Playwright projects):
 
 - `E2E_AIP_PDF_PATH_CHROMIUM`
-- `E2E_AIP_PDF_PATH_FIREFOX`
-- `E2E_AIP_PDF_PATH_PIXEL5`
-- `E2E_AIP_PDF_PATH_IPHONE13`
 
-Committed fixture set (from `website/`):
+Committed fixture (from `website/`):
 
 - `E2E_AIP_PDF_PATH_CHROMIUM=tests/e2e/fixtures/aip-chromium.pdf`
-- `E2E_AIP_PDF_PATH_FIREFOX=tests/e2e/fixtures/aip-firefox.pdf`
-- `E2E_AIP_PDF_PATH_PIXEL5=tests/e2e/fixtures/aip-pixel5.pdf`
-- `E2E_AIP_PDF_PATH_IPHONE13=tests/e2e/fixtures/aip-iphone13.pdf`
-
-These files are intentionally unique so upload hash-gating does not treat them as duplicates across projects.
 
 Project scenario JSON paths:
 
@@ -92,9 +84,6 @@ PowerShell setup example:
 
 ```powershell
 $env:E2E_AIP_PDF_PATH_CHROMIUM="tests/e2e/fixtures/aip-chromium.pdf"
-$env:E2E_AIP_PDF_PATH_FIREFOX="tests/e2e/fixtures/aip-firefox.pdf"
-$env:E2E_AIP_PDF_PATH_PIXEL5="tests/e2e/fixtures/aip-pixel5.pdf"
-$env:E2E_AIP_PDF_PATH_IPHONE13="tests/e2e/fixtures/aip-iphone13.pdf"
 ```
 
 ```bash

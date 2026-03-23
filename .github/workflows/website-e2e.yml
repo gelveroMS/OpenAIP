@@ -68,9 +68,6 @@ jobs:
           E2E_SCENARIO_IPHONE13: tests/e2e/scenarios/scenario.staging.shared.json
 
           E2E_AIP_PDF_PATH_CHROMIUM: tests/e2e/fixtures/aip-chromium.pdf
-          E2E_AIP_PDF_PATH_FIREFOX: tests/e2e/fixtures/aip-firefox.pdf
-          E2E_AIP_PDF_PATH_PIXEL5: tests/e2e/fixtures/aip-pixel5.pdf
-          E2E_AIP_PDF_PATH_IPHONE13: tests/e2e/fixtures/aip-iphone13.pdf
 
           E2E_AIP_RESET_ENABLED: ${{ vars.E2E_AIP_RESET_ENABLED || 'false' }}
           E2E_AIP_RESET_TOKEN: ${{ secrets.E2E_AIP_RESET_TOKEN }}
