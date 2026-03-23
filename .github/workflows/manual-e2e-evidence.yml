@@ -1,24 +1,29 @@
-name: Website E2E
+name: Manual E2E Evidence
 
 on:
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
-      e2e_base_url:
-        description: "Base URL to test (staging or preview)"
+      base_url:
+        description: "Optional base URL to test (staging/preview)"
         required: false
         type: string
-      e2e_commit_sha:
-        description: "Optional commit hash for compatibility matrix"
+      commit_sha:
+        description: "Optional commit SHA to include in evidence metadata"
         required: false
         type: string
+      upload_artifacts:
+        description: "Upload Playwright evidence artifacts"
+        required: false
+        default: true
+        type: boolean
 
 jobs:
-  playwright-e2e:
+  playwright-e2e-evidence:
+    name: Playwright E2E Evidence
     runs-on: ubuntu-latest
 
+    # Manual-only workflow for staging validation and ISO evidence generation.
+    # Intended for pre-demo / pre-evaluation runs.
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,18 +45,18 @@ jobs:
 
       - name: Validate E2E base URL
         env:
-          E2E_BASE_URL: ${{ inputs.e2e_base_url || vars.E2E_BASE_URL }}
+          E2E_BASE_URL: ${{ inputs.base_url || vars.E2E_BASE_URL }}
         run: |
           if [ -z "$E2E_BASE_URL" ]; then
-            echo "E2E_BASE_URL is required. Set workflow_dispatch input 'e2e_base_url' or repo variable 'E2E_BASE_URL'."
+            echo "E2E_BASE_URL is required. Provide workflow input 'base_url' or set repository variable 'E2E_BASE_URL'."
             exit 1
           fi
 
       - name: Run Website E2E
         working-directory: website
         env:
-          E2E_BASE_URL: ${{ inputs.e2e_base_url || vars.E2E_BASE_URL }}
-          E2E_COMMIT_SHA: ${{ inputs.e2e_commit_sha || github.sha }}
+          E2E_BASE_URL: ${{ inputs.base_url || vars.E2E_BASE_URL }}
+          E2E_COMMIT_SHA: ${{ inputs.commit_sha || github.sha }}
 
           E2E_CITIZEN_EMAIL: ${{ secrets.E2E_CITIZEN_EMAIL }}
           E2E_CITIZEN_PASSWORD: ${{ secrets.E2E_CITIZEN_PASSWORD }}
@@ -77,13 +82,18 @@ jobs:
         run: npm run e2e
 
       - name: Upload Playwright evidence
-        if: always()
+        if: ${{ always() && inputs.upload_artifacts }}
         uses: actions/upload-artifact@v4
         with:
-          name: website-playwright-evidence
+          name: manual-e2e-playwright-evidence
           path: |
             evidence-pack/01-functional/playwright-report
             evidence-pack/03-compatibility/playwright-matrix.md
             website/test-results/artifacts
             website/test-results/playwright-results.json
           if-no-files-found: warn
+
+  # Future evidence jobs can be added as sibling jobs:
+  # - lighthouse-evidence
+  # - accessibility-audit
+  # - security-performance-scans
