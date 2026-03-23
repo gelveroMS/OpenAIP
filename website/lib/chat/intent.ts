@@ -68,15 +68,26 @@ function looksLikeScopeBudgetQuery(message: string, normalized: string): boolean
 
 export function detectIntent(message: string): { intent: ChatIntent } {
   const normalized = normalizeIntentText(message);
+  const aggregationIntent = detectAggregationIntent(message).intent;
+  const isAggregationQuery = aggregationIntent !== "none";
+  const isLineItemQuery =
+    STRICT_LINE_ITEM_REF_PATTERN.test(message) ||
+    HYBRID_LINE_ITEM_REF_PATTERN.test(message) ||
+    QUOTED_TITLE_PATTERN.test(message) ||
+    isLineItemSpecificQuery(message);
+
+  if (isAggregationQuery || isLineItemQuery) {
+    return { intent: "normal" };
+  }
+
   const hasTotalsKeyword = TOTAL_KEYWORDS.some((keyword) => normalized.includes(keyword));
   const hasBudgetTotalsCue = looksLikeScopeBudgetQuery(message, normalized);
-  const hasTotalBudgetPhrase = /\b(total|overall|aip)\s+[a-z0-9\s]{0,60}\bbudget\b/.test(normalized);
   const hasYearToken = extractFiscalYear(message) !== null;
 
   // Phase 1 default: missing FY can still route to SQL-first using latest published AIP in scope.
   const hasImpliedFiscalYearSelection = true;
   if (
-    (hasTotalsKeyword || hasBudgetTotalsCue || hasTotalBudgetPhrase) &&
+    (hasTotalsKeyword || hasBudgetTotalsCue) &&
     (hasYearToken || hasImpliedFiscalYearSelection)
   ) {
     return { intent: "total_investment_program" };
