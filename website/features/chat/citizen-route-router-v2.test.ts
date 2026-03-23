@@ -109,7 +109,7 @@ function makeServerClient() {
 
 function makeAdminClient() {
   return {
-    from: (_table: string) => ({
+    from: () => ({
       select: () => ({
         eq: () => ({
           maybeSingle: async () => ({

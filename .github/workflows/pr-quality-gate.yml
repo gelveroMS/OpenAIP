@@ -1,0 +1,83 @@
+name: PR Quality Gate
+
+on:
+  pull_request:
+    branches:
+      - main
+      - staging
+
+jobs:
+  python-tests:
+    name: Python Tests (pytest)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: aip-intelligence-pipeline/pyproject.toml
+
+      - name: Install pipeline dependencies
+        working-directory: aip-intelligence-pipeline
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run pytest
+        working-directory: aip-intelligence-pipeline
+        run: pytest -q
+
+  website-quality:
+    name: Website Quality (lint, typecheck, vitest)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install website dependencies
+        working-directory: website
+        run: npm ci
+
+      - name: Lint
+        working-directory: website
+        run: npm run lint
+
+      - name: Typecheck
+        working-directory: website
+        run: npx tsc --noEmit
+
+      - name: Run Vitest
+        working-directory: website
+        run: npm run test:ui
+
+  supabase-edge-functions:
+    name: Supabase Edge Function Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Run embed_categorize_artifact tests
+        run: deno test --node-modules-dir=auto --allow-env supabase/functions/embed_categorize_artifact/index.test.ts
+
+      - name: Run send-email-outbox tests
+        run: deno test --node-modules-dir=auto --allow-env supabase/functions/send-email-outbox/index.test.ts

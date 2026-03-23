@@ -815,7 +815,7 @@ describe("metadata routing", () => {
   it("keeps totals routing behavior", async () => {
     const { payload } = await callMessagesRoute({
       sessionId: session.id,
-      content: "What is the total education budget for 2024?",
+      content: "What is the total budget of Barangay Canlubang in 2024?",
     });
 
     const assistant = payload.assistantMessage as { content: string; retrievalMeta?: { verifierMode?: string } };

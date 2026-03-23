@@ -4,7 +4,7 @@ import { buildQueryPlan } from "@/lib/chat/query-plan-builder";
 describe("query plan builder", () => {
   it("classifies totals ask as structured_only", () => {
     const plan = buildQueryPlan({
-      text: "What is the total health budget for 2024?",
+      text: "What is the total budget of Barangay Canlubang in 2024?",
       intentClassification: null,
     });
     expect(plan.mode).toBe("structured_only");

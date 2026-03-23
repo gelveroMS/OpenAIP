@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from openaip_pipeline.services.extraction.document_metadata import (
     extract_document_metadata,
     parse_signatory_block,
@@ -86,7 +88,11 @@ def test_parse_signatory_block_role_name_position_mapping() -> None:
 
 
 def test_mamatid_2025_metadata_resolves_barangay() -> None:
-    document, warnings = extract_document_metadata(_pdf_path("AIP 2025.pdf"), scope="barangay")
+    pdf_path = Path(_pdf_path("AIP 2025.pdf"))
+    if not pdf_path.exists():
+        pytest.skip("Sample PDF fixture is unavailable in this environment.")
+
+    document, warnings = extract_document_metadata(str(pdf_path), scope="barangay")
     assert document["lgu"]["type"] == "barangay"
     assert "mamatid" in document["lgu"]["name"].lower()
     assert document["lgu"]["type"] != "unknown"
@@ -106,7 +112,11 @@ def test_mamatid_2025_metadata_resolves_barangay() -> None:
 
 
 def test_mamatid_2026_metadata_resolves_barangay() -> None:
-    document, _ = extract_document_metadata(_pdf_path("AIP 2026.pdf"), scope="barangay")
+    pdf_path = Path(_pdf_path("AIP 2026.pdf"))
+    if not pdf_path.exists():
+        pytest.skip("Sample PDF fixture is unavailable in this environment.")
+
+    document, _ = extract_document_metadata(str(pdf_path), scope="barangay")
     assert document["lgu"]["type"] == "barangay"
     assert "mamatid" in document["lgu"]["name"].lower()
     assert document["lgu"]["type"] != "unknown"
