@@ -2,7 +2,13 @@ import { expect, test, type Page } from "@playwright/test";
 import { getPdfPathForProject } from "./helpers/env";
 import { resetWorkflowAipFixture, type E2EChatbotRateLimitInput } from "./helpers/reset";
 import { loadScenarioForProject } from "./helpers/scenario";
-import { ensureClaimedReview, ensureSelectValue, gotoLguPathWithAuth, withRolePage } from "./helpers/ui";
+import {
+  ensureClaimedReview,
+  ensureSelectValue,
+  gotoLguPathWithAuth,
+  waitForRunSettled,
+  withRolePage,
+} from "./helpers/ui";
 
 const PROCESSING_TIMEOUT_MS = 300_000;
 
@@ -17,6 +23,14 @@ function extractBarangayAipIdFromUrl(rawUrl: string): string | null {
   const match = url.pathname.match(/^\/barangay\/aips\/([^/?#]+)\/?$/i);
   if (!match) return null;
   const decoded = decodeURIComponent(match[1]).trim();
+  return decoded.length > 0 ? decoded : null;
+}
+
+function extractRunIdFromUrl(rawUrl: string): string | null {
+  const url = new URL(rawUrl);
+  const runId = url.searchParams.get("run");
+  if (!runId) return null;
+  const decoded = decodeURIComponent(runId).trim();
   return decoded.length > 0 ? decoded : null;
 }
 
@@ -161,16 +175,19 @@ test.describe.serial("Canonical AIP happy path workflow", () => {
         throw new Error(`Unable to extract workflow AIP ID from URL: ${page.url()}`);
       }
       workflowAipId = capturedAipId;
+      const capturedRunId = extractRunIdFromUrl(page.url());
 
-      const inlineStatus = page.getByTestId("aip-processing-inline-status");
-      if (await inlineStatus.isVisible().catch(() => false)) {
-        await expect(inlineStatus).toBeHidden({ timeout: PROCESSING_TIMEOUT_MS });
-      }
-
-      await expect(page.getByTestId("aip-details-table-card")).toBeVisible({
-        timeout: PROCESSING_TIMEOUT_MS,
+      await waitForRunSettled({
+        page,
+        role: "barangay",
+        aipId: capturedAipId,
+        runId: capturedRunId,
+        timeoutMs: PROCESSING_TIMEOUT_MS,
       });
-      await expect(page.getByTestId("aip-details-table")).toBeVisible();
+
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect(page.getByTestId("aip-details-table-card")).toBeVisible({ timeout: 60_000 });
+      await expect(page.getByTestId("aip-details-table")).toBeVisible({ timeout: 60_000 });
       await expectRunQueryCleared(page);
       await expect(page.getByTestId("aip-status-badge")).toContainText(/draft/i);
     });
