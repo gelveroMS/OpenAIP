@@ -9,8 +9,6 @@ import {
 import type { ChatCitation, ChatRetrievalMeta, ChatScopeResolution } from "@/lib/repos/chat/types";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-type ScopeType = "barangay" | "city" | "municipality";
-
 type PublishedAipRow = {
   id: string;
   fiscal_year: number;

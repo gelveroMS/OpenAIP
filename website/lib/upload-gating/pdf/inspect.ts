@@ -7,8 +7,14 @@ type PdfSourceErrorDiagnostics = {
   sourceMessage?: string;
 };
 
-type PdfLoadingTask = {
-  promise: Promise<any>;
+type PdfDocumentHandle = {
+  numPages?: number | null;
+  cleanup: () => Promise<void> | void;
+  destroy: () => Promise<void> | void;
+};
+
+type PdfLoadingTask<TDocument = PdfDocumentHandle> = {
+  promise: Promise<TDocument>;
   destroy: () => Promise<void> | void;
 };
 
@@ -19,7 +25,7 @@ type CanvasPolyfillModule = {
 };
 
 type PdfJsModule = {
-  getDocument: (input: unknown) => PdfLoadingTask;
+  getDocument: (input: unknown) => PdfLoadingTask<PdfDocumentHandle>;
   GlobalWorkerOptions: {
     workerSrc: string;
   };

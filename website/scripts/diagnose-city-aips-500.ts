@@ -27,6 +27,23 @@ type ColumnProbeResult = {
   unexpectedErrors: string[];
 };
 
+type ProbeResponse = {
+  error: QueryError | null;
+};
+
+type ProbeSelectBuilder = {
+  limit: (count: number) => Promise<ProbeResponse>;
+};
+
+type ProbeFromBuilder = {
+  select: (columns: string) => ProbeSelectBuilder;
+};
+
+type ProbeClient = {
+  rpc: (name: string, args?: Record<string, unknown>) => Promise<ProbeResponse>;
+  from: (relation: string) => ProbeFromBuilder;
+};
+
 const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
 
 const PROJECT_COLUMNS_TO_CHECK = [
@@ -120,7 +137,7 @@ function isMissingColumn(error: QueryError | null, table: string, column: string
 }
 
 async function probeRpc(
-  client: any,
+  client: ProbeClient,
   name: string,
   args: Record<string, unknown> = {}
 ): Promise<RpcProbeResult> {
@@ -141,7 +158,7 @@ async function probeRpc(
 }
 
 async function probeRelation(
-  client: any,
+  client: ProbeClient,
   relation: string
 ): Promise<RelationProbeResult> {
   const { error } = await client.from(relation).select("id").limit(1);
@@ -161,7 +178,7 @@ async function probeRelation(
 }
 
 async function probeColumns(
-  client: any,
+  client: ProbeClient,
   table: string,
   columns: readonly string[]
 ): Promise<ColumnProbeResult> {
