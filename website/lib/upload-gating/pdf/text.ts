@@ -2,6 +2,8 @@ import {
   ensurePdfWorkerSrc,
   getPdfSourceErrorDiagnostics,
   loadPdfJsModule,
+  type PdfLoadingTask,
+  type PdfTextContent,
   PdfInspectError,
 } from "./inspect";
 
@@ -32,11 +34,6 @@ type PositionedTextItem = {
 type TextLine = {
   y: number;
   tokens: Array<{ x: number; str: string }>;
-};
-
-type PdfLoadingTask = {
-  promise: Promise<any>;
-  destroy: () => Promise<void> | void;
 };
 
 const LINE_Y_TOLERANCE = 2.5;
@@ -150,25 +147,23 @@ export async function extractPdfTextPreview(input: {
     const pdfJs = await loadPdfJsModule();
     await ensurePdfWorkerSrc();
 
-    loadingTask = pdfJs.getDocument({
+    const task = pdfJs.getDocument({
       data: new Uint8Array(input.fileBuffer),
       useWorkerFetch: false,
       isEvalSupported: false,
       disableFontFace: true,
       useSystemFonts: false,
     });
+    loadingTask = task;
 
-    const pdf = (await withTimeout(loadingTask.promise, input.timeoutMs)) as any;
+    const pdf = await withTimeout(task.promise, input.timeoutMs);
     const pageCount = Number(pdf.numPages ?? 0);
     const pagesToRead = Math.max(0, Math.min(pageCount, input.maxPages));
     const pages: PdfPageText[] = [];
 
     for (let pageNumber = 1; pageNumber <= pagesToRead; pageNumber += 1) {
-      const page = (await withTimeout(pdf.getPage(pageNumber), input.timeoutMs)) as any;
-      const textContent = (await withTimeout(
-        page.getTextContent(),
-        input.timeoutMs
-      )) as { items: unknown[] };
+      const page = await withTimeout(pdf.getPage(pageNumber), input.timeoutMs);
+      const textContent = await withTimeout(page.getTextContent(), input.timeoutMs);
       const text = reconstructPdfPageText(
         textContent.items as PdfTextContentItem[]
       );

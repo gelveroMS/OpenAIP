@@ -148,6 +148,8 @@ def test_run_hybrid_retrieval_calls_dense_and_keyword_with_scope(monkeypatch) ->
         embeddings_model="text-embedding-3-large",
         question="What does the AIP say about drainage rehabilitation?",
         retrieval_scope=scope,
+        retrieval_mode="qa",
+        retrieval_filters=None,
         top_k=8,
         min_similarity=0.3,
     )

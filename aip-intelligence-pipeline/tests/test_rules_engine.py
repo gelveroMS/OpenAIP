@@ -4,7 +4,7 @@ from openaip_pipeline.services.validation.rules_engine import list_rule_ids, loa
 def test_rules_engine_barangay() -> None:
     payload = load_rules("barangay")
     assert payload["version"] == "v1.0.0"
-    assert list_rule_ids("barangay") == ["R001", "R002", "R003", "R004", "R005"]
+    assert list_rule_ids("barangay") == ["R001", "R002", "R003", "R004", "R005", "R006"]
 
 
 def test_rules_engine_city() -> None:

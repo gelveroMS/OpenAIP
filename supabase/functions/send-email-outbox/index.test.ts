@@ -41,6 +41,13 @@ function makeQueuedRow(overrides: Partial<OutboxRow> = {}): OutboxRow {
   };
 }
 
+function requireNonEmptyString(value: string | null, label: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`Expected non-empty ${label} payload.`);
+  }
+  return value;
+}
+
 Deno.test("isAuthorizedRequest accepts bearer jwt with service_role claim", () => {
   const serviceToken = makeJwt({ role: "service_role", sub: "svc" });
   const request = new Request("http://localhost/functions/v1/send-email-outbox", {
@@ -107,8 +114,11 @@ Deno.test("processOutboxBatch marks successful sends as sent", async () => {
   assertEquals(summary.patches[0].status, "sent");
   assertEquals(summary.patches[0].attempt_count, 1);
   assertEquals(summary.patches[0].last_error, null);
-  assertEquals(typeof sentHtml === "string" && sentHtml.length > 0, true);
-  assertEquals(typeof sentText === "string" && sentText.length > 0, true);
+
+  const sentHtmlValue = requireNonEmptyString(sentHtml, "HTML");
+  const sentTextValue = requireNonEmptyString(sentText, "text");
+  assertEquals(sentHtmlValue.length > 0, true);
+  assertEquals(sentTextValue.length > 0, true);
 });
 
 Deno.test("processOutboxBatch increments attempts and marks failed at max attempts", async () => {
@@ -171,12 +181,9 @@ Deno.test("renderTemplateHtml wraps internal action links with tracked-open rout
     "https://openaip.example.com"
   );
 
-  assertEquals(
-    html.includes(
-      "/api/notifications/open?dedupe=AIP_PUBLISHED%3Aaip%3Aaip-1%3Adraft-%3Epublished&next=%2Faips%2Faip-1"
-    ),
-    true
-  );
+  const trackedLinkPattern =
+    /\/api\/notifications\/open\?dedupe=AIP_PUBLISHED%3Aaip%3Aaip-1%3Adraft-%3Epublished(?:&|&amp;)next=%2Faips%2Faip-1/;
+  assertEquals(trackedLinkPattern.test(html), true);
 });
 
 Deno.test("renderTemplateHtml uses OTP-inspired structure and event/context sections", () => {

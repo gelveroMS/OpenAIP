@@ -308,51 +308,104 @@ function normalizeNotificationContext(args: RenderNotificationEmailArgs): Normal
       actorRole: toStringValue([templateData.actor_role, metadata.actor_role, payload.actor_role], 120),
       occurredAt: formatOccurredAtPht(occurredAtRaw),
       fiscalYear: toNumberValue([templateData.fiscal_year, metadata.fiscal_year, payload.fiscal_year]),
-      lguName: toStringValue([templateData.lgu_name, metadata.lgu_name]),
-      barangayName: toStringValue([templateData.barangay_name, metadata.barangay_name]),
-      cityName: toStringValue([templateData.city_name, metadata.city_name]),
-      revisionNotes: toStringValue([templateData.revision_notes, metadata.revision_notes], MAX_REASON_TEXT),
-      revisionReason: toStringValue(
-        [templateData.revision_reason, metadata.revision_reason],
+      lguName: toStringValue([templateData.lgu_name, metadata.lgu_name, payload.lgu_name, payload.lguName]),
+      barangayName: toStringValue([templateData.barangay_name, metadata.barangay_name, payload.barangay_name, payload.barangayName]),
+      cityName: toStringValue([templateData.city_name, metadata.city_name, payload.city_name, payload.cityName]),
+      revisionNotes: toStringValue(
+        [templateData.revision_notes, metadata.revision_notes, payload.revision_notes, payload.revisionNotes],
         MAX_REASON_TEXT
       ),
-      entityLabel: toStringValue([templateData.entity_label, metadata.entity_label], MAX_REASON_TEXT),
-      targetLabel: toStringValue([templateData.target_label, metadata.target_label], MAX_REASON_TEXT),
-      feedbackKind: toStringValue([templateData.feedback_kind, metadata.feedback_kind], MAX_REASON_TEXT),
+      revisionReason: toStringValue(
+        [templateData.revision_reason, metadata.revision_reason, payload.revision_reason, payload.revisionReason],
+        MAX_REASON_TEXT
+      ),
+      entityLabel: toStringValue(
+        [templateData.entity_label, metadata.entity_label, payload.entity_label, payload.entityLabel],
+        MAX_REASON_TEXT
+      ),
+      targetLabel: toStringValue(
+        [templateData.target_label, metadata.target_label, payload.target_label, payload.targetLabel],
+        MAX_REASON_TEXT
+      ),
+      feedbackKind: toStringValue(
+        [templateData.feedback_kind, metadata.feedback_kind, payload.feedback_kind, payload.feedbackKind],
+        MAX_REASON_TEXT
+      ),
       feedbackExcerpt: toStringValue(
-        [templateData.feedback_excerpt, metadata.feedback_excerpt, templateData.excerpt, metadata.excerpt],
+        [
+          templateData.feedback_excerpt,
+          metadata.feedback_excerpt,
+          payload.feedback_excerpt,
+          payload.feedbackExcerpt,
+          templateData.excerpt,
+          metadata.excerpt,
+          payload.excerpt,
+        ],
         MAX_FEEDBACK_EXCERPT
       ),
       replyExcerpt: toStringValue(
-        [templateData.reply_excerpt, metadata.reply_excerpt, templateData.excerpt, metadata.excerpt],
+        [
+          templateData.reply_excerpt,
+          metadata.reply_excerpt,
+          payload.reply_excerpt,
+          payload.replyExcerpt,
+          templateData.excerpt,
+          metadata.excerpt,
+          payload.excerpt,
+        ],
         MAX_FEEDBACK_EXCERPT
       ),
       threadLabel: toStringValue([templateData.thread_label, metadata.thread_label], MAX_REASON_TEXT),
       visibilityAction: toStringValue(
-        [templateData.visibility_action, metadata.visibility_action],
+        [templateData.visibility_action, metadata.visibility_action, payload.visibility_action, payload.visibilityAction],
         MAX_REASON_TEXT
       ),
-      newVisibility: toStringValue([templateData.new_visibility, metadata.new_visibility], MAX_REASON_TEXT),
+      newVisibility: toStringValue(
+        [templateData.new_visibility, metadata.new_visibility, payload.new_visibility, payload.newVisibility],
+        MAX_REASON_TEXT
+      ),
       oldStatusLabel: toStringValue(
-        [templateData.old_status_label, metadata.old_status_label],
+        [templateData.old_status_label, metadata.old_status_label, payload.old_status_label, payload.oldStatusLabel],
         MAX_REASON_TEXT
       ),
       newStatusLabel: toStringValue(
-        [templateData.new_status_label, metadata.new_status_label],
+        [templateData.new_status_label, metadata.new_status_label, payload.new_status_label, payload.newStatusLabel],
         MAX_REASON_TEXT
       ),
-      projectName: toStringValue([templateData.project_name, metadata.project_name], MAX_REASON_TEXT),
-      updateTitle: toStringValue([templateData.update_title, metadata.update_title], MAX_REASON_TEXT),
+      projectName: toStringValue(
+        [templateData.project_name, metadata.project_name, payload.project_name, payload.projectName],
+        MAX_REASON_TEXT
+      ),
+      updateTitle: toStringValue(
+        [templateData.update_title, metadata.update_title, payload.update_title, payload.updateTitle],
+        MAX_REASON_TEXT
+      ),
       updateExcerpt: toStringValue(
-        [templateData.update_excerpt, metadata.update_excerpt, templateData.excerpt, metadata.excerpt],
+        [
+          templateData.update_excerpt,
+          metadata.update_excerpt,
+          payload.update_excerpt,
+          payload.updateExcerpt,
+          templateData.excerpt,
+          metadata.excerpt,
+          payload.excerpt,
+        ],
         MAX_FEEDBACK_EXCERPT
       ),
       moderationAction: toStringValue(
-        [templateData.moderation_action, metadata.moderation_action],
+        [templateData.moderation_action, metadata.moderation_action, payload.moderation_action, payload.moderationAction],
         MAX_REASON_TEXT
       ),
       moderationReason: toStringValue(
-        [templateData.moderation_reason, metadata.moderation_reason, templateData.reason, metadata.reason],
+        [
+          templateData.moderation_reason,
+          metadata.moderation_reason,
+          payload.moderation_reason,
+          payload.moderationReason,
+          templateData.reason,
+          metadata.reason,
+          payload.reason,
+        ],
         MAX_REASON_TEXT
       ),
       windowLabel: toStringValue([templateData.window_label, metadata.window_label], MAX_REASON_TEXT),
@@ -362,11 +415,14 @@ function normalizeNotificationContext(args: RenderNotificationEmailArgs): Normal
         [templateData.last_error_sample, metadata.last_error_sample, metadata.last_error],
         MAX_REASON_TEXT
       ),
-      stage: toStringValue([templateData.stage, metadata.stage], MAX_REASON_TEXT),
-      runId: toStringValue([templateData.run_id, metadata.run_id], MAX_REASON_TEXT),
+      stage: toStringValue([templateData.stage, metadata.stage, payload.stage], MAX_REASON_TEXT),
+      runId: toStringValue([templateData.run_id, metadata.run_id, payload.run_id, payload.runId], MAX_REASON_TEXT),
       aipId: toStringValue([templateData.aip_id, metadata.aip_id, payload.aip_id], MAX_REASON_TEXT),
-      errorCode: toStringValue([templateData.error_code, metadata.error_code], MAX_REASON_TEXT),
-      errorMessage: toStringValue([templateData.error_message, metadata.error_message], MAX_REASON_TEXT),
+      errorCode: toStringValue([templateData.error_code, metadata.error_code, payload.error_code, payload.errorCode], MAX_REASON_TEXT),
+      errorMessage: toStringValue(
+        [templateData.error_message, metadata.error_message, payload.error_message, payload.errorMessage],
+        MAX_REASON_TEXT
+      ),
     },
   };
 }

@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - main
+      - staging
 
 jobs:
   python-tests:
@@ -76,7 +77,7 @@ jobs:
           deno-version: v2.x
 
       - name: Run embed_categorize_artifact tests
-        run: deno test --allow-env supabase/functions/embed_categorize_artifact/index.test.ts
+        run: deno test --node-modules-dir=auto --allow-env supabase/functions/embed_categorize_artifact/index.test.ts
 
       - name: Run send-email-outbox tests
-        run: deno test --allow-env supabase/functions/send-email-outbox/index.test.ts
+        run: deno test --node-modules-dir=auto --allow-env supabase/functions/send-email-outbox/index.test.ts

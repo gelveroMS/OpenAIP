@@ -264,10 +264,18 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function toFiniteInteger(value: unknown, fallback: number): number {
+  const safeFallback =
+    typeof fallback === "number" && Number.isFinite(fallback) && fallback > 0
+      ? Math.floor(fallback)
+      : 1;
+
   if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.max(1, Math.floor(value));
+    const parsed = Math.floor(value);
+    if (parsed > 0) {
+      return parsed;
+    }
   }
-  return Math.max(1, Math.floor(fallback));
+  return safeFallback;
 }
 
 export function computeEmbeddingWindowSize(

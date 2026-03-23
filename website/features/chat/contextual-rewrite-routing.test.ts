@@ -46,7 +46,7 @@ let userCounter = 0;
 
 function createServerClient() {
   return {
-    from: (_table: string) => ({
+    from: () => ({
       select: () => ({
         in: async () => ({ data: [], error: null }),
       }),
