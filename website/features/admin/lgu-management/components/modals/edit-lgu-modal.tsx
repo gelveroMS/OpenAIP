@@ -30,6 +30,7 @@ type Props = {
   lgu: LguRecord | null;
   lgus: LguRecord[];
   onSave: (id: string, patch: UpdateLguInput, nextStatus: LguStatus) => Promise<void>;
+  submitError: string | null;
 };
 
 function psgcLength(type: LguRecord["type"]) {
@@ -56,12 +57,36 @@ function isNcrRegion(region: LguRecord | null) {
   );
 }
 
+type LguSelectOption = {
+  id: string;
+  label: string;
+  disabled: boolean;
+};
+
+function toSelectableLguOptions(rows: LguRecord[], selectedId: string): LguSelectOption[] {
+  const activeRows = rows.filter((row) => row.status === "active");
+  const selectedDeactivatedRow =
+    selectedId
+      ? rows.find((row) => row.id === selectedId && row.status === "deactivated") ?? null
+      : null;
+  const mergedRows = selectedDeactivatedRow
+    ? [...activeRows, selectedDeactivatedRow]
+    : activeRows;
+
+  return mergedRows.map((row) => ({
+    id: row.id,
+    label: row.status === "deactivated" ? `${row.name} (Deactivated)` : row.name,
+    disabled: row.status === "deactivated",
+  }));
+}
+
 export default function EditLguModal({
   open,
   onOpenChange,
   lgu,
   lgus,
   onSave,
+  submitError,
 }: Props) {
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
@@ -152,6 +177,19 @@ export default function EditLguModal({
     return [];
   }, [filteredCityParents, filteredMunicipalityParents, parentType]);
 
+  const regionOptions = useMemo(
+    () => toSelectableLguOptions(regions, regionId),
+    [regionId, regions]
+  );
+  const provinceOptions = useMemo(
+    () => toSelectableLguOptions(filteredProvinces, provinceId),
+    [filteredProvinces, provinceId]
+  );
+  const parentLguOptions = useMemo(
+    () => toSelectableLguOptions(parentOptions, parentId),
+    [parentId, parentOptions]
+  );
+
   async function handleSave() {
     if (!lgu) return;
 
@@ -212,6 +250,8 @@ export default function EditLguModal({
     try {
       await onSave(lgu.id, patch, status);
       onOpenChange(false);
+    } catch {
+      // Parent view handles mutation errors and passes them via submitError.
     } finally {
       setSubmitting(false);
     }
@@ -276,9 +316,14 @@ export default function EditLguModal({
                     {lgu.type === "barangay" ? (
                       <SelectItem value="all">All regions</SelectItem>
                     ) : null}
-                    {regions.map((row) => (
-                      <SelectItem key={row.id} value={row.id}>
-                        {row.name}
+                    {regionOptions.map((option) => (
+                      <SelectItem
+                        key={option.id}
+                        value={option.id}
+                        disabled={option.disabled}
+                        className={option.disabled ? "text-slate-400" : undefined}
+                      >
+                        {option.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -321,9 +366,14 @@ export default function EditLguModal({
                     {lgu.type === "barangay" ? (
                       <SelectItem value="all">All provinces</SelectItem>
                     ) : null}
-                    {filteredProvinces.map((row) => (
-                      <SelectItem key={row.id} value={row.id}>
-                        {row.name}
+                    {provinceOptions.map((option) => (
+                      <SelectItem
+                        key={option.id}
+                        value={option.id}
+                        disabled={option.disabled}
+                        className={option.disabled ? "text-slate-400" : undefined}
+                      >
+                        {option.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -374,9 +424,14 @@ export default function EditLguModal({
                       <SelectValue placeholder="Select parent city/municipality" />
                     </SelectTrigger>
                     <SelectContent>
-                      {parentOptions.map((row) => (
-                        <SelectItem key={row.id} value={row.id}>
-                          {row.name}
+                      {parentLguOptions.map((option) => (
+                        <SelectItem
+                          key={option.id}
+                          value={option.id}
+                          disabled={option.disabled}
+                          className={option.disabled ? "text-slate-400" : undefined}
+                        >
+                          {option.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -418,7 +473,16 @@ export default function EditLguModal({
               </div>
             </div>
 
-            <div className="pt-2 flex items-center gap-3">
+            {submitError ? (
+              <div
+                className="pt-2 text-sm text-rose-600"
+                data-testid="admin-edit-lgu-error"
+              >
+                {submitError}
+              </div>
+            ) : null}
+
+            <div className="flex items-center gap-3">
               <Button
                 className="flex-1 bg-teal-700 hover:bg-teal-800"
                 onClick={handleSave}

@@ -37,6 +37,48 @@ function scopeTypeForRole(role: AccountRole) {
   return "barangay";
 }
 
+type AccountEditableLguOption = {
+  key: string;
+  label: string;
+  disabled: boolean;
+};
+
+function toEditLguOptions({
+  role,
+  selectedLguKey,
+  lguOptions,
+}: {
+  role: AccountRole;
+  selectedLguKey: string | "none";
+  lguOptions: LguOption[];
+}): AccountEditableLguOption[] {
+  const requiredScope = scopeTypeForRole(role);
+  if (requiredScope === "none") return [];
+
+  const activeOptions = lguOptions.filter(
+    (option) => option.scopeType === requiredScope && option.isActive
+  );
+  const selectedDeactivatedOption =
+    selectedLguKey === "none"
+      ? null
+      : lguOptions.find(
+          (option) =>
+            option.key === selectedLguKey &&
+            option.scopeType === requiredScope &&
+            !option.isActive
+        ) ?? null;
+
+  const rows = selectedDeactivatedOption
+    ? [...activeOptions, selectedDeactivatedOption]
+    : activeOptions;
+
+  return rows.map((option) => ({
+    key: option.key,
+    label: option.isActive ? option.label : `${option.label} (Deactivated)`,
+    disabled: !option.isActive,
+  }));
+}
+
 export default function EditAccountModal({
   open,
   onOpenChange,
@@ -61,11 +103,15 @@ export default function EditAccountModal({
   );
   const [error, setError] = useState<string | null>(null);
 
-  const filteredLgus = useMemo(() => {
-    const requiredScope = scopeTypeForRole(role);
-    if (requiredScope === "none") return [];
-    return lguOptions.filter((option) => option.scopeType === requiredScope);
-  }, [lguOptions, role]);
+  const filteredLgus = useMemo(
+    () =>
+      toEditLguOptions({
+        role,
+        selectedLguKey: lguKey,
+        lguOptions,
+      }),
+    [lguKey, lguOptions, role]
+  );
 
   async function handleSave() {
     if (!account) return;
@@ -155,7 +201,12 @@ export default function EditAccountModal({
                   </SelectTrigger>
                   <SelectContent>
                     {filteredLgus.map((option) => (
-                      <SelectItem key={option.key} value={option.key}>
+                      <SelectItem
+                        key={option.key}
+                        value={option.key}
+                        disabled={option.disabled}
+                        className={option.disabled ? "text-slate-400" : undefined}
+                      >
                         {option.label}
                       </SelectItem>
                     ))}

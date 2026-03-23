@@ -68,6 +68,14 @@ type FeedbackSelectRow = {
   created_at: string;
 };
 
+type AipRevisionReviewSelectRow = {
+  id: string;
+  aip_id: string;
+  note: string | null;
+  reviewer_id: string | null;
+  created_at: string;
+};
+
 type ProfileLookupRow = {
   id: string;
   full_name: string | null;
@@ -102,6 +110,45 @@ export class CitizenAipFeedbackApiError extends Error {
     super(message);
     this.status = status;
   }
+}
+
+function toTimestamp(value: string): number | null {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function compareCreatedAtAscThenId(
+  left: { createdAt: string; id: string },
+  right: { createdAt: string; id: string }
+): number {
+  const leftTs = toTimestamp(left.createdAt);
+  const rightTs = toTimestamp(right.createdAt);
+  if (leftTs !== null && rightTs !== null && leftTs !== rightTs) {
+    return leftTs - rightTs;
+  }
+  if (left.createdAt !== right.createdAt) {
+    return left.createdAt.localeCompare(right.createdAt);
+  }
+  return left.id.localeCompare(right.id);
+}
+
+function compareReviewCreatedAtAscThenId(
+  left: { created_at: string; id: string },
+  right: { created_at: string; id: string }
+): number {
+  const leftTs = toTimestamp(left.created_at);
+  const rightTs = toTimestamp(right.created_at);
+  if (leftTs !== null && rightTs !== null && leftTs !== rightTs) {
+    return leftTs - rightTs;
+  }
+  if (left.created_at !== right.created_at) {
+    return left.created_at.localeCompare(right.created_at);
+  }
+  return left.id.localeCompare(right.id);
+}
+
+function toSyntheticRevisionRootId(reviewId: string): string {
+  return `aip-review-${reviewId}`;
 }
 
 function buildLguLabel(params: {
@@ -156,14 +203,14 @@ function toAuthorMeta(
   };
 }
 
-async function loadAuthorMetaById(
-  rows: FeedbackSelectRow[]
+async function loadAuthorMetaByAuthorIds(
+  authorIdsInput: Array<string | null | undefined>
 ): Promise<Map<string, FeedbackAuthorMeta>> {
   const authorIds = Array.from(
     new Set(
-      rows
-        .map((row) => row.author_id)
-        .filter((value): value is string => typeof value === "string" && value.length > 0)
+      authorIdsInput.filter(
+        (value): value is string => typeof value === "string" && value.trim().length > 0
+      )
     )
   );
 
@@ -245,6 +292,12 @@ async function loadAuthorMetaById(
   }
 
   return authorMetaById;
+}
+
+async function loadAuthorMetaByFeedbackRows(
+  rows: FeedbackSelectRow[]
+): Promise<Map<string, FeedbackAuthorMeta>> {
+  return loadAuthorMetaByAuthorIds(rows.map((row) => row.author_id));
 }
 
 function mapFeedbackRowToApiItem(
@@ -347,7 +400,7 @@ export async function hydrateAipFeedbackItems(
   rows: FeedbackSelectRow[],
   input?: { viewerUserId?: string | null }
 ): Promise<AipFeedbackApiItem[]> {
-  const authorMetaById = await loadAuthorMetaById(rows);
+  const authorMetaById = await loadAuthorMetaByFeedbackRows(rows);
   const hiddenMetaByFeedbackId = await loadHiddenModerationMetaByFeedbackId(
     rows,
     input?.viewerUserId ?? null
@@ -358,6 +411,64 @@ export async function hydrateAipFeedbackItems(
       hiddenMetaByFeedbackId,
     })
   );
+}
+
+async function loadAipRevisionReviewRows(
+  client: SupabaseServerClient,
+  aipId: string
+): Promise<AipRevisionReviewSelectRow[]> {
+  const { data, error } = await client
+    .from("aip_reviews")
+    .select("id,aip_id,note,reviewer_id,created_at")
+    .eq("aip_id", aipId)
+    .eq("action", "request_revision")
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true });
+
+  if (error) {
+    throw new CitizenAipFeedbackApiError(500, error.message);
+  }
+
+  return (data ?? []) as AipRevisionReviewSelectRow[];
+}
+
+function sortAipFeedbackItems(items: AipFeedbackApiItem[]): AipFeedbackApiItem[] {
+  return [...items].sort(compareCreatedAtAscThenId);
+}
+
+function isEligibleBarangayRevisionReply(item: AipFeedbackApiItem): boolean {
+  return (
+    item.parentFeedbackId === null &&
+    item.kind === "lgu_note" &&
+    item.author.role === "barangay_official"
+  );
+}
+
+function resolveRevisionCycleRootId(
+  feedbackCreatedAt: string,
+  sortedRevisionRows: AipRevisionReviewSelectRow[]
+): string | null {
+  const feedbackTimestamp = toTimestamp(feedbackCreatedAt);
+  if (feedbackTimestamp === null) return null;
+
+  for (let index = 0; index < sortedRevisionRows.length; index += 1) {
+    const current = sortedRevisionRows[index];
+    const currentTimestamp = toTimestamp(current.created_at);
+    if (currentTimestamp === null) continue;
+    if (feedbackTimestamp < currentTimestamp) continue;
+
+    const next = sortedRevisionRows[index + 1];
+    if (!next) {
+      return toSyntheticRevisionRootId(current.id);
+    }
+
+    const nextTimestamp = toTimestamp(next.created_at);
+    if (nextTimestamp === null || feedbackTimestamp < nextTimestamp) {
+      return toSyntheticRevisionRootId(current.id);
+    }
+  }
+
+  return null;
 }
 
 export async function listPublicAipFeedback(
@@ -378,7 +489,71 @@ export async function listPublicAipFeedback(
     throw new CitizenAipFeedbackApiError(500, error.message);
   }
 
-  return hydrateAipFeedbackItems((data ?? []) as FeedbackSelectRow[], input);
+  const feedbackRows = (data ?? []) as FeedbackSelectRow[];
+  const [hydratedFeedbackItems, revisionRowsRaw] = await Promise.all([
+    hydrateAipFeedbackItems(feedbackRows, input),
+    loadAipRevisionReviewRows(client, aipId),
+  ]);
+
+  const revisionRows = revisionRowsRaw
+    .filter((row) => typeof row.note === "string" && row.note.trim().length > 0)
+    .sort(compareReviewCreatedAtAscThenId);
+
+  if (revisionRows.length === 0) {
+    return sortAipFeedbackItems(hydratedFeedbackItems);
+  }
+
+  const reviewerMetaById = await loadAuthorMetaByAuthorIds(
+    revisionRows.map((row) => row.reviewer_id)
+  );
+
+  const syntheticRevisionRoots: AipFeedbackApiItem[] = revisionRows.map((row) => {
+    const reviewer = row.reviewer_id ? reviewerMetaById.get(row.reviewer_id) : null;
+    const reviewerRole =
+      reviewer && reviewer.role !== "citizen" ? reviewer.role : "city_official";
+    return {
+      id: toSyntheticRevisionRootId(row.id),
+      aipId: row.aip_id,
+      parentFeedbackId: null,
+      kind: "lgu_note",
+      isHidden: false,
+      body: row.note?.trim() ?? "",
+      hiddenReason: null,
+      violationCategory: null,
+      createdAt: row.created_at,
+      author: {
+        id: reviewer?.id ?? row.reviewer_id ?? null,
+        fullName: reviewer?.fullName ?? "City Reviewer",
+        role: reviewerRole,
+        roleLabel:
+          reviewer && reviewer.role !== "citizen"
+            ? reviewer.roleLabel
+            : toFeedbackRoleLabel(reviewerRole),
+        lguLabel:
+          reviewer && reviewer.role !== "citizen"
+            ? reviewer.lguLabel
+            : "City of Unknown",
+      },
+    };
+  });
+
+  const rethreadedFeedbackItems = hydratedFeedbackItems.map((item) => {
+    if (!isEligibleBarangayRevisionReply(item)) {
+      return item;
+    }
+
+    const parentRevisionRootId = resolveRevisionCycleRootId(item.createdAt, revisionRows);
+    if (!parentRevisionRootId) {
+      return item;
+    }
+
+    return {
+      ...item,
+      parentFeedbackId: parentRevisionRootId,
+    };
+  });
+
+  return sortAipFeedbackItems([...rethreadedFeedbackItems, ...syntheticRevisionRoots]);
 }
 
 export async function resolveViewerUserId(

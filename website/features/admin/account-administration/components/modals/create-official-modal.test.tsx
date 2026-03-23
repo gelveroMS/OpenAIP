@@ -48,4 +48,46 @@ describe("CreateOfficialModal submit errors", () => {
       "Failed to create account."
     );
   });
+
+  it("shows only active LGUs in assignment options", () => {
+    const mixedLguOptions: LguOption[] = [
+      {
+        key: "barangay:brgy-active",
+        scopeType: "barangay",
+        id: "brgy-active",
+        label: "Barangay: Active Option",
+        isActive: true,
+      },
+      {
+        key: "barangay:brgy-deactivated",
+        scopeType: "barangay",
+        id: "brgy-deactivated",
+        label: "Barangay: Deactivated Option",
+        isActive: false,
+      },
+      {
+        key: "city:city-active",
+        scopeType: "city",
+        id: "city-active",
+        label: "City: Unrelated Scope",
+        isActive: true,
+      },
+    ];
+
+    render(
+      <CreateOfficialModal
+        open
+        onOpenChange={vi.fn()}
+        roleOptions={roleOptions}
+        lguOptions={mixedLguOptions}
+        onSave={vi.fn().mockResolvedValue(undefined)}
+        loading={false}
+        submitError={null}
+      />
+    );
+
+    expect(screen.getByText("Barangay: Active Option")).toBeInTheDocument();
+    expect(screen.queryByText("Barangay: Deactivated Option")).not.toBeInTheDocument();
+    expect(screen.queryByText("City: Unrelated Scope")).not.toBeInTheDocument();
+  });
 });

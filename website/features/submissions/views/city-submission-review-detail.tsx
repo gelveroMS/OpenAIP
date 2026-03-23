@@ -135,6 +135,7 @@ export default function CitySubmissionReviewDetail({
   }
 
   function goToViewMode() {
+    setPublishedSuccess(false);
     router.replace(`/city/submissions/aip/${aip.id}`);
   }
 
@@ -186,7 +187,6 @@ export default function CitySubmissionReviewDetail({
 
       setPublishOpen(false);
       setNote("");
-      setPublishedSuccess(true);
       goToPublishedSuccess();
     } finally {
       setSubmitting(false);
