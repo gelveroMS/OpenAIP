@@ -92,7 +92,7 @@ export default function HeroMotion({ title, subtitle, cta }: HeroMotionProps) {
           <div className="col-span-12 lg:col-span-7">
             <div className="pb-4 pt-8 sm:pb-6 sm:pt-10 lg:pb-12 lg:pt-16">
               <motion.h1
-                className="max-w-[680px] break-words text-[clamp(2.1rem,11vw,3.3rem)] font-semibold leading-[0.98] tracking-tight text-linen sm:text-[clamp(2.6rem,7vw,5.2rem)]"
+                className="max-w-[680px] break-words text-[clamp(2.1rem,11vw,3.3rem)] font-semibold leading-[0.98] tracking-tight text-linen sm:text-[clamp(2.6rem,7vw,5.2rem)] lg:max-w-[20ch] lg:text-[clamp(3rem,4vw,4.1rem)]"
                 variants={headlineContainerVariants}
               >
                 {titleLines.map((line, index) => (
@@ -103,7 +103,7 @@ export default function HeroMotion({ title, subtitle, cta }: HeroMotionProps) {
               </motion.h1>
 
               <motion.p
-                className="mt-3 max-w-[640px] text-[12px] leading-6 text-white/80 md:mt-5 md:text-[17px] md:leading-[29px]"
+                className="mt-3 max-w-[640px] text-[12px] leading-6 text-white/80 md:mt-5 md:text-[17px] md:leading-[29px] lg:max-w-[70ch] lg:text-[16px] lg:leading-[1.7]"
                 variants={subtitleVariants}
               >
                 {subtitle}
