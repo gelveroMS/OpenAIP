@@ -17,10 +17,10 @@ const HERO_BG_SRC = "/citizen-dashboard/hero.webp";
 export default function HeroSection({ vm }: HeroSectionProps) {
   const legacyVm = vm as LandingHeroVM & LegacyHeroShape;
   const ctaTarget = vm?.ctaHrefOrAction;
-  const title = "Know Where\nEvery Peso Goes.";
+  const title = "See What's Planned for Your Community.";
   const subtitle =
     vm?.subtitle ??
-    "Explore the Annual Investment Plan through clear budget breakdowns, sector allocations, and funded projects.";
+    "Explore the Annual Investment Plan (AIP), outlining proposed budgets, sector priorities, and planned projects for the upcoming period.";
   const ctaLabel = vm?.ctaLabel ?? "Explore the AIP";
   const ctaProps =
     ctaTarget?.type === "href"

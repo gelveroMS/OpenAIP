@@ -191,9 +191,15 @@ describe("Citizen dashboard mobile layout", () => {
         element?.tagName.toLowerCase() === "h1" &&
         element.textContent?.includes("Know Where\\nEvery Peso Goes.") === true
     );
+    const heroSubtitle = screen.getByText("Subtitle");
     const manifestoHeading = screen.getByText("Every allocation.");
     const lguName = screen.getByText("City of Cabuyao City - Annual Investment Plan 2026");
     expect(heroHeading.className).toContain("break-words");
+    expect(heroHeading.className).toContain("lg:max-w-[20ch]");
+    expect(heroHeading.className).toContain("lg:text-[clamp(3rem,4vw,4.1rem)]");
+    expect(heroSubtitle.className).toContain("lg:max-w-[70ch]");
+    expect(heroSubtitle.className).toContain("lg:text-[16px]");
+    expect(heroSubtitle.className).toContain("lg:leading-[1.7]");
     expect(manifestoHeading.className).toContain("break-words");
     expect(lguName.className).toContain("break-words");
   });
