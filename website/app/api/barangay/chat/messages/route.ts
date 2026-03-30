@@ -350,6 +350,7 @@ export async function POST(request: Request) {
         }),
         topK: 4,
         minSimilarity: 0.3,
+        timeoutMs: 60000,
       });
 
       assistantContent = pipeline.answer.trim();
@@ -370,6 +371,11 @@ export async function POST(request: Request) {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Pipeline chat request failed.";
+      console.error("[lgu-chat] pipeline chat request failed", {
+        message,
+        sessionId: session.id,
+        userId: actor.userId,
+      });
       assistantContent =
         "I couldn't complete the response due to a temporary system issue. Please try again in a few moments.";
       assistantCitations = [makeSystemCitation("Pipeline request failed.", { error: message })];
@@ -377,6 +383,7 @@ export async function POST(request: Request) {
         refused: true,
         reason: "pipeline_error",
         status: "refusal",
+        refusalDetail: message,
         scopeResolution: scope.scopeResolution,
         verifierMode: "retrieval",
         routeFamily: "pipeline_fallback",

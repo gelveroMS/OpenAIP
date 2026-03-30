@@ -116,16 +116,25 @@ export async function requestPipelineChatAnswer(input: {
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(`${baseUrl}/v1/chat/answer`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...signedHeaders,
-      },
-      body: rawBody,
-      signal: controller.signal,
-      cache: "no-store",
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl}/v1/chat/answer`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...signedHeaders,
+        },
+        body: rawBody,
+        signal: controller.signal,
+        cache: "no-store",
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw new Error(`Pipeline chat request timed out after ${timeoutMs}ms.`);
+      }
+      const message = error instanceof Error ? error.message : "unknown network error";
+      throw new Error(`Pipeline chat request failed before response: ${message}`);
+    }
 
     const payload = await response
       .json()
@@ -161,16 +170,25 @@ export async function requestPipelineQueryEmbedding(input: {
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(`${baseUrl}/v1/chat/embed-query`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...signedHeaders,
-      },
-      body: rawBody,
-      signal: controller.signal,
-      cache: "no-store",
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl}/v1/chat/embed-query`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...signedHeaders,
+        },
+        body: rawBody,
+        signal: controller.signal,
+        cache: "no-store",
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw new Error(`Pipeline embedding request timed out after ${timeoutMs}ms.`);
+      }
+      const message = error instanceof Error ? error.message : "unknown network error";
+      throw new Error(`Pipeline embedding request failed before response: ${message}`);
+    }
 
     const payload = await response
       .json()
