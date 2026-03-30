@@ -14,8 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from openaip_pipeline.core.settings import Settings
-from openaip_pipeline.services.intent.chat_shortcuts import maybe_handle_conversational_intent
-from openaip_pipeline.services.intent.router import IntentRouter
+from openaip_pipeline.services.chat import maybe_answer_with_sql
 from openaip_pipeline.services.openai_utils import build_openai_client
 from openaip_pipeline.services.rag.rag import answer_with_rag
 
@@ -136,7 +135,6 @@ async def _chat_auth_dependency(request: Request) -> None:
 
 router = APIRouter(prefix="/v1/chat", tags=["chat"], dependencies=[Depends(_chat_auth_dependency)])
 logger = logging.getLogger(__name__)
-_INTENT_ROUTER = IntentRouter()
 
 
 class RetrievalScopeTarget(BaseModel):
@@ -191,64 +189,80 @@ class QueryEmbeddingResponse(BaseModel):
     dimensions: int
 
 
-def _intent_router_enabled() -> bool:
-    value = os.getenv("INTENT_ROUTER_ENABLED", "false").strip().lower()
-    return value in {"1", "true", "yes", "on"}
+def _normalize_result_payload(result: dict[str, Any], *, default_question: str) -> dict[str, Any]:
+    citations = list(result.get("citations") or [])
+    refused = bool(result.get("refused"))
+    retrieval_meta = dict(result.get("retrieval_meta") or {})
+    if "status" not in retrieval_meta:
+        if refused:
+            retrieval_meta["status"] = "refusal"
+        elif str(retrieval_meta.get("reason") or "") == "clarification_needed":
+            retrieval_meta["status"] = "clarification"
+        else:
+            retrieval_meta["status"] = "answer"
+    if "context_count" not in retrieval_meta:
+        retrieval_meta["context_count"] = len(citations)
+    return {
+        "question": str(result.get("question") or default_question),
+        "answer": str(result.get("answer") or ""),
+        "refused": refused,
+        "citations": citations,
+        "retrieval_meta": retrieval_meta,
+        "context_count": int(result.get("context_count") or len(citations)),
+    }
 
 
 @router.post("/answer", response_model=ChatAnswerResponse)
 def chat_answer(
     req: ChatAnswerRequest,
 ) -> ChatAnswerResponse:
-    if _intent_router_enabled():
-        intent_result = _INTENT_ROUTER.route(req.question)
-        logger.info(
-            "Intent router: intent=%s confidence=%.3f method=%s",
-            intent_result.intent.value,
-            intent_result.confidence,
-            intent_result.method,
+    scope_payload = req.retrieval_scope.model_dump()
+    filters_payload = req.retrieval_filters.model_dump(exclude_none=True)
+    settings = Settings.load(require_supabase=True, require_openai=False)
+
+    sql_result = maybe_answer_with_sql(
+        supabase_url=settings.supabase_url,
+        supabase_service_key=settings.supabase_service_key,
+        question=req.question,
+        retrieval_scope=scope_payload,
+        retrieval_filters=filters_payload,
+    )
+    if sql_result is not None:
+        normalized = _normalize_result_payload(sql_result, default_question=req.question)
+        return ChatAnswerResponse(
+            question=normalized["question"],
+            answer=normalized["answer"],
+            refused=normalized["refused"],
+            citations=normalized["citations"],
+            retrieval_meta=normalized["retrieval_meta"],
+            context_count=normalized["context_count"],
         )
-        shortcut = maybe_handle_conversational_intent(req.question, intent_result)
-        if shortcut is not None:
-            return ChatAnswerResponse(
-                question=req.question,
-                answer=shortcut["message"],
-                refused=False,
-                citations=[],
-                retrieval_meta={
-                    "reason": "conversational_shortcut",
-                    "intent": intent_result.intent.value,
-                    "confidence": intent_result.confidence,
-                    "method": intent_result.method,
-                    "feature_flag": "INTENT_ROUTER_ENABLED",
-                },
-                context_count=0,
-            )
 
-    settings = Settings.load(require_supabase=True, require_openai=True)
+    if not settings.openai_api_key:
+        settings = Settings.load(require_supabase=True, require_openai=True)
+
     model_name = (req.model_name or settings.pipeline_model).strip() or settings.pipeline_model
-
-    result = answer_with_rag(
+    rag_result = answer_with_rag(
         supabase_url=settings.supabase_url,
         supabase_service_key=settings.supabase_service_key,
         openai_api_key=settings.openai_api_key,
         embeddings_model=settings.embedding_model,
         chat_model=model_name,
         question=req.question,
-        retrieval_scope=req.retrieval_scope.model_dump(),
+        retrieval_scope=scope_payload,
         retrieval_mode=req.retrieval_mode,
-        retrieval_filters=req.retrieval_filters.model_dump(exclude_none=True),
+        retrieval_filters=filters_payload,
         top_k=req.top_k,
         min_similarity=req.min_similarity,
     )
-
+    normalized = _normalize_result_payload(rag_result, default_question=req.question)
     return ChatAnswerResponse(
-        question=str(result.get("question") or req.question),
-        answer=str(result.get("answer") or ""),
-        refused=bool(result.get("refused")),
-        citations=list(result.get("citations") or []),
-        retrieval_meta=dict(result.get("retrieval_meta") or {}),
-        context_count=int(result.get("context_count") or 0),
+        question=normalized["question"],
+        answer=normalized["answer"],
+        refused=normalized["refused"],
+        citations=normalized["citations"],
+        retrieval_meta=normalized["retrieval_meta"],
+        context_count=normalized["context_count"],
     )
 
 

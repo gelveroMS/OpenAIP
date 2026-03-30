@@ -57,29 +57,6 @@ export type PipelineChatCitation = {
   metadata?: unknown | null;
 };
 
-export type PipelineIntentType =
-  | "GREETING"
-  | "THANKS"
-  | "COMPLAINT"
-  | "CLARIFY"
-  | "TOTAL_AGGREGATION"
-  | "CATEGORY_AGGREGATION"
-  | "LINE_ITEM_LOOKUP"
-  | "PROJECT_DETAIL"
-  | "DOCUMENT_EXPLANATION"
-  | "OUT_OF_SCOPE"
-  | "SCOPE_NEEDS_CLARIFICATION"
-  | "UNKNOWN";
-
-export type PipelineIntentClassification = {
-  intent: PipelineIntentType;
-  confidence: number;
-  top2_intent: PipelineIntentType | null;
-  top2_confidence: number | null;
-  margin: number;
-  method: "rule" | "semantic" | "none";
-};
-
 export type PipelineChatAnswer = {
   answer: string;
   refused: boolean;

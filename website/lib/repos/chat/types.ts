@@ -1,5 +1,4 @@
 import type { ChatMessageRole } from "@/lib/contracts/databasev2";
-import type { PipelineIntentClassification } from "@/lib/chat/types";
 
 export type { ChatMessageRole };
 
@@ -161,7 +160,6 @@ export type ChatRetrievalMeta = {
     coverageBarangays: string[];
     aggregationSource: string;
   };
-  intentClassification?: PipelineIntentClassification;
   verifierMode?: "structured" | "retrieval" | "mixed";
   verifierPolicyPassed?: boolean;
   denseCandidateCount?: number;

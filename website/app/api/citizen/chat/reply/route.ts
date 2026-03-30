@@ -4,11 +4,7 @@ import type {
   RetrievalScopePayload,
   RetrievalScopeTarget,
 } from "@/lib/chat/types";
-import { decideRoute } from "@/lib/chat/router-decision";
-import {
-  requestPipelineChatAnswer,
-  requestPipelineIntentClassify,
-} from "@/lib/chat/pipeline-client";
+import { requestPipelineChatAnswer } from "@/lib/chat/pipeline-client";
 import { getTypedAppSetting, isUserBlocked } from "@/lib/settings/app-settings";
 import { enforceCsrfProtection } from "@/lib/security/csrf";
 import { assertPrivilegedWriteAccess, isInvariantError } from "@/lib/security/invariants";
@@ -61,27 +57,6 @@ const MESSAGE_CONTENT_LIMIT = 12000;
 const RETRIEVAL_FILTER_YEAR_PATTERN = /\b(20\d{2})\b/g;
 const RETRIEVAL_FILTER_MULTI_YEAR_CUE_PATTERN =
   /\b(compare|comparison|trend|across|between|vs|versus|from\s+20\d{2}\s+to\s+20\d{2})\b/i;
-
-function isCitizenRouterV2Enabled(): boolean {
-  return process.env.CITIZEN_ROUTER_V2_ENABLED === "true";
-}
-
-function conversationalReply(intent: string): string {
-  switch (intent) {
-    case "GREETING":
-      return "Hi! I can help with published AIP totals, line items, and project details. Tell me the year and budget detail you want to check.";
-    case "THANKS":
-      return "You're welcome! Tell me the year and AIP detail you want to check next.";
-    case "COMPLAINT":
-      return "Thanks for flagging that. Tell me which part seems incorrect (year, project/ref code, or scope) so I can re-check.";
-    case "CLARIFY":
-      return "Sure - tell me the year and the project/ref code or topic you mean.";
-    case "OUT_OF_SCOPE":
-      return "I can help with published AIP questions only. Ask about budgets, totals, fund sources, or project details.";
-    default:
-      return "How can I help with published AIP data?";
-  }
-}
 
 function buildFollowUps(userMessage: string): string[] {
   const lowered = userMessage.toLowerCase();
@@ -407,98 +382,6 @@ export async function POST(request: Request) {
       profile,
       admin,
     });
-    let intentClassification: Awaited<ReturnType<typeof requestPipelineIntentClassify>> | null = null;
-    try {
-      intentClassification = await requestPipelineIntentClassify({
-        text: userMessage,
-      });
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Pipeline intent classification failed.";
-      console.warn("[citizen-chat] intent classification failed:", message);
-    }
-
-    if (isCitizenRouterV2Enabled()) {
-      const routeDecision = decideRoute({
-        text: userMessage,
-        intentClassification,
-      });
-
-      if (routeDecision.kind === "CONVERSATIONAL") {
-        const suggestedFollowUps = buildFollowUps(userMessage);
-        const retrievalMeta = {
-          refused: false,
-          reason: "ok",
-          source: "citizen_router_v2",
-          routeKind: routeDecision.kind,
-          confidence: routeDecision.confidence,
-          reasons: routeDecision.reasons,
-          suggestedFollowUps,
-          ...(intentClassification ? { intentClassification } : {}),
-        } as Json;
-
-        const inserted = (await insertAssistantChatMessage({
-          actor: privilegedActor,
-          sessionId,
-          content: conversationalReply(intentClassification?.intent ?? "UNKNOWN"),
-          citations: [] as Json,
-          retrievalMeta,
-        })) as ChatMessageRow;
-
-        return NextResponse.json({
-          message: {
-            id: inserted.id,
-            sessionId: inserted.session_id,
-            role: inserted.role,
-            content: inserted.content,
-            citations: inserted.citations,
-            retrievalMeta: inserted.retrieval_meta,
-            createdAt: inserted.created_at,
-          },
-          suggestedFollowUps,
-        });
-      }
-
-      if (routeDecision.kind === "CLARIFY") {
-        const suggestedFollowUps = buildFollowUps(userMessage);
-        const clarifyContent = routeDecision.missingSlots.includes("fiscal_year_pair")
-          ? "Please specify two fiscal years to compare (for example: FY 2025 vs FY 2026)."
-          : "Please clarify the request (year and exact scope/topic) so I can answer accurately.";
-        const retrievalMeta = {
-          refused: false,
-          reason: "clarification_needed",
-          status: "clarification",
-          source: "citizen_router_v2",
-          routeKind: routeDecision.kind,
-          confidence: routeDecision.confidence,
-          reasons: routeDecision.reasons,
-          missingSlots: routeDecision.missingSlots,
-          suggestedFollowUps,
-          ...(intentClassification ? { intentClassification } : {}),
-        } as Json;
-
-        const inserted = (await insertAssistantChatMessage({
-          actor: privilegedActor,
-          sessionId,
-          content: clarifyContent,
-          citations: [] as Json,
-          retrievalMeta,
-        })) as ChatMessageRow;
-
-        return NextResponse.json({
-          message: {
-            id: inserted.id,
-            sessionId: inserted.session_id,
-            role: inserted.role,
-            content: inserted.content,
-            citations: inserted.citations,
-            retrievalMeta: inserted.retrieval_meta,
-            createdAt: inserted.created_at,
-          },
-          suggestedFollowUps,
-        });
-      }
-    }
 
     const pipeline = await requestPipelineChatAnswer({
       question: userMessage,
@@ -531,7 +414,6 @@ export async function POST(request: Request) {
       sessionTitle: session.title,
       context: session.context,
       suggestedFollowUps,
-      ...(intentClassification ? { intentClassification } : {}),
     } as Json;
 
     const inserted = (await insertAssistantChatMessage({
