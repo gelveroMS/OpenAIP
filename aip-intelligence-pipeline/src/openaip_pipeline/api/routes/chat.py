@@ -21,9 +21,17 @@ from openaip_pipeline.services.intent import (
     classify_message,
 )
 from openaip_pipeline.services.openai_utils import build_openai_client
-from openaip_pipeline.services.rag.rag import answer_with_rag
+from openaip_pipeline.services.rag.rag import answer_with_rag, build_retrieval_query
 
 logger = logging.getLogger(__name__)
+
+_STRUCTURED_SQL_INTENTS: set[str] = {
+    "metadata_query",
+    "total_aggregation",
+    "category_aggregation",
+    "line_item_lookup",
+    "compare_years",
+}
 
 
 def _trace_enabled() -> bool:
@@ -91,8 +99,8 @@ class ChatAnswerRequest(BaseModel):
     retrieval_mode: Literal["qa", "overview"] = "qa"
     retrieval_filters: RetrievalFilters = Field(default_factory=RetrievalFilters)
     model_name: str | None = None
-    top_k: int = Field(default=4, ge=1, le=30)
-    min_similarity: float = Field(default=0.3, ge=0.0, le=1.0)
+    top_k: int = Field(default=5, ge=1, le=30)
+    min_similarity: float = Field(default=0.10, ge=0.0, le=1.0)
 
 
 class ChatAnswerResponse(BaseModel):
@@ -167,6 +175,25 @@ def _merge_classifier_meta(retrieval_meta: dict[str, Any], classification: Inten
 
 
 def _apply_entity_filters(filters_payload: dict[str, Any], classification: IntentResult) -> dict[str, Any]:
+    def _normalized_tag(value: Any) -> str | None:
+        if not isinstance(value, str):
+            return None
+        normalized = " ".join(value.strip().split()).lower()
+        return normalized if normalized else None
+
+    def _merge_tags(existing: Any, additions: list[str]) -> list[str]:
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for candidate in [*(existing if isinstance(existing, list) else []), *additions]:
+            if not isinstance(candidate, str):
+                continue
+            normalized = _normalized_tag(candidate)
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            deduped.append(normalized)
+        return deduped
+
     entities = classification.entities
     merged = dict(filters_payload)
 
@@ -185,6 +212,31 @@ def _apply_entity_filters(filters_payload: dict[str, Any], classification: Inten
     scope_name = entities.get("scope_name")
     if "scope_name" not in merged and isinstance(scope_name, str) and scope_name.strip():
         merged["scope_name"] = scope_name.strip()
+
+    if "scope_type" not in merged and "scope_name" not in merged:
+        barangay = entities.get("barangay")
+        city = entities.get("city")
+        if isinstance(barangay, str) and barangay.strip():
+            merged["scope_type"] = "barangay"
+            merged["scope_name"] = barangay.strip()
+        elif isinstance(city, str) and city.strip():
+            merged["scope_type"] = "city"
+            merged["scope_name"] = city.strip()
+
+    sector_tag = _normalized_tag(entities.get("sector"))
+    if sector_tag:
+        merged["sector_tags"] = _merge_tags(merged.get("sector_tags"), [sector_tag])
+
+    theme_candidates = [
+        _normalized_tag(entities.get("topic")),
+        _normalized_tag(entities.get("project_type")),
+        _normalized_tag(entities.get("budget_term")),
+    ]
+    theme_tags = [tag for tag in theme_candidates if tag]
+    if theme_tags:
+        merged["theme_tags"] = _merge_tags(merged.get("theme_tags"), theme_tags)
+
+    merged["publication_status"] = "published"
 
     return merged
 
@@ -319,33 +371,38 @@ def chat_answer(
         retrieval_filters=filters_payload,
     )
 
-    sql_result = maybe_answer_with_sql(
-        supabase_url=settings.supabase_url,
-        supabase_service_key=settings.supabase_service_key,
-        question=req.question,
-        retrieval_scope=scope_payload,
-        retrieval_filters=filters_payload,
-    )
-    if sql_result is not None:
-        normalized = _normalize_result_payload(sql_result, default_question=req.question)
-        normalized["retrieval_meta"] = _merge_classifier_meta(normalized["retrieval_meta"], classification)
-        _trace_log(
-            "sql_answered",
-            status=normalized["retrieval_meta"].get("status"),
-            reason=normalized["retrieval_meta"].get("reason"),
-            refused=normalized["refused"],
-            context_count=normalized["context_count"],
+    if classification.intent in _STRUCTURED_SQL_INTENTS:
+        sql_result = maybe_answer_with_sql(
+            supabase_url=settings.supabase_url,
+            supabase_service_key=settings.supabase_service_key,
+            question=req.question,
+            retrieval_scope=scope_payload,
+            retrieval_filters=filters_payload,
         )
-        return ChatAnswerResponse(
-            question=normalized["question"],
-            answer=normalized["answer"],
-            refused=normalized["refused"],
-            citations=normalized["citations"],
-            retrieval_meta=normalized["retrieval_meta"],
-            context_count=normalized["context_count"],
-        )
+        if sql_result is not None:
+            normalized = _normalize_result_payload(sql_result, default_question=req.question)
+            normalized["retrieval_meta"] = _merge_classifier_meta(normalized["retrieval_meta"], classification)
+            _trace_log(
+                "sql_answered",
+                status=normalized["retrieval_meta"].get("status"),
+                reason=normalized["retrieval_meta"].get("reason"),
+                refused=normalized["refused"],
+                context_count=normalized["context_count"],
+            )
+            return ChatAnswerResponse(
+                question=normalized["question"],
+                answer=normalized["answer"],
+                refused=normalized["refused"],
+                citations=normalized["citations"],
+                retrieval_meta=normalized["retrieval_meta"],
+                context_count=normalized["context_count"],
+            )
+        _trace_log("sql_no_answer")
 
-    _trace_log("sql_no_answer")
+    retrieval_query = build_retrieval_query(
+        question=req.question,
+        entities=classification.entities,
+    )
 
     if not settings.openai_api_key:
         settings = Settings.load(require_supabase=True, require_openai=True)
@@ -357,6 +414,7 @@ def chat_answer(
         embeddings_model=settings.embedding_model,
         chat_model=model_name,
         question=req.question,
+        retrieval_query=retrieval_query,
         retrieval_scope=scope_payload,
         retrieval_mode=req.retrieval_mode,
         retrieval_filters=filters_payload,

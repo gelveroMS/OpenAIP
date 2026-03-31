@@ -26,14 +26,21 @@ logger = logging.getLogger(__name__)
 SOURCE_TAG_PATTERN = re.compile(r"\[(S\d+)\]")
 YEAR_PATTERN = re.compile(r"\b(20\d{2})\b")
 MAX_SNIPPET_LENGTH = 360
+MAX_RESPONSE_SENTENCES = 2
+MAX_RETRIEVAL_QUERY_PREVIEW = 240
+INSUFFICIENT_CONTEXT_RESPONSE = "Insufficient context."
 
 
 def _source_id(index: int, doc: Any) -> str:
+    return f"S{index}"
+
+
+def _original_source_id(doc: Any) -> str | None:
     metadata = getattr(doc, "metadata", {}) or {}
     source = metadata.get("source_id")
     if isinstance(source, str) and source.strip():
         return source.strip()
-    return f"S{index}"
+    return None
 
 
 def _truncate(text: str, limit: int = MAX_SNIPPET_LENGTH) -> str:
@@ -51,12 +58,15 @@ def _format_context(docs: list[Any]) -> str:
     sections: list[str] = []
     for index, doc in enumerate(docs, start=1):
         metadata = getattr(doc, "metadata", {}) or {}
+        normalized_source_id = _source_id(index, doc)
+        original_source_id = _original_source_id(doc)
         sections.append(
             "\n".join(
                 [
-                    f"{_source_id(index, doc)}",
+                    normalized_source_id,
                     f"scope={metadata.get('scope_type')}:{metadata.get('scope_name')}",
                     f"aip_id={metadata.get('aip_id')} fiscal_year={metadata.get('fiscal_year')} similarity={metadata.get('similarity')}",
+                    f"original_source_id={original_source_id}",
                     f"content={getattr(doc, 'page_content', '')}",
                 ]
             )
@@ -68,11 +78,45 @@ def _format_source_list(docs: list[Any]) -> str:
     lines: list[str] = []
     for index, doc in enumerate(docs, start=1):
         metadata = getattr(doc, "metadata", {}) or {}
+        original_source_id = _original_source_id(doc)
         lines.append(
-            f"[{_source_id(index, doc)}] scope={metadata.get('scope_type')}:{metadata.get('scope_name')} "
+            f"[{_source_id(index, doc)}] original_source_id={original_source_id} "
+            f"scope={metadata.get('scope_type')}:{metadata.get('scope_name')} "
             f"aip_id={metadata.get('aip_id')} fy={metadata.get('fiscal_year')}"
         )
     return "\n".join(lines)
+
+
+def build_retrieval_query(*, question: str, entities: dict[str, Any] | None) -> str:
+    query = str(question or "").strip()
+    parsed_entities = entities if isinstance(entities, dict) else {}
+    hints: list[str] = []
+
+    def _append_hint(label: str, value: Any) -> None:
+        if value is None:
+            return
+        if isinstance(value, str):
+            normalized = value.strip()
+            if not normalized:
+                return
+            hints.append(f"{label}: {normalized}")
+            return
+        if isinstance(value, (int, float)):
+            hints.append(f"{label}: {value}")
+
+    _append_hint("barangay", parsed_entities.get("barangay"))
+    _append_hint("city", parsed_entities.get("city"))
+    _append_hint("scope_type", parsed_entities.get("scope_type"))
+    _append_hint("scope_name", parsed_entities.get("scope_name"))
+    _append_hint("fiscal year", parsed_entities.get("fiscal_year"))
+    _append_hint("topic", parsed_entities.get("topic"))
+    _append_hint("project type", parsed_entities.get("project_type"))
+    _append_hint("sector", parsed_entities.get("sector"))
+    _append_hint("budget term", parsed_entities.get("budget_term"))
+
+    if not hints:
+        return query
+    return f"{query}\n\nStructured hints: {' | '.join(hints)}"
 
 
 def _safe_float(value: Any) -> float | None:
@@ -272,6 +316,13 @@ def _doc_similarity_score(doc: Any) -> float:
     return _safe_float(metadata.get("similarity")) or 0.0
 
 
+def _doc_meets_min_similarity(doc: Any, *, min_similarity: float) -> bool:
+    metadata = getattr(doc, "metadata", {}) or {}
+    similarity = _safe_float(metadata.get("similarity"))
+    score = similarity if similarity is not None else _doc_similarity_score(doc)
+    return score >= min_similarity
+
+
 def _channels_for_doc(doc: Any) -> set[str]:
     metadata = getattr(doc, "metadata", {}) or {}
     channels = metadata.get("retrieval_channels")
@@ -388,16 +439,7 @@ def run_hybrid_retrieval(
                     max_candidates=max_candidates,
                 )
 
-    # Keep the old dense-threshold behavior when hybrid retrieval is disabled.
-    strong_docs = (
-        [
-            doc
-            for doc in fused_docs
-            if (_safe_float((getattr(doc, "metadata", {}) or {}).get("similarity")) or 0.0) >= min_similarity
-        ]
-        if not hybrid_enabled
-        else fused_docs
-    )
+    strong_docs = [doc for doc in fused_docs if _doc_meets_min_similarity(doc, min_similarity=min_similarity)]
 
     return {
         "hybrid_enabled": hybrid_enabled,
@@ -520,8 +562,10 @@ def _select_diverse_docs(
 
 def _build_citation(index: int, doc: Any, *, insufficient: bool = False) -> dict[str, Any]:
     metadata = getattr(doc, "metadata", {}) or {}
+    original_source_id = _original_source_id(doc)
     return {
         "source_id": _source_id(index, doc),
+        "original_source_id": original_source_id,
         "chunk_id": metadata.get("chunk_id"),
         "chunk_type": metadata.get("chunk_type"),
         "document_type": metadata.get("document_type"),
@@ -577,6 +621,28 @@ def _extract_source_ids(answer_text: str) -> list[str]:
     return ordered
 
 
+def _split_answer_sentences(answer_text: str) -> list[str]:
+    normalized = " ".join((answer_text or "").split())
+    if not normalized:
+        return []
+    parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", normalized) if part.strip()]
+    return parts if parts else [normalized]
+
+
+def _answer_violates_constraints(answer_text: str) -> bool:
+    if not answer_text:
+        return True
+    if answer_text.strip() == INSUFFICIENT_CONTEXT_RESPONSE:
+        return False
+
+    sentences = _split_answer_sentences(answer_text)
+    if len(sentences) > MAX_RESPONSE_SENTENCES:
+        return True
+
+    # Each sentence in generated grounded output must carry at least one source tag.
+    return any(SOURCE_TAG_PATTERN.search(sentence) is None for sentence in sentences)
+
+
 def _build_refusal(
     *,
     question: str,
@@ -614,10 +680,7 @@ def _build_refusal(
             }
         ]
 
-    answer = (
-        "I can't provide a grounded answer from the available published AIP sources. "
-        "Please refine the question or specify an exact scope."
-    )
+    answer = INSUFFICIENT_CONTEXT_RESPONSE
     return {
         "question": question,
         "answer": answer,
@@ -671,26 +734,9 @@ def _build_partial_evidence(
             verifier_passed=False,
         )
 
-    bullet_lines: list[str] = []
-    for citation in citations:
-        source_id = str(citation.get("source_id") or "S0")
-        snippet = str(citation.get("snippet") or "").strip()
-        if snippet:
-            bullet_lines.append(f"- [{source_id}] {snippet}")
-
-    answer_lines = [
-        "I found related published AIP records, but the evidence is limited for a fully grounded answer.",
-    ]
-    if bullet_lines:
-        answer_lines.append("Closest records:")
-        answer_lines.extend(bullet_lines)
-    answer_lines.append(
-        "Please narrow the request (exact fiscal year, scope, or ref code) so I can provide a fully verified answer."
-    )
-
     return {
         "question": question,
-        "answer": "\n".join(answer_lines).strip(),
+        "answer": INSUFFICIENT_CONTEXT_RESPONSE,
         "refused": False,
         "citations": citations,
         "sources": [citation.get("metadata", {}) for citation in citations],
@@ -948,6 +994,7 @@ def answer_with_rag(
     embeddings_model: str,
     chat_model: str,
     question: str,
+    retrieval_query: str | None = None,
     retrieval_scope: dict[str, Any] | None = None,
     retrieval_mode: str = "qa",
     retrieval_filters: dict[str, Any] | None = None,
@@ -965,12 +1012,13 @@ def answer_with_rag(
     resolved_scope = retrieval_scope or {"mode": "global", "targets": []}
     resolved_mode = _normalize_retrieval_mode(retrieval_mode)
     effective_top_k = _effective_top_k(top_k=top_k, retrieval_mode=resolved_mode)
+    retrieval_text = (retrieval_query or "").strip() or question
     supabase = create_client(supabase_url, supabase_service_key)
     retrieval_started_at = time.perf_counter()
     retrieval_bundle = run_hybrid_retrieval(
         supabase=supabase,
         embeddings_model=embeddings_model,
-        question=question,
+        question=retrieval_text,
         retrieval_scope=resolved_scope,
         retrieval_mode=resolved_mode,
         retrieval_filters=retrieval_filters,
@@ -1022,6 +1070,8 @@ def answer_with_rag(
     retrieval_context_meta = {
         "retrieval_mode": resolved_mode,
         "applied_retrieval_filters": applied_filters,
+        "retrieval_query_applied": retrieval_text != question,
+        "retrieval_query_preview": _preview(retrieval_text, limit=MAX_RETRIEVAL_QUERY_PREVIEW),
     }
 
     def attach(
@@ -1273,7 +1323,7 @@ def answer_with_rag(
         "- answer must be plain text with inline source tags like [S1], [S2].\n"
         "- Every factual statement must include at least one valid source tag.\n"
         "- used_source_ids must list unique source IDs actually used in answer.\n"
-        "- If evidence is insufficient, return answer as an explicit refusal and still cite nearest sources."
+        f"- If evidence is insufficient, return answer exactly: {INSUFFICIENT_CONTEXT_RESPONSE}"
     )
     generation_user_prompt = (
         f"Question:\n{question}\n\n"
@@ -1309,6 +1359,22 @@ def answer_with_rag(
     answer_text = str(parsed_generation.get("answer") or "").strip()
     if not answer_text:
         _trace_log("generation_empty_answer")
+        return attach(
+            _build_refusal(
+                question=question,
+                reason="validation_failed",
+                docs=selected_docs,
+                top_k=effective_top_k,
+                min_similarity=min_similarity,
+                retrieval_scope=resolved_scope,
+                verifier_passed=False,
+            ),
+            selected_count=len(selected_docs),
+            extra_meta=gate_metrics,
+        )
+
+    if _answer_violates_constraints(answer_text):
+        _trace_log("generation_constraint_violation", answer_preview=_preview(answer_text))
         return attach(
             _build_refusal(
                 question=question,

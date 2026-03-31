@@ -6,7 +6,11 @@ import pytest
 
 from openaip_pipeline.services.intent.classifier import classify_with_llm
 from openaip_pipeline.services.intent.service import IntentClassificationError, classify_message
-from openaip_pipeline.services.intent.types import IntentResult, empty_entities
+from openaip_pipeline.services.intent.types import (
+    DEFAULT_CLARIFICATION_RESPONSE,
+    IntentResult,
+    empty_entities,
+)
 
 
 def test_classify_message_rules_detects_greeting_without_llm() -> None:
@@ -47,7 +51,7 @@ def test_classify_message_rules_detects_out_of_scope() -> None:
 def test_classify_message_requires_api_key_for_llm_fallback() -> None:
     with pytest.raises(IntentClassificationError):
         classify_message(
-            message="Tell me something unexpected",
+            message="What projects are available in Barangay Mamatid?",
             openai_api_key=None,
             default_model="gpt-5.2",
         )
@@ -129,3 +133,29 @@ def test_classify_message_uses_llm_when_rules_do_not_match(monkeypatch) -> None:
 
     assert result.intent == "rag_query"
     assert result.classifier_method == "llm"
+
+
+def test_classify_message_low_confidence_rag_without_entities_downgrades_to_clarification(monkeypatch) -> None:
+    llm_result = IntentResult(
+        intent="rag_query",
+        confidence=0.41,
+        needs_retrieval=True,
+        friendly_response=None,
+        entities=empty_entities(),
+        route_hint="rag_query",
+        classifier_method="llm",
+    )
+    monkeypatch.setattr(
+        "openaip_pipeline.services.intent.service.classify_with_llm",
+        lambda **_kwargs: llm_result,
+    )
+
+    result = classify_message(
+        message="Show me something about the AIP",
+        openai_api_key="test-key",
+        default_model="gpt-5.2",
+    )
+
+    assert result.intent == "clarification"
+    assert result.needs_retrieval is False
+    assert result.friendly_response == DEFAULT_CLARIFICATION_RESPONSE

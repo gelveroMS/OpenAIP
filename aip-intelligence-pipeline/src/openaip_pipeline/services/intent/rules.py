@@ -23,29 +23,6 @@ _SMALL_TALK_RE = re.compile(
     r"\b(how are you|who are you|what are you|are you there|what's up|kamusta ka)\b",
     re.IGNORECASE,
 )
-_CLARIFICATION_RE = re.compile(
-    r"\b(clarify|can you clarify|what do you mean|explain again|please explain|rephrase|paki explain)\b",
-    re.IGNORECASE,
-)
-
-_AIP_DOMAIN_TOKENS = (
-    "aip",
-    "annual investment",
-    "investment program",
-    "barangay",
-    "city",
-    "municipality",
-    "fiscal year",
-    "fy ",
-    "budget",
-    "fund source",
-    "sector",
-    "project",
-    "program",
-    "line item",
-    "ref code",
-    "allocation",
-)
 
 _OUT_OF_SCOPE_TOKENS = (
     "weather",
@@ -93,10 +70,6 @@ def _result(
         route_hint=route_hint if route_hint is not None else INTENT_ROUTE_HINTS.get(intent),
         classifier_method="rule",
     )
-
-
-def _is_aip_related(normalized_lower: str) -> bool:
-    return any(token in normalized_lower for token in _AIP_DOMAIN_TOKENS)
 
 
 def _is_out_of_scope(normalized_lower: str) -> bool:
@@ -201,25 +174,9 @@ def classify_with_rules(message: str) -> IntentResult | None:
             friendly_response=DEFAULT_FRIENDLY_RESPONSES["small_talk"],
         )
 
-    if _CLARIFICATION_RE.search(normalized):
-        return _result(
-            intent="clarification",
-            confidence=0.9,
-            needs_retrieval=False,
-            friendly_response=DEFAULT_CLARIFICATION_RESPONSE,
-        )
-
     domain = _classify_domain_intent(normalized, lowered)
     if domain is not None:
         return domain
-
-    if _is_aip_related(lowered):
-        return _result(
-            intent="rag_query",
-            confidence=0.7,
-            needs_retrieval=True,
-            route_hint="rag_query",
-        )
 
     if _is_out_of_scope(lowered):
         return _result(
@@ -230,4 +187,3 @@ def classify_with_rules(message: str) -> IntentResult | None:
         )
 
     return None
-

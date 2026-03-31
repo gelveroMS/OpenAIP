@@ -188,7 +188,7 @@ def test_answer_with_rag_borderline_verifier_fail_downgrades_to_partial_when_ena
             self.calls += 1
             if self.calls == 1:
                 return types.SimpleNamespace(
-                    content='{"answer":"The AIP mentions infrastructure works [c1].","used_source_ids":["c1"]}'
+                    content='{"answer":"The AIP mentions infrastructure works [S1].","used_source_ids":["S1"]}'
                 )
             return types.SimpleNamespace(content='{"supported":false,"issues":["needs explicit match"]}')
 

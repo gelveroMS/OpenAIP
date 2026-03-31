@@ -10,14 +10,21 @@ from openaip_pipeline.services.intent.service import IntentClassificationError
 from openaip_pipeline.services.intent.types import IntentResult, empty_entities
 
 
-def _classification(intent: str = "rag_query", *, needs_retrieval: bool = True) -> IntentResult:
+def _classification(
+    intent: str = "rag_query",
+    *,
+    needs_retrieval: bool = True,
+    entities: dict | None = None,
+    route_hint: str | None = None,
+) -> IntentResult:
+    resolved_route_hint = route_hint if route_hint is not None else ("rag_query" if needs_retrieval else None)
     return IntentResult(
         intent=intent,
         confidence=0.9,
         needs_retrieval=needs_retrieval,
         friendly_response=None,
-        entities=empty_entities(),
-        route_hint="rag_query" if needs_retrieval else None,
+        entities=entities or empty_entities(),
+        route_hint=resolved_route_hint,
         classifier_method="rule",
     )
 
@@ -53,6 +60,15 @@ def _post_chat(client: TestClient, question: str):
 
 def test_sql_result_short_circuits_rag(monkeypatch) -> None:
     _patch_base(monkeypatch)
+    monkeypatch.setattr(
+        chat_route_module,
+        "classify_message",
+        lambda **_kwargs: _classification(
+            intent="total_aggregation",
+            needs_retrieval=True,
+            route_hint="sql_totals",
+        ),
+    )
 
     def fake_sql(**_kwargs):
         return {
@@ -80,8 +96,17 @@ def test_sql_result_short_circuits_rag(monkeypatch) -> None:
     assert payload["retrieval_meta"]["route_family"] == "sql_totals"
 
 
-def test_fallback_to_rag_when_sql_returns_none(monkeypatch) -> None:
+def test_fallback_to_rag_when_sql_returns_none_for_structured_intent(monkeypatch) -> None:
     _patch_base(monkeypatch)
+    monkeypatch.setattr(
+        chat_route_module,
+        "classify_message",
+        lambda **_kwargs: _classification(
+            intent="total_aggregation",
+            needs_retrieval=True,
+            route_hint="sql_totals",
+        ),
+    )
 
     def fake_sql(**_kwargs):
         return None
@@ -106,6 +131,135 @@ def test_fallback_to_rag_when_sql_returns_none(monkeypatch) -> None:
     payload = response.json()
     assert payload["answer"] == "RAG fallback answer."
     assert payload["retrieval_meta"]["status"] == "answer"
+
+
+def test_rag_query_skips_sql_and_calls_rag_directly(monkeypatch) -> None:
+    _patch_base(monkeypatch)
+    monkeypatch.setattr(
+        chat_route_module,
+        "classify_message",
+        lambda **_kwargs: _classification(intent="rag_query", needs_retrieval=True, route_hint="rag_query"),
+    )
+    monkeypatch.setattr(
+        chat_route_module,
+        "maybe_answer_with_sql",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("SQL should not be called for rag_query.")),
+    )
+    monkeypatch.setattr(
+        chat_route_module,
+        "answer_with_rag",
+        lambda **kwargs: {
+            "question": kwargs.get("question"),
+            "answer": "RAG direct answer.",
+            "refused": False,
+            "citations": [],
+            "retrieval_meta": {"reason": "ok"},
+            "context_count": 0,
+        },
+    )
+
+    client = TestClient(create_app())
+    response = _post_chat(client, "What does the AIP say about drainage projects?")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["answer"] == "RAG direct answer."
+    assert payload["retrieval_meta"]["status"] == "answer"
+
+
+def test_entity_filters_and_retrieval_query_are_forwarded_to_rag(monkeypatch) -> None:
+    _patch_base(monkeypatch)
+    entities = empty_entities()
+    entities.update(
+        {
+            "fiscal_year": 2025,
+            "barangay": "Mamatid",
+            "sector": "Health",
+            "topic": "drainage",
+            "project_type": "rehabilitation",
+            "budget_term": "capital outlay",
+        }
+    )
+    monkeypatch.setattr(
+        chat_route_module,
+        "classify_message",
+        lambda **_kwargs: _classification(
+            intent="rag_query",
+            needs_retrieval=True,
+            entities=entities,
+            route_hint="rag_query",
+        ),
+    )
+    monkeypatch.setattr(
+        chat_route_module,
+        "maybe_answer_with_sql",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("SQL should not be called for rag_query.")),
+    )
+
+    captured_kwargs: dict = {}
+
+    def fake_rag(**kwargs):
+        captured_kwargs.update(kwargs)
+        return {
+            "question": kwargs.get("question"),
+            "answer": "RAG answer.",
+            "refused": False,
+            "citations": [],
+            "retrieval_meta": {"reason": "ok"},
+            "context_count": 0,
+        }
+
+    monkeypatch.setattr(chat_route_module, "answer_with_rag", fake_rag)
+
+    client = TestClient(create_app())
+    response = _post_chat(client, "What does the AIP say about drainage in Mamatid for FY 2025?")
+    assert response.status_code == 200
+
+    filters_payload = captured_kwargs["retrieval_filters"]
+    assert filters_payload["fiscal_year"] == 2025
+    assert filters_payload["scope_type"] == "barangay"
+    assert filters_payload["scope_name"] == "Mamatid"
+    assert filters_payload["publication_status"] == "published"
+    assert "health" in filters_payload.get("sector_tags", [])
+    assert "drainage" in filters_payload.get("theme_tags", [])
+    assert "rehabilitation" in filters_payload.get("theme_tags", [])
+    assert "capital outlay" in filters_payload.get("theme_tags", [])
+    assert "Structured hints:" in captured_kwargs["retrieval_query"]
+
+
+def test_chat_defaults_forward_reference_aligned_top_k_and_similarity(monkeypatch) -> None:
+    _patch_base(monkeypatch)
+    monkeypatch.setattr(
+        chat_route_module,
+        "classify_message",
+        lambda **_kwargs: _classification(intent="rag_query", needs_retrieval=True, route_hint="rag_query"),
+    )
+    monkeypatch.setattr(
+        chat_route_module,
+        "maybe_answer_with_sql",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("SQL should not be called for rag_query.")),
+    )
+
+    captured_kwargs: dict = {}
+
+    def fake_rag(**kwargs):
+        captured_kwargs.update(kwargs)
+        return {
+            "question": kwargs.get("question"),
+            "answer": "RAG answer.",
+            "refused": False,
+            "citations": [],
+            "retrieval_meta": {"reason": "ok"},
+            "context_count": 0,
+        }
+
+    monkeypatch.setattr(chat_route_module, "answer_with_rag", fake_rag)
+
+    client = TestClient(create_app())
+    response = _post_chat(client, "What does the AIP say about projects?")
+    assert response.status_code == 200
+    assert captured_kwargs["top_k"] == 5
+    assert captured_kwargs["min_similarity"] == 0.10
 
 
 def test_rag_refusal_status_is_normalized(monkeypatch) -> None:
