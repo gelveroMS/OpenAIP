@@ -72,6 +72,23 @@ export type PipelineChatAnswer = {
       | "validation_failed"
       | "conversational_shortcut"
       | "unknown";
+    intent?: string;
+    classifier_confidence?: number;
+    classifier_method?: "rule" | "llm" | "error";
+    needs_retrieval?: boolean;
+    entities?: Record<string, unknown>;
+    route_hint?: string | null;
+    status?: "answer" | "clarification" | "refusal";
+    refusal_reason?: "unsupported_request" | string;
+    route_family?:
+      | "sql_totals"
+      | "aggregate_sql"
+      | "row_sql"
+      | "metadata_sql"
+      | "pipeline_fallback"
+      | "mixed_plan"
+      | "conversational"
+      | "unknown";
     top_k?: number;
     min_similarity?: number;
     context_count?: number;

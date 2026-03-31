@@ -1,130 +1,32 @@
 from __future__ import annotations
 
-import hashlib
-import hmac
 import inspect
-import json
 import logging
-import os
-import threading
-import time
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from openaip_pipeline.api.routes.chat_auth import require_internal_token
 from openaip_pipeline.core.settings import Settings
 from openaip_pipeline.services.chat import maybe_answer_with_sql
+from openaip_pipeline.services.intent import (
+    AIP_ONLY_RESPONSE,
+    DEFAULT_CLARIFICATION_RESPONSE,
+    IntentClassificationError,
+    IntentResult,
+    NON_RETRIEVAL_INTENTS,
+    classify_message,
+)
 from openaip_pipeline.services.openai_utils import build_openai_client
 from openaip_pipeline.services.rag.rag import answer_with_rag
 
-_CHAT_AUTH_LOCK = threading.Lock()
-_CHAT_NONCE_CACHE: dict[tuple[str, str, str, str], float] = {}
-_CHAT_EXPECTED_AUDIENCE = "website-backend"
-_CHAT_MAX_CLOCK_SKEW_SECONDS = 60
-_CHAT_NONCE_TTL_SECONDS = 120
 logger = logging.getLogger(__name__)
-
-
-def _load_chat_hmac_secret() -> bytes:
-    secret = os.getenv("PIPELINE_HMAC_SECRET", "").strip()
-    if not secret:
-        raise HTTPException(status_code=500, detail="PIPELINE_HMAC_SECRET is not configured.")
-    return secret.encode("utf-8")
-
-
-def _build_signature_payload(*, aud: str, ts: str, nonce: str, raw_body: str) -> str:
-    return f"{aud}|{ts}|{nonce}|{raw_body}"
-
-
-def _prune_nonce_cache_locked(now: float) -> None:
-    expired = [key for key, expires_at in _CHAT_NONCE_CACHE.items() if expires_at <= now]
-    for key in expired:
-        _CHAT_NONCE_CACHE.pop(key, None)
-
-
-def _log_chat_auth_failure(*, request: Request, reason: str, aud: str | None, ts: str | None) -> None:
-    payload = {
-        "event": "chat_auth_failure",
-        "reason": reason,
-        "aud": aud,
-        "ts": ts,
-        "path": request.url.path,
-        "method": request.method.upper(),
-        "remote_addr": request.client.host if request.client else None,
-    }
-    logger.warning(json.dumps(payload, separators=(",", ":"), sort_keys=True))
-
-
-def _log_chat_auth_verified(*, request: Request, aud: str, ts: str) -> None:
-    payload = {
-        "event": "chat_auth_verified",
-        "aud": aud,
-        "ts": ts,
-        "path": request.url.path,
-        "method": request.method.upper(),
-        "remote_addr": request.client.host if request.client else None,
-    }
-    logger.info(json.dumps(payload, separators=(",", ":"), sort_keys=True))
-
-
-async def _require_chat_signed_auth(request: Request) -> None:
-    aud = (request.headers.get("x-pipeline-aud") or "").strip()
-    ts = (request.headers.get("x-pipeline-ts") or "").strip()
-    nonce = (request.headers.get("x-pipeline-nonce") or "").strip()
-    provided_sig = (request.headers.get("x-pipeline-sig") or "").strip().lower()
-
-    if not aud or not ts or not nonce or not provided_sig:
-        _log_chat_auth_failure(request=request, reason="missing_header", aud=aud or None, ts=ts or None)
-        raise HTTPException(status_code=401, detail="Unauthorized.")
-
-    if aud != _CHAT_EXPECTED_AUDIENCE:
-        _log_chat_auth_failure(request=request, reason="unauthorized_audience", aud=aud, ts=ts)
-        raise HTTPException(status_code=401, detail="Unauthorized.")
-
-    try:
-        ts_seconds = int(ts)
-    except ValueError as error:
-        _log_chat_auth_failure(request=request, reason="invalid_timestamp", aud=aud, ts=ts)
-        raise HTTPException(status_code=401, detail="Unauthorized.") from error
-
-    now_seconds = int(time.time())
-    if abs(now_seconds - ts_seconds) > _CHAT_MAX_CLOCK_SKEW_SECONDS:
-        _log_chat_auth_failure(request=request, reason="stale_timestamp", aud=aud, ts=ts)
-        raise HTTPException(status_code=401, detail="Unauthorized.")
-
-    body_bytes = await request.body()
-    try:
-        raw_body = body_bytes.decode("utf-8")
-    except UnicodeDecodeError as error:
-        _log_chat_auth_failure(request=request, reason="invalid_body_encoding", aud=aud, ts=ts)
-        raise HTTPException(status_code=401, detail="Unauthorized.") from error
-
-    canonical = _build_signature_payload(aud=aud, ts=ts, nonce=nonce, raw_body=raw_body)
-    expected_sig = hmac.new(_load_chat_hmac_secret(), canonical.encode("utf-8"), hashlib.sha256).hexdigest()
-
-    if not hmac.compare_digest(provided_sig, expected_sig):
-        _log_chat_auth_failure(request=request, reason="invalid_signature", aud=aud, ts=ts)
-        raise HTTPException(status_code=401, detail="Unauthorized.")
-
-    body_hash = hashlib.sha256(body_bytes).hexdigest()
-    nonce_key = (aud, nonce, ts, body_hash)
-    now = time.time()
-    with _CHAT_AUTH_LOCK:
-        _prune_nonce_cache_locked(now)
-        existing = _CHAT_NONCE_CACHE.get(nonce_key)
-        if existing and existing > now:
-            _log_chat_auth_failure(request=request, reason="replayed_request", aud=aud, ts=ts)
-            raise HTTPException(status_code=401, detail="Unauthorized.")
-        # In-memory replay cache is process-local. Use Redis/DB for multi-instance deployments.
-        _CHAT_NONCE_CACHE[nonce_key] = now + float(_CHAT_NONCE_TTL_SECONDS)
-
-    _log_chat_auth_verified(request=request, aud=aud, ts=ts)
 
 
 def _require_internal_token(request: Request) -> Any:
     # Backward-compatible auth hook kept patchable in tests.
-    return _require_chat_signed_auth(request)
+    return require_internal_token(request)
 
 
 async def _chat_auth_dependency(request: Request) -> None:
@@ -134,7 +36,6 @@ async def _chat_auth_dependency(request: Request) -> None:
 
 
 router = APIRouter(prefix="/v1/chat", tags=["chat"], dependencies=[Depends(_chat_auth_dependency)])
-logger = logging.getLogger(__name__)
 
 
 class RetrievalScopeTarget(BaseModel):
@@ -212,13 +113,154 @@ def _normalize_result_payload(result: dict[str, Any], *, default_question: str) 
     }
 
 
+def _system_citation(snippet: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {
+        "source_id": "S0",
+        "scope_type": "system",
+        "scope_name": "System",
+        "snippet": snippet,
+        "insufficient": True,
+        "metadata": metadata or {},
+    }
+
+
+def _classifier_meta(classification: IntentResult) -> dict[str, Any]:
+    return {
+        "intent": classification.intent,
+        "classifier_confidence": classification.confidence,
+        "classifier_method": classification.classifier_method,
+        "needs_retrieval": classification.needs_retrieval,
+        "entities": dict(classification.entities),
+        "route_hint": classification.route_hint,
+    }
+
+
+def _merge_classifier_meta(retrieval_meta: dict[str, Any], classification: IntentResult) -> dict[str, Any]:
+    merged = dict(retrieval_meta)
+    merged.update(_classifier_meta(classification))
+    return merged
+
+
+def _apply_entity_filters(filters_payload: dict[str, Any], classification: IntentResult) -> dict[str, Any]:
+    entities = classification.entities
+    merged = dict(filters_payload)
+
+    fiscal_year = entities.get("fiscal_year")
+    if "fiscal_year" not in merged and isinstance(fiscal_year, int):
+        merged["fiscal_year"] = fiscal_year
+
+    scope_type = entities.get("scope_type")
+    if (
+        "scope_type" not in merged
+        and isinstance(scope_type, str)
+        and scope_type in {"barangay", "city", "municipality"}
+    ):
+        merged["scope_type"] = scope_type
+
+    scope_name = entities.get("scope_name")
+    if "scope_name" not in merged and isinstance(scope_name, str) and scope_name.strip():
+        merged["scope_name"] = scope_name.strip()
+
+    return merged
+
+
+def _build_short_circuit_response(*, question: str, classification: IntentResult) -> ChatAnswerResponse:
+    retrieval_meta = _classifier_meta(classification)
+    retrieval_meta.update(
+        {
+            "reason": "conversational_shortcut",
+            "route_family": "conversational",
+            "verifier_mode": "structured",
+            "context_count": 0,
+        }
+    )
+
+    if classification.intent == "out_of_scope":
+        retrieval_meta.update(
+            {
+                "status": "refusal",
+                "refusal_reason": "unsupported_request",
+            }
+        )
+        return ChatAnswerResponse(
+            question=question,
+            answer=classification.friendly_response or AIP_ONLY_RESPONSE,
+            refused=True,
+            citations=[],
+            retrieval_meta=retrieval_meta,
+            context_count=0,
+        )
+
+    if classification.intent == "clarification":
+        retrieval_meta["status"] = "clarification"
+        return ChatAnswerResponse(
+            question=question,
+            answer=classification.friendly_response or DEFAULT_CLARIFICATION_RESPONSE,
+            refused=False,
+            citations=[],
+            retrieval_meta=retrieval_meta,
+            context_count=0,
+        )
+
+    retrieval_meta["status"] = "answer"
+    return ChatAnswerResponse(
+        question=question,
+        answer=classification.friendly_response or "How can I help you with OpenAIP data?",
+        refused=False,
+        citations=[],
+        retrieval_meta=retrieval_meta,
+        context_count=0,
+    )
+
+
+def _build_classifier_failure_response(*, question: str, reason: str) -> ChatAnswerResponse:
+    return ChatAnswerResponse(
+        question=question,
+        answer="I couldn't process your request right now. Please try again in a moment.",
+        refused=True,
+        citations=[_system_citation("Intent classification failed before retrieval execution.", {"error": reason})],
+        retrieval_meta={
+            "reason": "pipeline_error",
+            "status": "refusal",
+            "route_family": "pipeline_fallback",
+            "verifier_mode": "structured",
+            "intent": "classification_error",
+            "classifier_confidence": 0.0,
+            "classifier_method": "error",
+            "needs_retrieval": False,
+            "entities": {},
+            "route_hint": None,
+            "context_count": 1,
+        },
+        context_count=1,
+    )
+
+
 @router.post("/answer", response_model=ChatAnswerResponse)
 def chat_answer(
     req: ChatAnswerRequest,
 ) -> ChatAnswerResponse:
-    scope_payload = req.retrieval_scope.model_dump()
-    filters_payload = req.retrieval_filters.model_dump(exclude_none=True)
     settings = Settings.load(require_supabase=True, require_openai=False)
+    model_name = (req.model_name or settings.pipeline_model).strip() or settings.pipeline_model
+
+    try:
+        classification = classify_message(
+            message=req.question,
+            openai_api_key=settings.openai_api_key,
+            default_model=model_name,
+        )
+    except IntentClassificationError as error:
+        logger.exception("Intent classification failed: %s", error)
+        return _build_classifier_failure_response(question=req.question, reason=str(error))
+
+    if classification.intent in NON_RETRIEVAL_INTENTS or not classification.needs_retrieval:
+        return _build_short_circuit_response(question=req.question, classification=classification)
+
+    scope_payload = req.retrieval_scope.model_dump()
+    filters_payload = _apply_entity_filters(
+        req.retrieval_filters.model_dump(exclude_none=True),
+        classification,
+    )
 
     sql_result = maybe_answer_with_sql(
         supabase_url=settings.supabase_url,
@@ -229,6 +271,7 @@ def chat_answer(
     )
     if sql_result is not None:
         normalized = _normalize_result_payload(sql_result, default_question=req.question)
+        normalized["retrieval_meta"] = _merge_classifier_meta(normalized["retrieval_meta"], classification)
         return ChatAnswerResponse(
             question=normalized["question"],
             answer=normalized["answer"],
@@ -241,7 +284,6 @@ def chat_answer(
     if not settings.openai_api_key:
         settings = Settings.load(require_supabase=True, require_openai=True)
 
-    model_name = (req.model_name or settings.pipeline_model).strip() or settings.pipeline_model
     rag_result = answer_with_rag(
         supabase_url=settings.supabase_url,
         supabase_service_key=settings.supabase_service_key,
@@ -256,6 +298,7 @@ def chat_answer(
         min_similarity=req.min_similarity,
     )
     normalized = _normalize_result_payload(rag_result, default_question=req.question)
+    normalized["retrieval_meta"] = _merge_classifier_meta(normalized["retrieval_meta"], classification)
     return ChatAnswerResponse(
         question=normalized["question"],
         answer=normalized["answer"],

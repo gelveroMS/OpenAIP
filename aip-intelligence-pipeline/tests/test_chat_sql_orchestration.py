@@ -6,6 +6,20 @@ from fastapi.testclient import TestClient
 
 from openaip_pipeline.api.app import create_app
 import openaip_pipeline.api.routes.chat as chat_route_module
+from openaip_pipeline.services.intent.service import IntentClassificationError
+from openaip_pipeline.services.intent.types import IntentResult, empty_entities
+
+
+def _classification(intent: str = "rag_query", *, needs_retrieval: bool = True) -> IntentResult:
+    return IntentResult(
+        intent=intent,
+        confidence=0.9,
+        needs_retrieval=needs_retrieval,
+        friendly_response=None,
+        entities=empty_entities(),
+        route_hint="rag_query" if needs_retrieval else None,
+        classifier_method="rule",
+    )
 
 
 def _patch_base(monkeypatch) -> None:
@@ -24,6 +38,7 @@ def _patch_base(monkeypatch) -> None:
             openai_api_key="openai-key",
         ),
     )
+    monkeypatch.setattr(chat_route_module, "classify_message", lambda **_kwargs: _classification())
 
 
 def _post_chat(client: TestClient, question: str):
@@ -143,3 +158,109 @@ def test_rag_clarification_status_is_normalized(monkeypatch) -> None:
     payload = response.json()
     assert payload["refused"] is False
     assert payload["retrieval_meta"]["status"] == "clarification"
+
+
+def test_conversational_intent_short_circuits_without_sql_or_rag(monkeypatch) -> None:
+    _patch_base(monkeypatch)
+    monkeypatch.setattr(
+        chat_route_module,
+        "classify_message",
+        lambda **_kwargs: IntentResult(
+            intent="greeting",
+            confidence=1.0,
+            needs_retrieval=False,
+            friendly_response="Hello from classifier.",
+            entities=empty_entities(),
+            route_hint=None,
+            classifier_method="rule",
+        ),
+    )
+    monkeypatch.setattr(
+        chat_route_module,
+        "maybe_answer_with_sql",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("SQL should not be called.")),
+    )
+    monkeypatch.setattr(
+        chat_route_module,
+        "answer_with_rag",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("RAG should not be called.")),
+    )
+
+    client = TestClient(create_app())
+    response = _post_chat(client, "hello")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["answer"] == "Hello from classifier."
+    assert payload["retrieval_meta"]["reason"] == "conversational_shortcut"
+    assert payload["retrieval_meta"]["status"] == "answer"
+    assert payload["retrieval_meta"]["route_family"] == "conversational"
+    assert payload["retrieval_meta"]["intent"] == "greeting"
+
+
+def test_out_of_scope_short_circuit_returns_strict_refusal(monkeypatch) -> None:
+    _patch_base(monkeypatch)
+    monkeypatch.setattr(
+        chat_route_module,
+        "classify_message",
+        lambda **_kwargs: IntentResult(
+            intent="out_of_scope",
+            confidence=0.99,
+            needs_retrieval=False,
+            friendly_response="AIP-only response.",
+            entities=empty_entities(),
+            route_hint=None,
+            classifier_method="rule",
+        ),
+    )
+    monkeypatch.setattr(
+        chat_route_module,
+        "maybe_answer_with_sql",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("SQL should not be called.")),
+    )
+    monkeypatch.setattr(
+        chat_route_module,
+        "answer_with_rag",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("RAG should not be called.")),
+    )
+
+    client = TestClient(create_app())
+    response = _post_chat(client, "who is the mayor")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["refused"] is True
+    assert payload["answer"] == "AIP-only response."
+    assert payload["retrieval_meta"]["status"] == "refusal"
+    assert payload["retrieval_meta"]["reason"] == "conversational_shortcut"
+    assert payload["retrieval_meta"]["refusal_reason"] == "unsupported_request"
+    assert payload["retrieval_meta"]["route_family"] == "conversational"
+
+
+def test_classifier_failure_is_fail_closed(monkeypatch) -> None:
+    _patch_base(monkeypatch)
+
+    def _raise_classifier(**_kwargs):
+        raise IntentClassificationError("classifier unavailable")
+
+    monkeypatch.setattr(chat_route_module, "classify_message", _raise_classifier)
+    monkeypatch.setattr(
+        chat_route_module,
+        "maybe_answer_with_sql",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("SQL should not be called.")),
+    )
+    monkeypatch.setattr(
+        chat_route_module,
+        "answer_with_rag",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("RAG should not be called.")),
+    )
+
+    client = TestClient(create_app())
+    response = _post_chat(client, "any question")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["refused"] is True
+    assert payload["retrieval_meta"]["status"] == "refusal"
+    assert payload["retrieval_meta"]["reason"] == "pipeline_error"
+    assert payload["retrieval_meta"]["intent"] == "classification_error"

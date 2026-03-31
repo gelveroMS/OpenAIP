@@ -8,6 +8,7 @@ from fastapi import FastAPI
 
 from openaip_pipeline.api.routes.chat import router as chat_router
 from openaip_pipeline.api.routes.health import router as health_router
+from openaip_pipeline.api.routes.intent import router as intent_router
 from openaip_pipeline.api.routes.runs import router as runs_router
 from openaip_pipeline.core.logging import configure_logging
 
@@ -23,6 +24,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(runs_router)
     app.include_router(chat_router)
+    app.include_router(intent_router)
     return app
 
 

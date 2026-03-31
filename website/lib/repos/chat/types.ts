@@ -133,6 +133,17 @@ export type ChatRetrievalMeta = {
     | "validation_failed"
     | "conversational_shortcut"
     | "unknown";
+  intent?: string;
+  classifierConfidence?: number;
+  classifierMethod?: "rule" | "llm" | "error";
+  needsRetrieval?: boolean;
+  entities?: Record<string, unknown>;
+  routeHint?: string | null;
+  classifier_confidence?: number;
+  classifier_method?: "rule" | "llm" | "error";
+  needs_retrieval?: boolean;
+  route_hint?: string | null;
+  refusal_reason?: RefusalReason | "unsupported_request";
   topK?: number;
   minSimilarity?: number;
   contextCount?: number;
