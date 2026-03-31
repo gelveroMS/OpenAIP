@@ -10,6 +10,11 @@ MULTI_YEAR_CUE_PATTERN = re.compile(
 )
 DOC_TYPE_PATTERN = re.compile(r"\b(baip|aip)\b", re.IGNORECASE)
 TOKEN_PATTERN = re.compile(r"[a-z0-9]{2,}")
+THEME_BOOST_WEIGHT = 0.06
+SECTOR_BOOST_WEIGHT = 0.04
+DOCUMENT_TYPE_BOOST = 0.02
+OFFICE_NAME_BOOST = 0.02
+LEXICAL_OVERLAP_WEIGHT = 0.03
 
 THEME_TAG_HINTS: dict[str, tuple[str, ...]] = {
     "health": ("health", "medical", "clinic", "nutrition"),
@@ -116,14 +121,15 @@ def _derive_theme_tags(question: str) -> list[str]:
     return sorted(set(tags))
 
 
-def _normalize_retrieval_filters(
+def _resolve_retrieval_policy(
     retrieval_filters: dict[str, Any] | None,
     *,
     question: str,
     retrieval_scope: dict[str, Any] | None,
 ) -> dict[str, Any]:
     filters = dict(retrieval_filters or {})
-    normalized: dict[str, Any] = {}
+    hard_filters: dict[str, Any] = {}
+    soft_preferences: dict[str, Any] = {}
 
     fiscal_year_raw = filters.get("fiscal_year")
     fiscal_year: int | None = None
@@ -139,7 +145,7 @@ def _normalize_retrieval_filters(
             fiscal_year = years[0]
 
     if fiscal_year is not None:
-        normalized["fiscal_year"] = fiscal_year
+        hard_filters["fiscal_year"] = fiscal_year
 
     scope_type = (_normalize_string(filters.get("scope_type")) or "").lower()
     scope_name = _normalize_string(filters.get("scope_name"))
@@ -153,9 +159,9 @@ def _normalize_retrieval_filters(
                 scope_name = _normalize_string(targets[0].get("scope_name"))
 
     if scope_type:
-        normalized["scope_type"] = scope_type
+        hard_filters["scope_type"] = scope_type
     if scope_name:
-        normalized["scope_name"] = scope_name
+        hard_filters["scope_name"] = scope_name
 
     document_type = _normalize_string(filters.get("document_type"))
     if not document_type:
@@ -163,23 +169,26 @@ def _normalize_retrieval_filters(
         if match:
             document_type = match.group(1).upper()
     if document_type:
-        normalized["document_type"] = document_type.upper()
+        soft_preferences["document_type"] = document_type.upper()
 
     office_name = _normalize_string(filters.get("office_name"))
     if office_name:
-        normalized["office_name"] = office_name
+        soft_preferences["office_name"] = office_name
 
     theme_tags = _normalize_tag_list(filters.get("theme_tags"))
     if not theme_tags:
         theme_tags = _derive_theme_tags(question)
     if theme_tags:
-        normalized["theme_tags"] = theme_tags
+        soft_preferences["theme_tags"] = theme_tags
 
     sector_tags = _normalize_tag_list(filters.get("sector_tags"))
     if sector_tags:
-        normalized["sector_tags"] = sector_tags
+        soft_preferences["sector_tags"] = sector_tags
 
-    return normalized
+    return {
+        "hard_filters": hard_filters,
+        "soft_preferences": soft_preferences,
+    }
 
 
 def _row_tag_set(row: dict[str, Any]) -> set[str]:
@@ -191,47 +200,23 @@ def _row_tag_set(row: dict[str, Any]) -> set[str]:
     return set([*row_theme, *row_sector, *md_theme, *md_sector])
 
 
-def _row_matches_filters(row: dict[str, Any], filters: dict[str, Any]) -> bool:
-    if not filters:
+def _row_matches_filters(row: dict[str, Any], hard_filters: dict[str, Any]) -> bool:
+    if not hard_filters:
         return True
 
-    fiscal_year = filters.get("fiscal_year")
+    fiscal_year = hard_filters.get("fiscal_year")
     if isinstance(fiscal_year, int):
         if int(row.get("fiscal_year") or -1) != fiscal_year:
             return False
 
-    scope_type = _normalize_string(filters.get("scope_type"))
+    scope_type = _normalize_string(hard_filters.get("scope_type"))
     if scope_type:
         if _normalize_text(str(row.get("scope_type") or "")) != _normalize_text(scope_type):
             return False
 
-    scope_name = _normalize_string(filters.get("scope_name"))
+    scope_name = _normalize_string(hard_filters.get("scope_name"))
     if scope_name:
         if _normalize_text(str(row.get("scope_name") or "")) != _normalize_text(scope_name):
-            return False
-
-    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-
-    document_type = _normalize_string(filters.get("document_type"))
-    if document_type:
-        row_doc_type = _normalize_string(row.get("document_type")) or _normalize_string((metadata or {}).get("document_type"))
-        if _normalize_text(row_doc_type or "") != _normalize_text(document_type):
-            return False
-
-    office_name = _normalize_string(filters.get("office_name"))
-    if office_name:
-        row_office = _normalize_string(row.get("office_name")) or _normalize_string((metadata or {}).get("office_name"))
-        if _normalize_text(row_office or "") != _normalize_text(office_name):
-            return False
-
-    theme_tags = set(_normalize_tag_list(filters.get("theme_tags")))
-    if theme_tags:
-        if not (theme_tags & _row_tag_set(row)):
-            return False
-
-    sector_tags = set(_normalize_tag_list(filters.get("sector_tags")))
-    if sector_tags:
-        if not (sector_tags & _row_tag_set(row)):
             return False
 
     return True
@@ -258,34 +243,71 @@ def _dedupe_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return deduped
 
 
-def _merge_rows(primary: list[dict[str, Any]], secondary: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
-    return _dedupe_rows([*primary, *secondary])[: max(1, limit)]
-
-
 def _rerank_rows(
     rows: list[dict[str, Any]],
     *,
     question: str,
-    filters: dict[str, Any],
+    soft_preferences: dict[str, Any],
     limit: int,
 ) -> list[dict[str, Any]]:
-    preferred_tags = set(_normalize_tag_list(filters.get("theme_tags"))) | set(
-        _normalize_tag_list(filters.get("sector_tags"))
-    )
+    theme_preferences = set(_normalize_tag_list(soft_preferences.get("theme_tags")))
+    sector_preferences = set(_normalize_tag_list(soft_preferences.get("sector_tags")))
+    preferred_document_type = _normalize_string(soft_preferences.get("document_type"))
+    preferred_office_name = _normalize_string(soft_preferences.get("office_name"))
 
     scored_rows: list[dict[str, Any]] = []
     for row in rows:
         content = str(row.get("content") or "")
         semantic = float(row.get("similarity") or 0.0)
         lexical_overlap = _overlap_score(question, content)
-        row_tags = _row_tag_set(row)
-        tag_overlap = (
-            float(len(preferred_tags & row_tags)) / float(max(1, len(preferred_tags)))
-            if preferred_tags
+        metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        row_theme_tags = set(_normalize_tag_list(row.get("theme_tags"))) | set(
+            _normalize_tag_list((metadata or {}).get("theme_tags"))
+        )
+        row_sector_tags = set(_normalize_tag_list(row.get("sector_tags"))) | set(
+            _normalize_tag_list((metadata or {}).get("sector_tags"))
+        )
+
+        theme_overlap = (
+            float(len(theme_preferences & row_theme_tags)) / float(max(1, len(theme_preferences)))
+            if theme_preferences
             else 0.0
         )
-        rerank_score = semantic + (0.08 * tag_overlap) + (0.05 * lexical_overlap)
+        sector_overlap = (
+            float(len(sector_preferences & row_sector_tags)) / float(max(1, len(sector_preferences)))
+            if sector_preferences
+            else 0.0
+        )
+
+        row_doc_type = _normalize_string(row.get("document_type")) or _normalize_string((metadata or {}).get("document_type"))
+        row_office_name = _normalize_string(row.get("office_name")) or _normalize_string((metadata or {}).get("office_name"))
+        document_boost = (
+            DOCUMENT_TYPE_BOOST
+            if preferred_document_type
+            and row_doc_type
+            and _normalize_text(row_doc_type) == _normalize_text(preferred_document_type)
+            else 0.0
+        )
+        office_boost = (
+            OFFICE_NAME_BOOST
+            if preferred_office_name
+            and row_office_name
+            and _normalize_text(row_office_name) == _normalize_text(preferred_office_name)
+            else 0.0
+        )
+        theme_boost = THEME_BOOST_WEIGHT * theme_overlap
+        sector_boost = SECTOR_BOOST_WEIGHT * sector_overlap
+        lexical_boost = LEXICAL_OVERLAP_WEIGHT * lexical_overlap
+        soft_boost_total = theme_boost + sector_boost + document_boost + office_boost + lexical_boost
+        rerank_score = semantic + soft_boost_total
         copied = dict(row)
+        copied["semantic_score"] = semantic
+        copied["theme_boost"] = theme_boost
+        copied["sector_boost"] = sector_boost
+        copied["document_boost"] = document_boost
+        copied["office_boost"] = office_boost
+        copied["lexical_boost"] = lexical_boost
+        copied["soft_boost_total"] = soft_boost_total
         copied["rank_score"] = rerank_score
         scored_rows.append(copied)
 
@@ -321,6 +343,9 @@ def _to_document(*, row: dict[str, Any]) -> Any:
         "scope_id": row.get("scope_id"),
         "scope_name": row.get("scope_name"),
         "similarity": similarity,
+        "semantic_score": row.get("semantic_score"),
+        "theme_boost": row.get("theme_boost"),
+        "soft_boost_total": row.get("soft_boost_total"),
         "rank_score": row.get("rank_score"),
         "metadata": row.get("metadata") or {},
     }
@@ -328,6 +353,85 @@ def _to_document(*, row: dict[str, Any]) -> Any:
         page_content=row.get("content") or "",
         metadata=metadata,
     )
+
+
+def retrieve_dense_docs_bundle(
+    *,
+    supabase: Any,
+    embeddings_model: str,
+    question: str,
+    k: int = 8,
+    min_similarity: float = 0.0,
+    retrieval_scope: dict[str, Any] | None = None,
+    retrieval_mode: str = "qa",
+    retrieval_filters: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    from langchain_openai import OpenAIEmbeddings
+
+    embeddings = OpenAIEmbeddings(model=embeddings_model)
+    query_vector = embeddings.embed_query(question)
+    scope_mode, targets, own_barangay_id = _scope_params(retrieval_scope)
+    retrieval_policy = _resolve_retrieval_policy(
+        retrieval_filters,
+        question=question,
+        retrieval_scope=retrieval_scope,
+    )
+    hard_filters = dict(retrieval_policy.get("hard_filters") or {})
+    soft_preferences = dict(retrieval_policy.get("soft_preferences") or {})
+    include_summary_chunks = retrieval_mode == "overview"
+
+    raw_rows: list[dict[str, Any]] = []
+    try:
+        params = {
+            "query_embedding": query_vector,
+            "match_count": k,
+            "min_similarity": min_similarity,
+            "scope_mode": scope_mode,
+            "own_barangay_id": own_barangay_id,
+            "scope_targets": targets,
+            "filter_fiscal_year": hard_filters.get("fiscal_year"),
+            "filter_scope_type": hard_filters.get("scope_type"),
+            "filter_scope_name": hard_filters.get("scope_name"),
+            "filter_document_type": None,
+            "filter_publication_status": None,
+            "filter_office_name": None,
+            "filter_theme_tags": None,
+            "filter_sector_tags": None,
+            "include_summary_chunks": include_summary_chunks,
+        }
+        v2_result = supabase.rpc("match_published_aip_project_chunks_v2", params).execute()
+        raw_rows = list(v2_result.data or [])
+    except Exception:
+        raw_rows = []
+
+    filtered_rows = [row for row in raw_rows if _row_matches_filters(row, hard_filters)]
+    reranked_rows = _rerank_rows(filtered_rows, question=question, soft_preferences=soft_preferences, limit=k)
+
+    docs: list[Any] = []
+    for row in reranked_rows[:k]:
+        docs.append(_to_document(row=row))
+    theme_boost_count = sum(1 for row in reranked_rows if float(row.get("theme_boost") or 0.0) > 0.0)
+    diagnostics = {
+        "hard_filters_applied": hard_filters,
+        "soft_preferences": soft_preferences,
+        "theme_boost_usage": {
+            "count": theme_boost_count,
+            "ratio": (
+                float(theme_boost_count) / float(max(1, len(reranked_rows)))
+                if reranked_rows
+                else 0.0
+            ),
+        },
+        "candidate_counts": {
+            "raw": len(raw_rows),
+            "after_hard_filters": len(filtered_rows),
+            "reranked": len(reranked_rows),
+        },
+    }
+    return {
+        "docs": docs,
+        "diagnostics": diagnostics,
+    }
 
 
 def retrieve_dense_docs(
@@ -340,100 +444,18 @@ def retrieve_dense_docs(
     retrieval_scope: dict[str, Any] | None = None,
     retrieval_mode: str = "qa",
     retrieval_filters: dict[str, Any] | None = None,
-    allow_legacy_fallback: bool = True,
 ) -> list[Any]:
-    from langchain_openai import OpenAIEmbeddings
-
-    embeddings = OpenAIEmbeddings(model=embeddings_model)
-    query_vector = embeddings.embed_query(question)
-    scope_mode, targets, own_barangay_id = _scope_params(retrieval_scope)
-    normalized_filters = _normalize_retrieval_filters(
-        retrieval_filters,
+    bundle = retrieve_dense_docs_bundle(
+        supabase=supabase,
+        embeddings_model=embeddings_model,
         question=question,
+        k=k,
+        min_similarity=min_similarity,
         retrieval_scope=retrieval_scope,
+        retrieval_mode=retrieval_mode,
+        retrieval_filters=retrieval_filters,
     )
-    include_summary_chunks = retrieval_mode == "overview"
-
-    rows: list[dict[str, Any]] = []
-    try:
-        params = {
-            "query_embedding": query_vector,
-            "match_count": k,
-            "min_similarity": min_similarity,
-            "scope_mode": scope_mode,
-            "own_barangay_id": own_barangay_id,
-            "scope_targets": targets,
-            "filter_fiscal_year": normalized_filters.get("fiscal_year"),
-            "filter_scope_type": normalized_filters.get("scope_type"),
-            "filter_scope_name": normalized_filters.get("scope_name"),
-            "filter_document_type": normalized_filters.get("document_type"),
-            "filter_publication_status": normalized_filters.get("publication_status"),
-            "filter_office_name": normalized_filters.get("office_name"),
-            "filter_theme_tags": normalized_filters.get("theme_tags"),
-            "filter_sector_tags": normalized_filters.get("sector_tags"),
-            "include_summary_chunks": include_summary_chunks,
-        }
-        v2_result = supabase.rpc("match_published_aip_project_chunks_v2", params).execute()
-        rows = list(v2_result.data or [])
-    except Exception:
-        rows = []
-
-    rows = [row for row in rows if _row_matches_filters(row, normalized_filters)]
-    rows = _rerank_rows(rows, question=question, filters=normalized_filters, limit=k)
-
-    # QA mode falls back to summaries only when evidence is sparse.
-    if retrieval_mode == "qa" and len(rows) < min(2, max(1, k)):
-        try:
-            summary_result = supabase.rpc(
-                "match_published_aip_project_chunks_v2",
-                {
-                    "query_embedding": query_vector,
-                    "match_count": k,
-                    "min_similarity": min_similarity,
-                    "scope_mode": scope_mode,
-                    "own_barangay_id": own_barangay_id,
-                    "scope_targets": targets,
-                    "filter_fiscal_year": normalized_filters.get("fiscal_year"),
-                    "filter_scope_type": normalized_filters.get("scope_type"),
-                    "filter_scope_name": normalized_filters.get("scope_name"),
-                    "filter_document_type": normalized_filters.get("document_type"),
-                    "filter_publication_status": normalized_filters.get("publication_status"),
-                    "filter_office_name": normalized_filters.get("office_name"),
-                    "filter_theme_tags": normalized_filters.get("theme_tags"),
-                    "filter_sector_tags": normalized_filters.get("sector_tags"),
-                    "include_summary_chunks": True,
-                },
-            ).execute()
-            summary_rows = [row for row in list(summary_result.data or []) if _row_matches_filters(row, normalized_filters)]
-            summary_rows = _rerank_rows(summary_rows, question=question, filters=normalized_filters, limit=k)
-            rows = _merge_rows(rows, summary_rows, limit=k)
-        except Exception:
-            pass
-
-    # Dual-read fallback during rollout.
-    if allow_legacy_fallback and len(rows) < min(2, max(1, k)):
-        try:
-            legacy_result = supabase.rpc(
-                "match_published_aip_chunks",
-                {
-                    "query_embedding": query_vector,
-                    "match_count": k,
-                    "min_similarity": min_similarity,
-                    "scope_mode": scope_mode,
-                    "own_barangay_id": own_barangay_id,
-                    "scope_targets": targets,
-                },
-            ).execute()
-            legacy_rows = [row for row in list(legacy_result.data or []) if _row_matches_filters(row, normalized_filters)]
-            legacy_rows = _rerank_rows(legacy_rows, question=question, filters=normalized_filters, limit=k)
-            rows = _merge_rows(rows, legacy_rows, limit=k)
-        except Exception:
-            pass
-
-    docs: list[Any] = []
-    for row in rows[:k]:
-        docs.append(_to_document(row=row))
-    return docs
+    return list(bundle.get("docs") or [])
 
 
 def retrieve_docs(

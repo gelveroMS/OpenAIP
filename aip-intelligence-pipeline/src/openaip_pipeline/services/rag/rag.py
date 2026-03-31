@@ -15,7 +15,7 @@ from openaip_pipeline.services.rag.multi_query import (
     merge_multi_query_candidates,
     should_retry_multi_query,
 )
-from openaip_pipeline.services.rag.retriever import retrieve_dense_docs
+from openaip_pipeline.services.rag.retriever import retrieve_dense_docs_bundle
 
 logger = logging.getLogger(__name__)
 
@@ -215,10 +215,6 @@ def _diversity_selection_enabled() -> bool:
     return value in {"1", "true", "yes", "on"}
 
 
-def _legacy_dual_read_enabled() -> bool:
-    return _bool_env("RAG_LEGACY_DUAL_READ_ENABLED", True)
-
-
 def _normalize_retrieval_mode(mode: str | None) -> str:
     normalized = (mode or "qa").strip().lower()
     if normalized == "overview":
@@ -239,7 +235,6 @@ def _active_rag_flags() -> dict[str, bool]:
         "RAG_BORDERLINE_PARTIAL_ENABLED": _borderline_partial_enabled(),
         "RAG_SELECTIVE_MULTI_QUERY_ENABLED": _selective_multi_query_enabled(),
         "RAG_DIVERSITY_SELECTION_ENABLED": _diversity_selection_enabled(),
-        "RAG_LEGACY_DUAL_READ_ENABLED": _legacy_dual_read_enabled(),
     }
 
 
@@ -300,7 +295,7 @@ def run_dense_retrieval(
     effective_top_k = _effective_top_k(top_k=top_k, retrieval_mode=resolved_mode)
     dense_k = max(1, min(effective_top_k, 12))
 
-    dense_docs = retrieve_dense_docs(
+    retrieval_bundle = retrieve_dense_docs_bundle(
         supabase=supabase,
         embeddings_model=embeddings_model,
         question=question,
@@ -309,9 +304,12 @@ def run_dense_retrieval(
         retrieval_scope=retrieval_scope,
         retrieval_mode=resolved_mode,
         retrieval_filters=retrieval_filters,
-        allow_legacy_fallback=_legacy_dual_read_enabled(),
     )
+    dense_docs = list(retrieval_bundle.get("docs") or [])
+    retrieval_diagnostics = dict(retrieval_bundle.get("diagnostics") or {})
     strong_docs = [doc for doc in dense_docs if _doc_meets_min_similarity(doc, min_similarity=min_similarity)]
+    candidate_counts = dict(retrieval_diagnostics.get("candidate_counts") or {})
+    candidate_counts["strong"] = len(strong_docs)
 
     return {
         "dense_docs": dense_docs,
@@ -320,6 +318,10 @@ def run_dense_retrieval(
         "retrieval_mode": resolved_mode,
         "effective_top_k": effective_top_k,
         "retrieval_filters": retrieval_filters or {},
+        "hard_filters_applied": dict(retrieval_diagnostics.get("hard_filters_applied") or {}),
+        "soft_preferences": dict(retrieval_diagnostics.get("soft_preferences") or {}),
+        "theme_boost_usage": dict(retrieval_diagnostics.get("theme_boost_usage") or {}),
+        "candidate_counts": candidate_counts,
     }
 
 
@@ -887,6 +889,10 @@ def answer_with_rag(
     effective_top_k = int(retrieval_bundle.get("effective_top_k") or effective_top_k)
     resolved_mode = _normalize_retrieval_mode(str(retrieval_bundle.get("retrieval_mode") or resolved_mode))
     applied_filters = dict(retrieval_bundle.get("retrieval_filters") or retrieval_filters or {})
+    hard_filters_applied = dict(retrieval_bundle.get("hard_filters_applied") or {})
+    soft_preferences = dict(retrieval_bundle.get("soft_preferences") or {})
+    theme_boost_usage = dict(retrieval_bundle.get("theme_boost_usage") or {})
+    candidate_counts = dict(retrieval_bundle.get("candidate_counts") or {})
     diversity_enabled = _diversity_selection_enabled()
 
     dense_candidate_count = len(dense_docs)
@@ -898,6 +904,10 @@ def answer_with_rag(
         min_similarity=min_similarity,
         dense_candidate_count=dense_candidate_count,
         strong_candidate_count=len(strong_docs),
+        candidate_counts=candidate_counts,
+        hard_filters_applied=hard_filters_applied,
+        soft_preferences=soft_preferences,
+        theme_boost_usage=theme_boost_usage,
         applied_retrieval_filters=applied_filters,
     )
 
@@ -919,6 +929,10 @@ def answer_with_rag(
     retrieval_context_meta = {
         "retrieval_mode": resolved_mode,
         "applied_retrieval_filters": applied_filters,
+        "hard_filters_applied": hard_filters_applied,
+        "soft_preferences": soft_preferences,
+        "theme_boost_usage": theme_boost_usage,
+        "candidate_counts": candidate_counts,
         "retrieval_query_applied": retrieval_text != question,
         "retrieval_query_preview": _preview(retrieval_text, limit=MAX_RETRIEVAL_QUERY_PREVIEW),
     }
@@ -984,6 +998,14 @@ def answer_with_rag(
             "no_strong_docs",
             candidate_count=len(docs),
             partial_mode_enabled=_partial_mode_enabled(),
+        )
+        _trace_log(
+            "retrieval_refusal",
+            reason="insufficient_evidence",
+            hard_filters_applied=hard_filters_applied,
+            soft_preferences=soft_preferences,
+            theme_boost_usage=theme_boost_usage,
+            candidate_counts=candidate_counts,
         )
         if docs and _partial_mode_enabled():
             response_mode_source = "pipeline_partial"
@@ -1141,6 +1163,14 @@ def answer_with_rag(
             response_mode_source = "pipeline_refusal"
             borderline_detected = False
             borderline_reason_code = "gate_refuse"
+            _trace_log(
+                "retrieval_refusal",
+                reason="insufficient_evidence",
+                hard_filters_applied=hard_filters_applied,
+                soft_preferences=soft_preferences,
+                theme_boost_usage=theme_boost_usage,
+                candidate_counts=candidate_counts,
+            )
             return attach(
                 _build_refusal(
                     question=question,
