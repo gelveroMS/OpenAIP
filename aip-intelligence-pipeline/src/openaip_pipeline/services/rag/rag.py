@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import hashlib
@@ -20,6 +21,8 @@ from openaip_pipeline.services.rag.retriever import (
     retrieve_keyword_docs,
 )
 
+logger = logging.getLogger(__name__)
+
 SOURCE_TAG_PATTERN = re.compile(r"\[(S\d+)\]")
 YEAR_PATTERN = re.compile(r"\b(20\d{2})\b")
 MAX_SNIPPET_LENGTH = 360
@@ -38,6 +41,10 @@ def _truncate(text: str, limit: int = MAX_SNIPPET_LENGTH) -> str:
     if len(normalized) <= limit:
         return normalized
     return normalized[: limit - 3].rstrip() + "..."
+
+
+def _preview(text: str, *, limit: int = 200) -> str:
+    return _truncate(text, limit=limit)
 
 
 def _format_context(docs: list[Any]) -> str:
@@ -74,11 +81,39 @@ def _safe_float(value: Any) -> float | None:
     return None
 
 
+def _coerce_year(value: Any) -> int | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str):
+        cleaned = value.strip()
+        if cleaned.isdigit():
+            return int(cleaned)
+    return None
+
+
 def _bool_env(name: str, default: bool) -> bool:
     value = os.getenv(name)
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _rag_trace_enabled() -> bool:
+    explicit = os.getenv("RAG_TRACE_ENABLED")
+    if explicit is not None:
+        return explicit.strip().lower() in {"1", "true", "yes", "on"}
+    inherited = os.getenv("PIPELINE_TRACE_ENABLED", "false")
+    return inherited.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _trace_log(event: str, **fields: Any) -> None:
+    if not _rag_trace_enabled():
+        return
+    payload: dict[str, Any] = {"trace": "rag", "event": event}
+    payload.update(fields)
+    logger.info(json.dumps(payload, separators=(",", ":"), sort_keys=True, default=str))
 
 
 def _int_env(name: str, default: int, *, minimum: int = 1, maximum: int = 200) -> int:
@@ -552,6 +587,14 @@ def _build_refusal(
     retrieval_scope: dict[str, Any] | None,
     verifier_passed: bool,
 ) -> dict[str, Any]:
+    _trace_log(
+        "build_refusal",
+        reason=reason,
+        context_count=len(docs),
+        top_k=top_k,
+        min_similarity=min_similarity,
+        verifier_passed=verifier_passed,
+    )
     nearest = docs[: min(3, len(docs))]
     citations = [_build_citation(index, doc, insufficient=True) for index, doc in enumerate(nearest, start=1)]
     if not citations:
@@ -608,6 +651,13 @@ def _build_partial_evidence(
     min_similarity: float,
     retrieval_scope: dict[str, Any] | None,
 ) -> dict[str, Any]:
+    _trace_log(
+        "build_partial_evidence",
+        reason=reason,
+        context_count=len(docs),
+        top_k=top_k,
+        min_similarity=min_similarity,
+    )
     nearest = docs[: min(3, len(docs))]
     citations = [_build_citation(index, doc, insufficient=True) for index, doc in enumerate(nearest, start=1)]
     if not citations:
@@ -762,12 +812,11 @@ def evaluate_evidence_gate(
     final_count = len(selected_docs)
     requested_years = sorted({int(match) for match in YEAR_PATTERN.findall(question)})
     fiscal_years = [
-        int(value)
-        for value in [
-            (getattr(doc, "metadata", {}) or {}).get("fiscal_year")
-            for doc in selected_docs
-        ]
-        if isinstance(value, int)
+        year
+        for year in (
+            _coerce_year((getattr(doc, "metadata", {}) or {}).get("fiscal_year")) for doc in selected_docs
+        )
+        if year is not None
     ]
     year_match_count = (
         sum(1 for year in fiscal_years if year in requested_years) if requested_years else final_count
@@ -942,6 +991,18 @@ def answer_with_rag(
     dense_candidate_count = len(dense_docs)
     keyword_candidate_count = len(keyword_docs)
     fused_candidate_count = len(docs)
+    _trace_log(
+        "retrieval_completed",
+        question_preview=_preview(question),
+        retrieval_mode=resolved_mode,
+        top_k=effective_top_k,
+        min_similarity=min_similarity,
+        dense_candidate_count=dense_candidate_count,
+        keyword_candidate_count=keyword_candidate_count,
+        fused_candidate_count=fused_candidate_count,
+        strong_candidate_count=len(strong_docs),
+        applied_retrieval_filters=applied_filters,
+    )
 
     gate_decision = "allow"
     gate_reason = "gate_not_evaluated"
@@ -1028,6 +1089,11 @@ def answer_with_rag(
         )
 
     if not effective_strong_docs:
+        _trace_log(
+            "no_strong_docs",
+            fused_candidate_count=len(docs),
+            partial_mode_enabled=_partial_mode_enabled(),
+        )
         if docs and _partial_mode_enabled():
             response_mode_source = "pipeline_partial"
             borderline_detected = False
@@ -1082,6 +1148,13 @@ def answer_with_rag(
         gate_reason = str(gate.get("reason") or "gate_blocked")
         gate_reason_code = _evidence_gate_reason_code(gate_reason)
         gate_metrics = dict(gate.get("metrics") or {})
+        _trace_log(
+            "evidence_gate_evaluated",
+            decision=gate_decision,
+            reason=gate_reason,
+            reason_code=gate_reason_code,
+            metrics=gate_metrics,
+        )
         if gate_decision != "allow" and _selective_multi_query_enabled():
             should_retry, retry_reason = should_retry_multi_query(
                 gate_decision=gate_decision,
@@ -1136,12 +1209,26 @@ def answer_with_rag(
                         gate_reason = str(gate.get("reason") or "gate_blocked")
                         gate_reason_code = _evidence_gate_reason_code(gate_reason)
                         gate_metrics = dict(gate.get("metrics") or {})
+                        _trace_log(
+                            "evidence_gate_re_evaluated_after_multi_query",
+                            decision=gate_decision,
+                            reason=gate_reason,
+                            reason_code=gate_reason_code,
+                            metrics=gate_metrics,
+                            multi_query_variant_count=multi_query_variant_count,
+                        )
                 else:
                     multi_query_reason = "no_variants_generated"
                     multi_query_reason_code_value = multi_query_reason_code(multi_query_reason)
         stage_latency_ms["gate_ms"] = round((time.perf_counter() - gate_started_at) * 1000.0, 3)
 
         if gate_decision != "allow":
+            _trace_log(
+                "generation_skipped_by_gate",
+                decision=gate_decision,
+                reason=gate_reason,
+                reason_code=gate_reason_code,
+            )
             generation_skipped_by_gate = True
             if gate_decision == "clarify":
                 response_mode_source = "pipeline_partial"
@@ -1204,6 +1291,7 @@ def answer_with_rag(
     stage_latency_ms["generation_ms"] = round((time.perf_counter() - generation_started_at) * 1000.0, 3)
     parsed_generation = _extract_json(str(getattr(generation_response, "content", "")) or "")
     if not parsed_generation:
+        _trace_log("generation_invalid_json")
         return attach(
             _build_refusal(
                 question=question,
@@ -1220,6 +1308,7 @@ def answer_with_rag(
 
     answer_text = str(parsed_generation.get("answer") or "").strip()
     if not answer_text:
+        _trace_log("generation_empty_answer")
         return attach(
             _build_refusal(
                 question=question,
@@ -1247,6 +1336,7 @@ def answer_with_rag(
         used_source_ids = _extract_source_ids(answer_text)
 
     if not used_source_ids:
+        _trace_log("generation_missing_source_ids")
         return attach(
             _build_refusal(
                 question=question,
@@ -1262,6 +1352,7 @@ def answer_with_rag(
         )
 
     if any(source_id not in source_map for source_id in used_source_ids):
+        _trace_log("generation_invalid_source_ids", used_source_ids=used_source_ids)
         return attach(
             _build_refusal(
                 question=question,
@@ -1299,6 +1390,7 @@ def answer_with_rag(
     parsed_verifier = _extract_json(str(getattr(verifier_response, "content", "")) or "")
     verifier_passed = bool(parsed_verifier and parsed_verifier.get("supported") is True)
     if not verifier_passed:
+        _trace_log("verifier_failed", verifier_payload=parsed_verifier or {})
         borderline_eval = evaluate_borderline_semantic_evidence(
             question=question,
             selected_docs=selected_docs,
@@ -1369,6 +1461,7 @@ def answer_with_rag(
         citations.append(_build_citation(index, doc, insufficient=False))
 
     if not citations:
+        _trace_log("validation_failed_empty_citations")
         return attach(
             _build_refusal(
                 question=question,
@@ -1383,7 +1476,7 @@ def answer_with_rag(
             extra_meta=gate_metrics,
         )
 
-    return attach(
+    result = attach(
         {
             "question": question,
             "answer": answer_text,
@@ -1408,3 +1501,12 @@ def answer_with_rag(
         borderline_detected_override=False,
         borderline_reason_code_override="explicit_match_detected",
     )
+    _trace_log(
+        "answer_generated",
+        refused=False,
+        citations_count=len(citations),
+        context_count=result.get("context_count"),
+        evidence_gate_decision=gate_decision,
+        verifier_passed=True,
+    )
+    return result

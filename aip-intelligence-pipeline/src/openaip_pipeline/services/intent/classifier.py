@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 import re
 from typing import Any
 
@@ -16,6 +18,8 @@ from openaip_pipeline.services.intent.types import (
     empty_entities,
 )
 from openaip_pipeline.services.openai_utils import build_openai_client
+
+logger = logging.getLogger(__name__)
 
 _SCOPE_TYPE_VALUES = {"barangay", "city", "municipality"}
 _DEFAULT_INTENT = "clarification"
@@ -68,6 +72,29 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     "7. Use route_hint when clear: sql_totals, aggregate_sql, row_sql, metadata_sql, rag_query; otherwise null.\n"
     "8. Do not invent entities unless clearly present.\n"
 )
+
+
+def _trace_enabled() -> bool:
+    explicit = os.getenv("PIPELINE_INTENT_TRACE_ENABLED")
+    if explicit is not None:
+        return explicit.strip().lower() in {"1", "true", "yes", "on"}
+    inherited = os.getenv("PIPELINE_TRACE_ENABLED", "false")
+    return inherited.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _trace_log(event: str, **fields: object) -> None:
+    if not _trace_enabled():
+        return
+    payload = {"trace": "intent_classifier", "event": event}
+    payload.update(fields)
+    logger.info(json.dumps(payload, separators=(",", ":"), sort_keys=True))
+
+
+def _preview(text: str, *, limit: int = 240) -> str:
+    normalized = " ".join((text or "").split())
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: limit - 3].rstrip() + "..."
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -204,6 +231,11 @@ def _extract_response_text(response: Any) -> str:
 
 
 def classify_with_llm(*, message: str, openai_api_key: str, model_name: str) -> IntentResult:
+    _trace_log(
+        "llm_request_started",
+        model_name=model_name,
+        message_preview=_preview(message),
+    )
     client = build_openai_client(openai_api_key)
     response = client.chat.completions.create(
         model=model_name,
@@ -214,7 +246,12 @@ def classify_with_llm(*, message: str, openai_api_key: str, model_name: str) -> 
         ],
     )
     raw_text = _extract_response_text(response)
-    parsed = _extract_json(raw_text)
+    _trace_log("llm_response_received", response_preview=_preview(raw_text))
+    try:
+        parsed = _extract_json(raw_text)
+    except Exception as error:
+        _trace_log("llm_response_parse_failed", error=str(error), response_preview=_preview(raw_text))
+        raise
 
     intent = _normalize_intent(parsed.get("intent"))
     confidence = _as_confidence(parsed.get("confidence"))
@@ -229,6 +266,15 @@ def classify_with_llm(*, message: str, openai_api_key: str, model_name: str) -> 
     if route_hint is None:
         route_hint = INTENT_ROUTE_HINTS.get(intent)
 
+    _trace_log(
+        "llm_response_normalized",
+        intent=intent,
+        confidence=confidence,
+        needs_retrieval=needs_retrieval,
+        route_hint=route_hint,
+        entities=entities,
+    )
+
     return IntentResult(
         intent=intent,
         confidence=confidence,
@@ -238,4 +284,3 @@ def classify_with_llm(*, message: str, openai_api_key: str, model_name: str) -> 
         route_hint=route_hint,
         classifier_method="llm",
     )
-

@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import json
+import logging
 import os
 
 from openaip_pipeline.services.intent.classifier import classify_with_llm
 from openaip_pipeline.services.intent.rules import classify_with_rules
 from openaip_pipeline.services.intent.types import IntentResult
+
+logger = logging.getLogger(__name__)
 
 
 class IntentClassificationError(RuntimeError):
@@ -19,23 +23,58 @@ def resolve_intent_model(default_model: str) -> str:
     return fallback if fallback else "gpt-5.2"
 
 
+def _trace_enabled() -> bool:
+    explicit = os.getenv("PIPELINE_INTENT_TRACE_ENABLED")
+    if explicit is not None:
+        return explicit.strip().lower() in {"1", "true", "yes", "on"}
+    inherited = os.getenv("PIPELINE_TRACE_ENABLED", "false")
+    return inherited.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _trace_log(event: str, **fields: object) -> None:
+    if not _trace_enabled():
+        return
+    payload = {"trace": "intent", "event": event}
+    payload.update(fields)
+    logger.info(json.dumps(payload, separators=(",", ":"), sort_keys=True))
+
+
 def classify_message(*, message: str, openai_api_key: str | None, default_model: str) -> IntentResult:
     rules_result = classify_with_rules(message)
     if rules_result is not None:
+        _trace_log(
+            "rules_match",
+            intent=rules_result.intent,
+            confidence=rules_result.confidence,
+            route_hint=rules_result.route_hint,
+            needs_retrieval=rules_result.needs_retrieval,
+        )
         return rules_result
+
+    model_name = resolve_intent_model(default_model)
+    _trace_log("rules_miss", fallback_model=model_name)
 
     key = (openai_api_key or "").strip()
     if not key:
+        _trace_log("llm_fallback_unavailable", reason="missing_openai_api_key")
         raise IntentClassificationError(
             "OPENAI_API_KEY is required for LLM fallback classification and was not configured."
         )
 
     try:
-        return classify_with_llm(
+        result = classify_with_llm(
             message=message,
             openai_api_key=key,
-            model_name=resolve_intent_model(default_model),
+            model_name=model_name,
         )
+        _trace_log(
+            "llm_fallback_success",
+            intent=result.intent,
+            confidence=result.confidence,
+            route_hint=result.route_hint,
+            needs_retrieval=result.needs_retrieval,
+        )
+        return result
     except Exception as error:
+        _trace_log("llm_fallback_failed", error=str(error))
         raise IntentClassificationError("LLM fallback classification failed.") from error
-

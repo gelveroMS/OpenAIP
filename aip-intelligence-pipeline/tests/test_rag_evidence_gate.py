@@ -94,6 +94,30 @@ def test_evidence_gate_refuses_year_mismatch() -> None:
     assert gate["decision"] == "refuse"
 
 
+def test_evidence_gate_allows_when_fiscal_year_is_string() -> None:
+    docs = [
+        _FakeDoc(
+            chunk_id="c1",
+            similarity=0.9,
+            content="Emergency response operations for the barangay.",
+            fiscal_year="2026",  # type: ignore[arg-type]
+            channels=["dense", "keyword"],
+        ),
+        _FakeDoc(
+            chunk_id="c2",
+            similarity=0.85,
+            content="Calamity preparedness and disaster risk reduction programs.",
+            fiscal_year="2026",  # type: ignore[arg-type]
+            channels=["dense"],
+        ),
+    ]
+    gate = evaluate_evidence_gate(
+        question="Which disaster preparedness projects are in 2026?",
+        selected_docs=docs,
+    )
+    assert gate["decision"] == "allow"
+
+
 def test_borderline_evidence_never_triggers_when_selected_docs_empty() -> None:
     evaluation = evaluate_borderline_semantic_evidence(
         question="What does the AIP say about road maintenance in Pulo?",

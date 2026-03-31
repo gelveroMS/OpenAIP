@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import inspect
 import logging
+import os
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -22,6 +24,29 @@ from openaip_pipeline.services.openai_utils import build_openai_client
 from openaip_pipeline.services.rag.rag import answer_with_rag
 
 logger = logging.getLogger(__name__)
+
+
+def _trace_enabled() -> bool:
+    explicit = os.getenv("PIPELINE_CHAT_TRACE_ENABLED")
+    if explicit is not None:
+        return explicit.strip().lower() in {"1", "true", "yes", "on"}
+    inherited = os.getenv("PIPELINE_TRACE_ENABLED", "false")
+    return inherited.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _trace_log(event: str, **fields: Any) -> None:
+    if not _trace_enabled():
+        return
+    payload = {"trace": "chat", "event": event}
+    payload.update(fields)
+    logger.info(json.dumps(payload, separators=(",", ":"), sort_keys=True))
+
+
+def _preview(text: str, *, limit: int = 180) -> str:
+    normalized = " ".join((text or "").split())
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: limit - 3].rstrip() + "..."
 
 
 def _require_internal_token(request: Request) -> Any:
@@ -240,6 +265,13 @@ def _build_classifier_failure_response(*, question: str, reason: str) -> ChatAns
 def chat_answer(
     req: ChatAnswerRequest,
 ) -> ChatAnswerResponse:
+    _trace_log(
+        "request_received",
+        question_preview=_preview(req.question),
+        retrieval_mode=req.retrieval_mode,
+        top_k=req.top_k,
+        min_similarity=req.min_similarity,
+    )
     settings = Settings.load(require_supabase=True, require_openai=False)
     model_name = (req.model_name or settings.pipeline_model).strip() or settings.pipeline_model
 
@@ -250,16 +282,41 @@ def chat_answer(
             default_model=model_name,
         )
     except IntentClassificationError as error:
+        _trace_log("classification_failed", error=str(error))
         logger.exception("Intent classification failed: %s", error)
         return _build_classifier_failure_response(question=req.question, reason=str(error))
 
+    _trace_log(
+        "classification_complete",
+        intent=classification.intent,
+        confidence=classification.confidence,
+        classifier_method=classification.classifier_method,
+        needs_retrieval=classification.needs_retrieval,
+        route_hint=classification.route_hint,
+        entities=classification.entities,
+    )
+
     if classification.intent in NON_RETRIEVAL_INTENTS or not classification.needs_retrieval:
-        return _build_short_circuit_response(question=req.question, classification=classification)
+        response = _build_short_circuit_response(question=req.question, classification=classification)
+        _trace_log(
+            "short_circuit_response",
+            intent=classification.intent,
+            status=response.retrieval_meta.get("status"),
+            reason=response.retrieval_meta.get("reason"),
+            refused=response.refused,
+        )
+        return response
 
     scope_payload = req.retrieval_scope.model_dump()
     filters_payload = _apply_entity_filters(
         req.retrieval_filters.model_dump(exclude_none=True),
         classification,
+    )
+    _trace_log(
+        "retrieval_started",
+        scope_mode=scope_payload.get("mode"),
+        scope_targets_count=len(scope_payload.get("targets") or []),
+        retrieval_filters=filters_payload,
     )
 
     sql_result = maybe_answer_with_sql(
@@ -272,6 +329,13 @@ def chat_answer(
     if sql_result is not None:
         normalized = _normalize_result_payload(sql_result, default_question=req.question)
         normalized["retrieval_meta"] = _merge_classifier_meta(normalized["retrieval_meta"], classification)
+        _trace_log(
+            "sql_answered",
+            status=normalized["retrieval_meta"].get("status"),
+            reason=normalized["retrieval_meta"].get("reason"),
+            refused=normalized["refused"],
+            context_count=normalized["context_count"],
+        )
         return ChatAnswerResponse(
             question=normalized["question"],
             answer=normalized["answer"],
@@ -280,6 +344,8 @@ def chat_answer(
             retrieval_meta=normalized["retrieval_meta"],
             context_count=normalized["context_count"],
         )
+
+    _trace_log("sql_no_answer")
 
     if not settings.openai_api_key:
         settings = Settings.load(require_supabase=True, require_openai=True)
@@ -299,6 +365,16 @@ def chat_answer(
     )
     normalized = _normalize_result_payload(rag_result, default_question=req.question)
     normalized["retrieval_meta"] = _merge_classifier_meta(normalized["retrieval_meta"], classification)
+    _trace_log(
+        "rag_completed",
+        status=normalized["retrieval_meta"].get("status"),
+        reason=normalized["retrieval_meta"].get("reason"),
+        refused=normalized["refused"],
+        context_count=normalized["context_count"],
+        evidence_gate_decision=normalized["retrieval_meta"].get("evidence_gate_decision"),
+        evidence_gate_reason=normalized["retrieval_meta"].get("evidence_gate_reason"),
+        verifier_passed=normalized["retrieval_meta"].get("verifier_passed"),
+    )
     return ChatAnswerResponse(
         question=normalized["question"],
         answer=normalized["answer"],
