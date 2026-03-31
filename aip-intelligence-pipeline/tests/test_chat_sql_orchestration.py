@@ -219,7 +219,7 @@ def test_entity_filters_and_retrieval_query_are_forwarded_to_rag(monkeypatch) ->
     assert filters_payload["fiscal_year"] == 2025
     assert filters_payload["scope_type"] == "barangay"
     assert filters_payload["scope_name"] == "Mamatid"
-    assert filters_payload["publication_status"] == "published"
+    assert "publication_status" not in filters_payload
     assert "health" in filters_payload.get("sector_tags", [])
     assert "drainage" in filters_payload.get("theme_tags", [])
     assert "rehabilitation" in filters_payload.get("theme_tags", [])

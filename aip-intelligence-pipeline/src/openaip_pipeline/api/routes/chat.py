@@ -87,7 +87,6 @@ class RetrievalFilters(BaseModel):
     scope_type: Literal["barangay", "city", "municipality"] | None = None
     scope_name: str | None = Field(default=None, min_length=1, max_length=200)
     document_type: str | None = Field(default=None, min_length=1, max_length=40)
-    publication_status: str | None = Field(default="published", min_length=1, max_length=40)
     office_name: str | None = Field(default=None, min_length=1, max_length=200)
     theme_tags: list[str] = Field(default_factory=list)
     sector_tags: list[str] = Field(default_factory=list)
@@ -235,8 +234,6 @@ def _apply_entity_filters(filters_payload: dict[str, Any], classification: Inten
     theme_tags = [tag for tag in theme_candidates if tag]
     if theme_tags:
         merged["theme_tags"] = _merge_tags(merged.get("theme_tags"), theme_tags)
-
-    merged["publication_status"] = "published"
 
     return merged
 

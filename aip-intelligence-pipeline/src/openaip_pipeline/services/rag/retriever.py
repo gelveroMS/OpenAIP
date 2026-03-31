@@ -125,9 +125,6 @@ def _normalize_retrieval_filters(
     filters = dict(retrieval_filters or {})
     normalized: dict[str, Any] = {}
 
-    publication_status = _normalize_string(filters.get("publication_status")) or "published"
-    normalized["publication_status"] = publication_status.lower()
-
     fiscal_year_raw = filters.get("fiscal_year")
     fiscal_year: int | None = None
     if isinstance(fiscal_year_raw, int):
@@ -219,16 +216,6 @@ def _row_matches_filters(row: dict[str, Any], filters: dict[str, Any]) -> bool:
     if document_type:
         row_doc_type = _normalize_string(row.get("document_type")) or _normalize_string((metadata or {}).get("document_type"))
         if _normalize_text(row_doc_type or "") != _normalize_text(document_type):
-            return False
-
-    publication_status = _normalize_string(filters.get("publication_status"))
-    if publication_status:
-        row_status = (
-            _normalize_string(row.get("publication_status"))
-            or _normalize_string((metadata or {}).get("publication_status"))
-            or "published"
-        )
-        if _normalize_text(row_status) != _normalize_text(publication_status):
             return False
 
     office_name = _normalize_string(filters.get("office_name"))
