@@ -24,7 +24,6 @@ class _FakeDoc:
 
 
 def test_high_confidence_semantic_path_does_not_trigger_multi_query(monkeypatch) -> None:
-    monkeypatch.setenv("RAG_HYBRID_RETRIEVAL_ENABLED", "true")
     monkeypatch.setenv("RAG_EVIDENCE_GATE_ENABLED", "true")
     monkeypatch.setenv("RAG_SELECTIVE_MULTI_QUERY_ENABLED", "true")
     monkeypatch.setenv("RAG_GATE_MIN_FINAL_DOCS", "2")
@@ -62,19 +61,15 @@ def test_high_confidence_semantic_path_does_not_trigger_multi_query(monkeypatch)
 
     calls: list[str] = []
 
-    def fake_run_hybrid_retrieval(**kwargs):
+    def fake_run_dense_retrieval(**kwargs):
         calls.append(str(kwargs.get("question") or ""))
         return {
-            "hybrid_enabled": True,
-            "keyword_enabled": True,
-            "rrf_enabled": True,
             "dense_docs": docs,
-            "keyword_docs": [],
-            "fused_docs": docs,
+            "docs": docs,
             "strong_docs": docs,
         }
 
-    monkeypatch.setattr("openaip_pipeline.services.rag.rag.run_hybrid_retrieval", fake_run_hybrid_retrieval)
+    monkeypatch.setattr("openaip_pipeline.services.rag.rag.run_dense_retrieval", fake_run_dense_retrieval)
     monkeypatch.setattr(
         "openaip_pipeline.services.rag.rag._select_diverse_docs",
         lambda current_docs, **_kwargs: current_docs,
@@ -98,7 +93,6 @@ def test_high_confidence_semantic_path_does_not_trigger_multi_query(monkeypatch)
 
 
 def test_answer_with_rag_reports_retrieval_query_meta(monkeypatch) -> None:
-    monkeypatch.setenv("RAG_HYBRID_RETRIEVAL_ENABLED", "false")
     monkeypatch.setenv("RAG_EVIDENCE_GATE_ENABLED", "false")
 
     fake_supabase_client_module = types.SimpleNamespace(create_client=lambda *_args, **_kwargs: object())
@@ -125,14 +119,10 @@ def test_answer_with_rag_reports_retrieval_query_meta(monkeypatch) -> None:
     ]
 
     monkeypatch.setattr(
-        "openaip_pipeline.services.rag.rag.run_hybrid_retrieval",
+        "openaip_pipeline.services.rag.rag.run_dense_retrieval",
         lambda **_kwargs: {
-            "hybrid_enabled": False,
-            "keyword_enabled": False,
-            "rrf_enabled": False,
             "dense_docs": docs,
-            "keyword_docs": [],
-            "fused_docs": docs,
+            "docs": docs,
             "strong_docs": docs,
         },
     )

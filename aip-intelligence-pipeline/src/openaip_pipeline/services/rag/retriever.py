@@ -299,12 +299,12 @@ def _rerank_rows(
         )
         rerank_score = semantic + (0.08 * tag_overlap) + (0.05 * lexical_overlap)
         copied = dict(row)
-        copied["hybrid_score"] = rerank_score
+        copied["rank_score"] = rerank_score
         scored_rows.append(copied)
 
     scored_rows.sort(
         key=lambda row: (
-            -(float(row.get("hybrid_score") or 0.0)),
+            -(float(row.get("rank_score") or 0.0)),
             -(float(row.get("similarity") or 0.0)),
             str(row.get("chunk_id") or ""),
         )
@@ -312,11 +312,10 @@ def _rerank_rows(
     return scored_rows[: max(1, limit)]
 
 
-def _to_document(*, row: dict[str, Any], channel: str) -> Any:
+def _to_document(*, row: dict[str, Any]) -> Any:
     from langchain_core.documents import Document
 
     similarity = row.get("similarity")
-    keyword_score = row.get("keyword_score")
     metadata = {
         "source_id": row.get("source_id"),
         "chunk_id": row.get("chunk_id"),
@@ -335,9 +334,7 @@ def _to_document(*, row: dict[str, Any], channel: str) -> Any:
         "scope_id": row.get("scope_id"),
         "scope_name": row.get("scope_name"),
         "similarity": similarity,
-        "keyword_score": keyword_score,
-        "hybrid_score": row.get("hybrid_score"),
-        "retrieval_channels": [channel],
+        "rank_score": row.get("rank_score"),
         "metadata": row.get("metadata") or {},
     }
     return Document(
@@ -448,118 +445,8 @@ def retrieve_dense_docs(
 
     docs: list[Any] = []
     for row in rows[:k]:
-        docs.append(_to_document(row=row, channel="dense"))
+        docs.append(_to_document(row=row))
     return docs
-
-
-def retrieve_keyword_docs(
-    *,
-    supabase: Any,
-    question: str,
-    k: int = 8,
-    retrieval_scope: dict[str, Any] | None = None,
-    min_rank: float = 0.0,
-    retrieval_filters: dict[str, Any] | None = None,
-) -> list[Any]:
-    scope_mode, targets, own_barangay_id = _scope_params(retrieval_scope)
-    normalized_filters = _normalize_retrieval_filters(
-        retrieval_filters,
-        question=question,
-        retrieval_scope=retrieval_scope,
-    )
-    result = supabase.rpc(
-        "match_published_aip_chunks_keyword",
-        {
-            "query_text": question,
-            "match_count": k,
-            "min_rank": min_rank,
-            "scope_mode": scope_mode,
-            "own_barangay_id": own_barangay_id,
-            "scope_targets": targets,
-        },
-    ).execute()
-    rows = [row for row in list(result.data or []) if _row_matches_filters(row, normalized_filters)]
-    rows = _rerank_rows(rows, question=question, filters=normalized_filters, limit=k)
-    docs: list[Any] = []
-    for row in rows[:k]:
-        docs.append(_to_document(row=row, channel="keyword"))
-    return docs
-
-
-def fuse_docs_rrf(
-    *,
-    dense_docs: list[Any],
-    keyword_docs: list[Any],
-    rrf_k: int = 60,
-    max_candidates: int = 24,
-) -> list[Any]:
-    from langchain_core.documents import Document
-
-    if not dense_docs and not keyword_docs:
-        return []
-
-    bucket: dict[str, dict[str, Any]] = {}
-
-    def absorb(doc: Any, rank: int, channel: str) -> None:
-        metadata = dict(getattr(doc, "metadata", {}) or {})
-        page_content = str(getattr(doc, "page_content", "") or "")
-        key = _doc_key_from_metadata(metadata, page_content)
-        score = 1.0 / float(rrf_k + max(1, rank))
-
-        entry = bucket.get(key)
-        if entry is None:
-            bucket[key] = {
-                "doc": doc,
-                "rrf_score": score,
-                "best_rank": rank,
-                "channels": {channel},
-                "dense_rank": rank if channel == "dense" else None,
-                "keyword_rank": rank if channel == "keyword" else None,
-            }
-            return
-
-        entry["rrf_score"] += score
-        entry["best_rank"] = min(int(entry["best_rank"]), rank)
-        entry["channels"].add(channel)
-        if channel == "dense":
-            current = entry.get("dense_rank")
-            entry["dense_rank"] = rank if current is None else min(int(current), rank)
-        else:
-            current = entry.get("keyword_rank")
-            entry["keyword_rank"] = rank if current is None else min(int(current), rank)
-
-    for index, doc in enumerate(dense_docs, start=1):
-        absorb(doc, index, "dense")
-    for index, doc in enumerate(keyword_docs, start=1):
-        absorb(doc, index, "keyword")
-
-    fused: list[Any] = []
-    for key, entry in bucket.items():
-        source_doc = entry["doc"]
-        metadata = dict(getattr(source_doc, "metadata", {}) or {})
-        metadata["retrieval_channels"] = sorted(list(entry["channels"]))
-        metadata["rrf_score"] = float(entry["rrf_score"])
-        metadata["hybrid_score"] = float(entry["rrf_score"])
-        metadata["best_rank"] = int(entry["best_rank"])
-        metadata["dense_rank"] = entry["dense_rank"]
-        metadata["keyword_rank"] = entry["keyword_rank"]
-        metadata["fusion_key"] = key
-        fused.append(
-            Document(
-                page_content=str(getattr(source_doc, "page_content", "") or ""),
-                metadata=metadata,
-            )
-        )
-
-    fused.sort(
-        key=lambda doc: (
-            -(float((getattr(doc, "metadata", {}) or {}).get("hybrid_score") or 0.0)),
-            int((getattr(doc, "metadata", {}) or {}).get("best_rank") or 9999),
-            str((getattr(doc, "metadata", {}) or {}).get("chunk_id") or ""),
-            str((getattr(doc, "metadata", {}) or {}).get("fusion_key") or ""),
-        )
-    )
-    return fused[: max(1, max_candidates)]
 
 
 def retrieve_docs(

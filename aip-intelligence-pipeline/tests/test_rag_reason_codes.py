@@ -24,7 +24,6 @@ class _FakeDoc:
 
 
 def test_answer_with_rag_emits_reason_codes_and_calibration(monkeypatch) -> None:
-    monkeypatch.setenv("RAG_HYBRID_RETRIEVAL_ENABLED", "true")
     monkeypatch.setenv("RAG_EVIDENCE_GATE_ENABLED", "true")
     monkeypatch.setenv("RAG_GATE_MIN_FINAL_DOCS", "2")
 
@@ -37,19 +36,15 @@ def test_answer_with_rag_emits_reason_codes_and_calibration(monkeypatch) -> None
 
     monkeypatch.setitem(sys.modules, "langchain_openai", types.SimpleNamespace(ChatOpenAI=_ForbiddenChatOpenAI))
 
-    def fake_run_hybrid_retrieval(**_kwargs):
+    def fake_run_dense_retrieval(**_kwargs):
         docs = [_FakeDoc(chunk_id="c1", similarity=0.75, content="Only one weak chunk")]
         return {
-            "hybrid_enabled": True,
-            "keyword_enabled": False,
-            "rrf_enabled": False,
             "dense_docs": docs,
-            "keyword_docs": [],
-            "fused_docs": docs,
+            "docs": docs,
             "strong_docs": docs,
         }
 
-    monkeypatch.setattr("openaip_pipeline.services.rag.rag.run_hybrid_retrieval", fake_run_hybrid_retrieval)
+    monkeypatch.setattr("openaip_pipeline.services.rag.rag.run_dense_retrieval", fake_run_dense_retrieval)
     monkeypatch.setattr("openaip_pipeline.services.rag.rag._select_diverse_docs", lambda docs, **_kwargs: docs)
 
     result = answer_with_rag(

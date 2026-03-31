@@ -15,11 +15,7 @@ from openaip_pipeline.services.rag.multi_query import (
     merge_multi_query_candidates,
     should_retry_multi_query,
 )
-from openaip_pipeline.services.rag.retriever import (
-    fuse_docs_rrf,
-    retrieve_dense_docs,
-    retrieve_keyword_docs,
-)
+from openaip_pipeline.services.rag.retriever import retrieve_dense_docs
 
 logger = logging.getLogger(__name__)
 
@@ -186,18 +182,6 @@ def _float_env(name: str, default: float, *, minimum: float = 0.0, maximum: floa
     return parsed
 
 
-def _hybrid_retrieval_enabled() -> bool:
-    return _bool_env("RAG_HYBRID_RETRIEVAL_ENABLED", False)
-
-
-def _keyword_retrieval_enabled() -> bool:
-    return _bool_env("RAG_KEYWORD_RETRIEVAL_ENABLED", False)
-
-
-def _rrf_fusion_enabled() -> bool:
-    return _bool_env("RAG_RRF_FUSION_ENABLED", False)
-
-
 def _evidence_gate_enabled() -> bool:
     return _bool_env("RAG_EVIDENCE_GATE_ENABLED", False)
 
@@ -208,18 +192,6 @@ def _selective_multi_query_enabled() -> bool:
 
 def _borderline_partial_enabled() -> bool:
     return _bool_env("RAG_BORDERLINE_PARTIAL_ENABLED", False)
-
-
-def _hybrid_dense_k() -> int:
-    return _int_env("RAG_HYBRID_DENSE_K", 20, minimum=1, maximum=60)
-
-
-def _hybrid_keyword_k() -> int:
-    return _int_env("RAG_HYBRID_KEYWORD_K", 20, minimum=1, maximum=60)
-
-
-def _rrf_k() -> int:
-    return _int_env("RAG_RRF_K", 60, minimum=1, maximum=200)
 
 
 def _gate_min_final_docs() -> int:
@@ -263,9 +235,6 @@ def _effective_top_k(*, top_k: int, retrieval_mode: str) -> int:
 
 def _active_rag_flags() -> dict[str, bool]:
     return {
-        "RAG_HYBRID_RETRIEVAL_ENABLED": _hybrid_retrieval_enabled(),
-        "RAG_KEYWORD_RETRIEVAL_ENABLED": _keyword_retrieval_enabled(),
-        "RAG_RRF_FUSION_ENABLED": _rrf_fusion_enabled(),
         "RAG_EVIDENCE_GATE_ENABLED": _evidence_gate_enabled(),
         "RAG_BORDERLINE_PARTIAL_ENABLED": _borderline_partial_enabled(),
         "RAG_SELECTIVE_MULTI_QUERY_ENABLED": _selective_multi_query_enabled(),
@@ -276,9 +245,6 @@ def _active_rag_flags() -> dict[str, bool]:
 
 def _rag_calibration_snapshot() -> dict[str, int | float | bool]:
     return {
-        "RAG_HYBRID_DENSE_K": _hybrid_dense_k(),
-        "RAG_HYBRID_KEYWORD_K": _hybrid_keyword_k(),
-        "RAG_RRF_K": _rrf_k(),
         "RAG_GATE_MIN_FINAL_DOCS": _gate_min_final_docs(),
         "RAG_GATE_REQUIRE_YEAR_MATCH": _gate_require_year_match(),
         "RAG_BORDERLINE_EXPLICIT_MATCH_MIN": _borderline_explicit_match_min(),
@@ -299,7 +265,6 @@ def _evidence_gate_reason_code(reason: str) -> str:
     return "retry_low_confidence"
 
 
-
 def _normalize_content(text: str) -> str:
     return " ".join((text or "").lower().split())
 
@@ -310,9 +275,6 @@ def _content_hash(text: str) -> str:
 
 def _doc_similarity_score(doc: Any) -> float:
     metadata = getattr(doc, "metadata", {}) or {}
-    hybrid = _safe_float(metadata.get("hybrid_score"))
-    if hybrid is not None:
-        return hybrid
     return _safe_float(metadata.get("similarity")) or 0.0
 
 
@@ -323,65 +285,7 @@ def _doc_meets_min_similarity(doc: Any, *, min_similarity: float) -> bool:
     return score >= min_similarity
 
 
-def _channels_for_doc(doc: Any) -> set[str]:
-    metadata = getattr(doc, "metadata", {}) or {}
-    channels = metadata.get("retrieval_channels")
-    if isinstance(channels, list):
-        return {str(channel).strip().lower() for channel in channels if str(channel).strip()}
-    return set()
-
-
-def _count_channel_contribution(docs: list[Any]) -> tuple[int, int]:
-    dense_count = 0
-    keyword_count = 0
-    for doc in docs:
-        channels = _channels_for_doc(doc)
-        if "dense" in channels:
-            dense_count += 1
-        if "keyword" in channels:
-            keyword_count += 1
-    return dense_count, keyword_count
-
-
-def _merge_ranked_docs(
-    dense_docs: list[Any],
-    keyword_docs: list[Any],
-    *,
-    max_candidates: int,
-) -> list[Any]:
-    # Fallback merge path used when RRF flag is disabled.
-    merged: list[Any] = []
-    seen: set[str] = set()
-
-    def key_for(doc: Any) -> str:
-        metadata = getattr(doc, "metadata", {}) or {}
-        chunk_id = str(metadata.get("chunk_id") or "").strip()
-        if chunk_id:
-            return f"chunk:{chunk_id}"
-        return f"text:{_content_hash(str(getattr(doc, 'page_content', '') or ''))}"
-
-    for doc in [*dense_docs, *keyword_docs]:
-        key = key_for(doc)
-        if key in seen:
-            continue
-        seen.add(key)
-        metadata = getattr(doc, "metadata", {}) or {}
-        if metadata.get("hybrid_score") is None:
-            metadata["hybrid_score"] = _doc_similarity_score(doc)
-        merged.append(doc)
-        if len(merged) >= max_candidates:
-            break
-
-    merged.sort(
-        key=lambda doc: (
-            -_doc_similarity_score(doc),
-            str((getattr(doc, "metadata", {}) or {}).get("chunk_id") or ""),
-        )
-    )
-    return merged
-
-
-def run_hybrid_retrieval(
+def run_dense_retrieval(
     *,
     supabase: Any,
     embeddings_model: str,
@@ -394,12 +298,7 @@ def run_hybrid_retrieval(
 ) -> dict[str, Any]:
     resolved_mode = _normalize_retrieval_mode(retrieval_mode)
     effective_top_k = _effective_top_k(top_k=top_k, retrieval_mode=resolved_mode)
-    hybrid_enabled = _hybrid_retrieval_enabled()
-    keyword_enabled = _keyword_retrieval_enabled()
-
-    dense_k = _hybrid_dense_k() if hybrid_enabled else max(1, min(effective_top_k, 12))
-    keyword_k = _hybrid_keyword_k() if hybrid_enabled else 0
-    max_candidates = max(1, min(dense_k + max(0, keyword_k), 60))
+    dense_k = max(1, min(effective_top_k, 12))
 
     dense_docs = retrieve_dense_docs(
         supabase=supabase,
@@ -412,42 +311,11 @@ def run_hybrid_retrieval(
         retrieval_filters=retrieval_filters,
         allow_legacy_fallback=_legacy_dual_read_enabled(),
     )
-    keyword_docs: list[Any] = []
-    fused_docs: list[Any] = dense_docs[:max_candidates]
-
-    if hybrid_enabled and keyword_enabled:
-        keyword_docs = retrieve_keyword_docs(
-            supabase=supabase,
-            question=question,
-            k=keyword_k,
-            retrieval_scope=retrieval_scope,
-            min_rank=0.0,
-            retrieval_filters=retrieval_filters,
-        )
-        if keyword_docs:
-            if _rrf_fusion_enabled():
-                fused_docs = fuse_docs_rrf(
-                    dense_docs=dense_docs,
-                    keyword_docs=keyword_docs,
-                    rrf_k=_rrf_k(),
-                    max_candidates=max_candidates,
-                )
-            else:
-                fused_docs = _merge_ranked_docs(
-                    dense_docs=dense_docs,
-                    keyword_docs=keyword_docs,
-                    max_candidates=max_candidates,
-                )
-
-    strong_docs = [doc for doc in fused_docs if _doc_meets_min_similarity(doc, min_similarity=min_similarity)]
+    strong_docs = [doc for doc in dense_docs if _doc_meets_min_similarity(doc, min_similarity=min_similarity)]
 
     return {
-        "hybrid_enabled": hybrid_enabled,
-        "keyword_enabled": keyword_enabled and hybrid_enabled,
-        "rrf_enabled": _rrf_fusion_enabled() and hybrid_enabled and keyword_enabled,
         "dense_docs": dense_docs,
-        "keyword_docs": keyword_docs,
-        "fused_docs": fused_docs,
+        "docs": dense_docs,
         "strong_docs": strong_docs,
         "retrieval_mode": resolved_mode,
         "effective_top_k": effective_top_k,
@@ -761,10 +629,6 @@ def _attach_selection_meta(
     selected_count: int,
     diversity_selection_enabled: bool,
     dense_candidate_count: int | None = None,
-    keyword_candidate_count: int | None = None,
-    fused_candidate_count: int | None = None,
-    dense_final_count: int | None = None,
-    keyword_final_count: int | None = None,
     evidence_gate_decision: str | None = None,
     evidence_gate_reason: str | None = None,
     evidence_gate_reason_code: str | None = None,
@@ -792,16 +656,6 @@ def _attach_selection_meta(
     )
     if dense_candidate_count is not None:
         metadata["dense_candidate_count"] = dense_candidate_count
-    if keyword_candidate_count is not None:
-        metadata["keyword_candidate_count"] = keyword_candidate_count
-    if fused_candidate_count is not None:
-        metadata["fused_candidate_count"] = fused_candidate_count
-    if dense_final_count is not None:
-        metadata["dense_final_count"] = dense_final_count
-        metadata["dense_contributed_to_final"] = dense_final_count > 0
-    if keyword_final_count is not None:
-        metadata["keyword_final_count"] = keyword_final_count
-        metadata["keyword_contributed_to_final"] = keyword_final_count > 0
     if evidence_gate_decision is not None:
         metadata["evidence_gate_decision"] = evidence_gate_decision
     if evidence_gate_reason is not None:
@@ -1015,7 +869,7 @@ def answer_with_rag(
     retrieval_text = (retrieval_query or "").strip() or question
     supabase = create_client(supabase_url, supabase_service_key)
     retrieval_started_at = time.perf_counter()
-    retrieval_bundle = run_hybrid_retrieval(
+    retrieval_bundle = run_dense_retrieval(
         supabase=supabase,
         embeddings_model=embeddings_model,
         question=retrieval_text,
@@ -1028,8 +882,7 @@ def answer_with_rag(
     stage_latency_ms["retrieval_ms"] = round((time.perf_counter() - retrieval_started_at) * 1000.0, 3)
 
     dense_docs = list(retrieval_bundle.get("dense_docs") or [])
-    keyword_docs = list(retrieval_bundle.get("keyword_docs") or [])
-    docs = list(retrieval_bundle.get("fused_docs") or [])
+    docs = list(retrieval_bundle.get("docs") or dense_docs)
     strong_docs = list(retrieval_bundle.get("strong_docs") or [])
     effective_top_k = int(retrieval_bundle.get("effective_top_k") or effective_top_k)
     resolved_mode = _normalize_retrieval_mode(str(retrieval_bundle.get("retrieval_mode") or resolved_mode))
@@ -1037,8 +890,6 @@ def answer_with_rag(
     diversity_enabled = _diversity_selection_enabled()
 
     dense_candidate_count = len(dense_docs)
-    keyword_candidate_count = len(keyword_docs)
-    fused_candidate_count = len(docs)
     _trace_log(
         "retrieval_completed",
         question_preview=_preview(question),
@@ -1046,8 +897,6 @@ def answer_with_rag(
         top_k=effective_top_k,
         min_similarity=min_similarity,
         dense_candidate_count=dense_candidate_count,
-        keyword_candidate_count=keyword_candidate_count,
-        fused_candidate_count=fused_candidate_count,
         strong_candidate_count=len(strong_docs),
         applied_retrieval_filters=applied_filters,
     )
@@ -1087,10 +936,6 @@ def answer_with_rag(
     ) -> dict[str, Any]:
         stage_latency_snapshot = dict(stage_latency_ms)
         stage_latency_snapshot["total_ms"] = round((time.perf_counter() - started_at) * 1000.0, 3)
-        dense_final_count = 0
-        keyword_final_count = 0
-        if selected_count > 0 and selected_docs:
-            dense_final_count, keyword_final_count = _count_channel_contribution(selected_docs)
         merged_extra_meta = dict(retrieval_context_meta)
         if isinstance(extra_meta, dict):
             merged_extra_meta.update(extra_meta)
@@ -1101,10 +946,6 @@ def answer_with_rag(
             selected_count=selected_count,
             diversity_selection_enabled=diversity_enabled,
             dense_candidate_count=dense_candidate_count,
-            keyword_candidate_count=keyword_candidate_count,
-            fused_candidate_count=fused_candidate_count,
-            dense_final_count=dense_final_count,
-            keyword_final_count=keyword_final_count,
             evidence_gate_decision=gate_decision,
             evidence_gate_reason=gate_reason,
             evidence_gate_reason_code=gate_reason_code,
@@ -1141,7 +982,7 @@ def answer_with_rag(
     if not effective_strong_docs:
         _trace_log(
             "no_strong_docs",
-            fused_candidate_count=len(docs),
+            candidate_count=len(docs),
             partial_mode_enabled=_partial_mode_enabled(),
         )
         if docs and _partial_mode_enabled():
@@ -1223,7 +1064,7 @@ def answer_with_rag(
 
                     variant_docs: list[Any] = []
                     for variant in variants:
-                        variant_bundle = run_hybrid_retrieval(
+                        variant_bundle = run_dense_retrieval(
                             supabase=supabase,
                             embeddings_model=embeddings_model,
                             question=variant,

@@ -72,7 +72,6 @@ def test_merge_multi_query_candidates_dedupes_by_chunk_id() -> None:
 
 
 def test_answer_with_rag_triggers_selective_multi_query(monkeypatch) -> None:
-    monkeypatch.setenv("RAG_HYBRID_RETRIEVAL_ENABLED", "true")
     monkeypatch.setenv("RAG_EVIDENCE_GATE_ENABLED", "true")
     monkeypatch.setenv("RAG_SELECTIVE_MULTI_QUERY_ENABLED", "true")
     monkeypatch.setenv("RAG_GATE_MIN_FINAL_DOCS", "2")
@@ -95,7 +94,7 @@ def test_answer_with_rag_triggers_selective_multi_query(monkeypatch) -> None:
     calls: list[str] = []
     base_docs = [_FakeDoc(chunk_id="base-1", similarity=0.72, content="One weak chunk.", channels=["dense"])]
 
-    def fake_run_hybrid_retrieval(**kwargs):
+    def fake_run_dense_retrieval(**kwargs):
         question = str(kwargs.get("question") or "")
         calls.append(question)
         if question == "Explain the drainage project with citations.":
@@ -103,16 +102,12 @@ def test_answer_with_rag_triggers_selective_multi_query(monkeypatch) -> None:
         else:
             docs = [_FakeDoc(chunk_id=f"variant-{len(calls)}", similarity=0.71, content="Another weak chunk.")]
         return {
-            "hybrid_enabled": True,
-            "keyword_enabled": True,
-            "rrf_enabled": True,
             "dense_docs": docs,
-            "keyword_docs": [],
-            "fused_docs": docs,
+            "docs": docs,
             "strong_docs": docs,
         }
 
-    monkeypatch.setattr("openaip_pipeline.services.rag.rag.run_hybrid_retrieval", fake_run_hybrid_retrieval)
+    monkeypatch.setattr("openaip_pipeline.services.rag.rag.run_dense_retrieval", fake_run_dense_retrieval)
     monkeypatch.setattr(
         "openaip_pipeline.services.rag.rag._select_diverse_docs",
         lambda docs, **_kwargs: docs[:6],
