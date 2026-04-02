@@ -262,6 +262,85 @@ def test_chat_defaults_forward_reference_aligned_top_k_and_similarity(monkeypatc
     assert captured_kwargs["min_similarity"] == 0.10
 
 
+def test_chat_uses_pipeline_model_for_generation_without_intent_override(monkeypatch) -> None:
+    _patch_base(monkeypatch)
+    captured_classify_kwargs: dict = {}
+    captured_rag_kwargs: dict = {}
+
+    def _fake_classify_message(**kwargs):
+        captured_classify_kwargs.update(kwargs)
+        return _classification(intent="rag_query", needs_retrieval=True, route_hint="rag_query")
+
+    def _fake_rag(**kwargs):
+        captured_rag_kwargs.update(kwargs)
+        return {
+            "question": kwargs.get("question"),
+            "answer": "RAG answer.",
+            "refused": False,
+            "citations": [],
+            "retrieval_meta": {"reason": "ok"},
+            "context_count": 0,
+        }
+
+    monkeypatch.setattr(chat_route_module, "classify_message", _fake_classify_message)
+    monkeypatch.setattr(
+        chat_route_module,
+        "maybe_answer_with_sql",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("SQL should not be called for rag_query.")),
+    )
+    monkeypatch.setattr(chat_route_module, "answer_with_rag", _fake_rag)
+
+    client = TestClient(create_app())
+    response = _post_chat(client, "What does the AIP say about projects?")
+
+    assert response.status_code == 200
+    assert captured_classify_kwargs["default_model"] == ""
+    assert captured_rag_kwargs["chat_model"] == "gpt-5.2"
+
+
+def test_chat_model_override_is_passed_to_intent_and_generation(monkeypatch) -> None:
+    _patch_base(monkeypatch)
+    captured_classify_kwargs: dict = {}
+    captured_rag_kwargs: dict = {}
+
+    def _fake_classify_message(**kwargs):
+        captured_classify_kwargs.update(kwargs)
+        return _classification(intent="rag_query", needs_retrieval=True, route_hint="rag_query")
+
+    def _fake_rag(**kwargs):
+        captured_rag_kwargs.update(kwargs)
+        return {
+            "question": kwargs.get("question"),
+            "answer": "RAG answer.",
+            "refused": False,
+            "citations": [],
+            "retrieval_meta": {"reason": "ok"},
+            "context_count": 0,
+        }
+
+    monkeypatch.setattr(chat_route_module, "classify_message", _fake_classify_message)
+    monkeypatch.setattr(
+        chat_route_module,
+        "maybe_answer_with_sql",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("SQL should not be called for rag_query.")),
+    )
+    monkeypatch.setattr(chat_route_module, "answer_with_rag", _fake_rag)
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/v1/chat/answer",
+        json={
+            "question": "What does the AIP say about projects?",
+            "model_name": "gpt-5.2-mini",
+            "retrieval_scope": {"mode": "global", "targets": []},
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured_classify_kwargs["default_model"] == "gpt-5.2-mini"
+    assert captured_rag_kwargs["chat_model"] == "gpt-5.2-mini"
+
+
 def test_rag_refusal_status_is_normalized(monkeypatch) -> None:
     _patch_base(monkeypatch)
 

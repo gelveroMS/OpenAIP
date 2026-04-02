@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from openaip_pipeline.services.intent.classifier import classify_with_llm
-from openaip_pipeline.services.intent.service import IntentClassificationError, classify_message
+from openaip_pipeline.services.intent.service import IntentClassificationError, classify_message, resolve_intent_model
 from openaip_pipeline.services.intent.types import (
     DEFAULT_CLARIFICATION_RESPONSE,
     IntentResult,
@@ -23,6 +23,30 @@ def test_classify_message_rules_detects_greeting_without_llm() -> None:
     assert result.intent == "greeting"
     assert result.needs_retrieval is False
     assert result.classifier_method == "rule"
+
+
+def test_resolve_intent_model_prefers_request_override(monkeypatch) -> None:
+    monkeypatch.setenv("PIPELINE_INTENT_MODEL", "gpt-5.2")
+
+    resolved = resolve_intent_model("gpt-5.2-mini")
+
+    assert resolved == "gpt-5.2-mini"
+
+
+def test_resolve_intent_model_uses_env_when_request_override_missing(monkeypatch) -> None:
+    monkeypatch.setenv("PIPELINE_INTENT_MODEL", "gpt-5.2")
+
+    resolved = resolve_intent_model("")
+
+    assert resolved == "gpt-5.2"
+
+
+def test_resolve_intent_model_defaults_to_gpt_5_2_mini(monkeypatch) -> None:
+    monkeypatch.delenv("PIPELINE_INTENT_MODEL", raising=False)
+
+    resolved = resolve_intent_model("")
+
+    assert resolved == "gpt-5.2-mini"
 
 
 def test_classify_message_rules_detects_total_aggregation() -> None:
@@ -68,6 +92,37 @@ def test_classify_message_wraps_llm_failure(monkeypatch) -> None:
             openai_api_key="test-key",
             default_model="gpt-5.2",
         )
+
+
+def test_classify_message_retries_with_gpt_5_2_when_model_not_found(monkeypatch) -> None:
+    calls: list[str] = []
+    llm_result = IntentResult(
+        intent="rag_query",
+        confidence=0.77,
+        needs_retrieval=True,
+        friendly_response=None,
+        entities=empty_entities(),
+        route_hint="rag_query",
+        classifier_method="llm",
+    )
+
+    def fake_llm(**kwargs):
+        model_name = str(kwargs.get("model_name") or "")
+        calls.append(model_name)
+        if model_name == "gpt-5.2-mini":
+            raise RuntimeError("Error code: 404 - {'error': {'code': 'model_not_found'}}")
+        return llm_result
+
+    monkeypatch.setattr("openaip_pipeline.services.intent.service.classify_with_llm", fake_llm)
+
+    result = classify_message(
+        message="Tell me something unexpected",
+        openai_api_key="test-key",
+        default_model="gpt-5.2-mini",
+    )
+
+    assert result.intent == "rag_query"
+    assert calls == ["gpt-5.2-mini", "gpt-5.2"]
 
 
 def test_classify_with_llm_normalizes_payload(monkeypatch) -> None:

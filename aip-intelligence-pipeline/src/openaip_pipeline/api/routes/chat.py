@@ -320,13 +320,14 @@ def chat_answer(
         min_similarity=req.min_similarity,
     )
     settings = Settings.load(require_supabase=True, require_openai=False)
+    intent_model_override = (req.model_name or "").strip()
     model_name = (req.model_name or settings.pipeline_model).strip() or settings.pipeline_model
 
     try:
         classification = classify_message(
             message=req.question,
             openai_api_key=settings.openai_api_key,
-            default_model=model_name,
+            default_model=intent_model_override,
         )
     except IntentClassificationError as error:
         _trace_log("classification_failed", error=str(error))

@@ -11,6 +11,7 @@ from openaip_pipeline.services.intent.types import DEFAULT_CLARIFICATION_RESPONS
 logger = logging.getLogger(__name__)
 
 _RAG_CONFIDENCE_FLOOR = 0.55
+_INTENT_COMPAT_MODEL_FALLBACK = "gpt-5.2"
 _USEFUL_ENTITY_KEYS: tuple[str, ...] = (
     "fiscal_year",
     "scope_name",
@@ -61,11 +62,13 @@ def _apply_low_confidence_guard(result: IntentResult) -> IntentResult:
 
 
 def resolve_intent_model(default_model: str) -> str:
-    override = os.getenv("PIPELINE_INTENT_MODEL", "").strip()
-    if override:
-        return override
-    fallback = (default_model or "").strip()
-    return fallback if fallback else "gpt-5.2"
+    request_override = (default_model or "").strip()
+    if request_override:
+        return request_override
+    env_override = os.getenv("PIPELINE_INTENT_MODEL", "").strip()
+    if env_override:
+        return env_override
+    return "gpt-5.2-mini"
 
 
 def _trace_enabled() -> bool:
@@ -82,6 +85,11 @@ def _trace_log(event: str, **fields: object) -> None:
     payload = {"trace": "intent", "event": event}
     payload.update(fields)
     logger.info(json.dumps(payload, separators=(",", ":"), sort_keys=True))
+
+
+def _is_model_not_found_error(error: Exception) -> bool:
+    text = str(error).lower()
+    return "model_not_found" in text or "does not exist or you do not have access to it" in text
 
 
 def classify_message(*, message: str, openai_api_key: str | None, default_model: str) -> IntentResult:
@@ -107,12 +115,15 @@ def classify_message(*, message: str, openai_api_key: str | None, default_model:
             "OPENAI_API_KEY is required for LLM fallback classification and was not configured."
         )
 
-    try:
-        result = classify_with_llm(
+    def _invoke(model: str) -> IntentResult:
+        return classify_with_llm(
             message=message,
             openai_api_key=key,
-            model_name=model_name,
+            model_name=model,
         )
+
+    try:
+        result = _invoke(model_name)
         normalized_result = _apply_low_confidence_guard(result)
         _trace_log(
             "llm_fallback_success",
@@ -123,5 +134,28 @@ def classify_message(*, message: str, openai_api_key: str | None, default_model:
         )
         return normalized_result
     except Exception as error:
+        if _is_model_not_found_error(error) and model_name != _INTENT_COMPAT_MODEL_FALLBACK:
+            _trace_log(
+                "llm_model_not_found_retry",
+                from_model=model_name,
+                to_model=_INTENT_COMPAT_MODEL_FALLBACK,
+                error=str(error),
+            )
+            try:
+                retry_result = _invoke(_INTENT_COMPAT_MODEL_FALLBACK)
+                normalized_retry_result = _apply_low_confidence_guard(retry_result)
+                _trace_log(
+                    "llm_fallback_success",
+                    intent=normalized_retry_result.intent,
+                    confidence=normalized_retry_result.confidence,
+                    route_hint=normalized_retry_result.route_hint,
+                    needs_retrieval=normalized_retry_result.needs_retrieval,
+                    model_name=_INTENT_COMPAT_MODEL_FALLBACK,
+                )
+                return normalized_retry_result
+            except Exception as retry_error:
+                _trace_log("llm_fallback_failed", error=str(retry_error))
+                raise IntentClassificationError("LLM fallback classification failed.") from retry_error
+
         _trace_log("llm_fallback_failed", error=str(error))
         raise IntentClassificationError("LLM fallback classification failed.") from error

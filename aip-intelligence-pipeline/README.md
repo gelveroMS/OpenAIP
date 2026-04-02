@@ -88,7 +88,8 @@ Required for `/v1/runs/*` authenticated run-control routes:
 
 Common optional runtime vars:
 
-- `PIPELINE_MODEL` (default `gpt-5.2`)
+- `PIPELINE_MODEL` (default `gpt-5.2`; used for non-intent pipeline tasks)
+- `PIPELINE_INTENT_MODEL` (default `gpt-5.2-mini`; controls intent/classifier fallback model)
 - `PIPELINE_EMBEDDING_MODEL` (default `text-embedding-3-large`)
 - `PIPELINE_BATCH_SIZE` (default `25`; optional per-chunk max cap for categorization)
 - `PIPELINE_WORKER_POLL_SECONDS` (default `3`)

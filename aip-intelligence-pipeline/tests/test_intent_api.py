@@ -70,6 +70,40 @@ def test_intent_classify_returns_schema(monkeypatch) -> None:
     assert payload["classifier_method"] == "rule"
 
 
+def test_intent_classify_passes_only_request_override_to_classifier(monkeypatch) -> None:
+    monkeypatch.setattr(chat_auth_module, "require_internal_token", lambda _request: None)
+    monkeypatch.setattr(
+        intent_route_module.Settings,
+        "load",
+        lambda **_kwargs: SimpleNamespace(
+            pipeline_model="gpt-5.2",
+            openai_api_key="openai-key",
+        ),
+    )
+
+    captured_kwargs: dict = {}
+
+    def _fake_classify_message(**kwargs):
+        captured_kwargs.update(kwargs)
+        return IntentResult(
+            intent="greeting",
+            confidence=1.0,
+            needs_retrieval=False,
+            friendly_response="Hello.",
+            entities=empty_entities(),
+            route_hint=None,
+            classifier_method="rule",
+        )
+
+    monkeypatch.setattr(intent_route_module, "classify_message", _fake_classify_message)
+
+    client = TestClient(create_app())
+    response = client.post("/v1/intent/classify", json={"message": "hello"})
+
+    assert response.status_code == 200
+    assert captured_kwargs["default_model"] == ""
+
+
 def test_intent_classify_returns_503_on_classifier_failure(monkeypatch) -> None:
     monkeypatch.setattr(chat_auth_module, "require_internal_token", lambda _request: None)
     monkeypatch.setattr(
@@ -90,4 +124,3 @@ def test_intent_classify_returns_503_on_classifier_failure(monkeypatch) -> None:
     response = client.post("/v1/intent/classify", json={"message": "hello"})
     assert response.status_code == 503
     assert "classifier unavailable" in response.json()["detail"]
-

@@ -42,13 +42,13 @@ class IntentClassifyResponse(BaseModel):
 @router.post("/classify", response_model=IntentClassifyResponse)
 def classify_intent(req: IntentClassifyRequest) -> IntentClassifyResponse:
     settings = Settings.load(require_supabase=False, require_openai=False)
-    default_model = (req.model_name or settings.pipeline_model).strip() or settings.pipeline_model
+    intent_model_override = (req.model_name or "").strip()
 
     try:
         result = classify_message(
             message=req.message,
             openai_api_key=settings.openai_api_key,
-            default_model=default_model,
+            default_model=intent_model_override,
         )
     except IntentClassificationError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
@@ -78,4 +78,3 @@ def classify_intent(req: IntentClassifyRequest) -> IntentClassifyResponse:
         route_hint=payload.get("route_hint") if isinstance(payload.get("route_hint"), str) else None,
         classifier_method=str(payload.get("classifier_method") or ""),
     )
-
