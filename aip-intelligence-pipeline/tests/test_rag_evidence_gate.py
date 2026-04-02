@@ -5,7 +5,6 @@ import types
 
 from openaip_pipeline.services.rag.rag import (
     answer_with_rag,
-    evaluate_borderline_semantic_evidence,
     evaluate_evidence_gate,
 )
 
@@ -118,19 +117,8 @@ def test_evidence_gate_allows_when_fiscal_year_is_string() -> None:
     assert gate["decision"] == "allow"
 
 
-def test_borderline_evidence_never_triggers_when_selected_docs_empty() -> None:
-    evaluation = evaluate_borderline_semantic_evidence(
-        question="What does the AIP say about road maintenance in Pulo?",
-        selected_docs=[],
-    )
-    assert evaluation["is_borderline"] is False
-    assert evaluation["reason_code"] == "no_selected_docs"
-    assert evaluation["metrics"]["selected_doc_count"] == 0
-
-
 def test_answer_with_rag_zero_selected_docs_always_refuses(monkeypatch) -> None:
     monkeypatch.setenv("RAG_PARTIAL_MODE_ENABLED", "true")
-    monkeypatch.setenv("RAG_BORDERLINE_PARTIAL_ENABLED", "true")
     monkeypatch.setenv("RAG_EVIDENCE_GATE_ENABLED", "false")
 
     fake_supabase_client_module = types.SimpleNamespace(create_client=lambda *_args, **_kwargs: object())
@@ -165,28 +153,26 @@ def test_answer_with_rag_zero_selected_docs_always_refuses(monkeypatch) -> None:
     assert result["retrieval_meta"]["response_mode_source"] == "pipeline_refusal"
 
 
-def test_answer_with_rag_borderline_verifier_fail_downgrades_to_partial_when_enabled(
+def test_answer_with_rag_runs_generation_without_post_verifier(
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("RAG_BORDERLINE_PARTIAL_ENABLED", "true")
     monkeypatch.setenv("RAG_PARTIAL_MODE_ENABLED", "false")
     monkeypatch.setenv("RAG_EVIDENCE_GATE_ENABLED", "false")
-    monkeypatch.setenv("RAG_BORDERLINE_EXPLICIT_MATCH_MIN", "0.20")
 
     fake_supabase_client_module = types.SimpleNamespace(create_client=lambda *_args, **_kwargs: object())
     monkeypatch.setitem(sys.modules, "supabase.client", fake_supabase_client_module)
 
+    call_counter = {"count": 0}
+
     class _FakeChatOpenAI:
         def __init__(self, *args, **kwargs):  # noqa: D401, ANN001, ANN003
-            self.calls = 0
+            pass
 
         def invoke(self, _messages):  # noqa: ANN001
-            self.calls += 1
-            if self.calls == 1:
-                return types.SimpleNamespace(
-                    content='{"answer":"The AIP mentions infrastructure works [S1].","used_source_ids":["S1"]}'
-                )
-            return types.SimpleNamespace(content='{"supported":false,"issues":["needs explicit match"]}')
+            call_counter["count"] += 1
+            return types.SimpleNamespace(
+                content='{"answer":"The AIP mentions infrastructure works [S1].","used_source_ids":["S1"]}'
+            )
 
     monkeypatch.setitem(sys.modules, "langchain_openai", types.SimpleNamespace(ChatOpenAI=_FakeChatOpenAI))
 
@@ -225,11 +211,69 @@ def test_answer_with_rag_borderline_verifier_fail_downgrades_to_partial_when_ena
         min_similarity=0.3,
     )
 
+    assert call_counter["count"] == 1
     assert result["refused"] is False
-    assert result["retrieval_meta"]["reason"] == "partial_evidence"
-    assert result["retrieval_meta"]["response_mode_source"] == "pipeline_partial"
-    assert result["retrieval_meta"]["borderline_detected"] is True
-    assert result["retrieval_meta"]["borderline_reason_code"] == "borderline_no_explicit_match"
+    assert result["retrieval_meta"]["reason"] == "ok"
+    assert result["retrieval_meta"]["response_mode_source"] == "pipeline_generated"
+    assert "verifier_passed" not in result["retrieval_meta"]
+    assert "borderline_detected" not in result["retrieval_meta"]
+
+
+def test_answer_with_rag_invalid_source_ids_returns_validation_failed(monkeypatch) -> None:
+    monkeypatch.setenv("RAG_PARTIAL_MODE_ENABLED", "false")
+    monkeypatch.setenv("RAG_EVIDENCE_GATE_ENABLED", "false")
+
+    fake_supabase_client_module = types.SimpleNamespace(create_client=lambda *_args, **_kwargs: object())
+    monkeypatch.setitem(sys.modules, "supabase.client", fake_supabase_client_module)
+
+    class _FakeChatOpenAI:
+        def __init__(self, *args, **kwargs):  # noqa: D401, ANN001, ANN003
+            pass
+
+        def invoke(self, _messages):  # noqa: ANN001
+            return types.SimpleNamespace(
+                content='{"answer":"The AIP mentions infrastructure works [S9].","used_source_ids":["S9"]}'
+            )
+
+    monkeypatch.setitem(sys.modules, "langchain_openai", types.SimpleNamespace(ChatOpenAI=_FakeChatOpenAI))
+
+    docs = [
+        _FakeDoc(
+            chunk_id="c1",
+            similarity=0.76,
+            content=(
+                "Infrastructure category includes rehabilitation of drainages and canal works "
+                "for fiscal year 2026 in Barangay Pulo."
+            ),
+            fiscal_year=2026,
+            channels=["dense"],
+        )
+    ]
+
+    monkeypatch.setattr(
+        "openaip_pipeline.services.rag.rag.run_dense_retrieval",
+        lambda **_kwargs: {
+            "dense_docs": docs,
+            "docs": docs,
+            "strong_docs": docs,
+        },
+    )
+    monkeypatch.setattr("openaip_pipeline.services.rag.rag._select_diverse_docs", lambda docs, **_kwargs: docs)
+
+    result = answer_with_rag(
+        supabase_url="https://example.test",
+        supabase_service_key="service-key",
+        openai_api_key="openai-key",
+        embeddings_model="text-embedding-3-large",
+        chat_model="gpt-5.2",
+        question="What does the AIP say about road maintenance projects in Barangay Pulo FY 2026?",
+        retrieval_scope={"mode": "global", "targets": []},
+        top_k=8,
+        min_similarity=0.3,
+    )
+
+    assert result["refused"] is True
+    assert result["retrieval_meta"]["reason"] == "validation_failed"
 
 
 def test_answer_with_rag_skips_generation_when_gate_blocks(monkeypatch) -> None:

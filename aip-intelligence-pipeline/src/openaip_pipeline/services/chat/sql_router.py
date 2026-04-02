@@ -132,7 +132,6 @@ def _response(
         or ("clarification_needed" if status == "clarification" else "insufficient_evidence" if refused else "ok"),
         "status": status,
         "route_family": route_family,
-        "verifier_mode": "structured",
         "context_count": len(citations),
     }
     if extra_meta:

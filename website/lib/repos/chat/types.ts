@@ -127,7 +127,6 @@ export type ChatRetrievalMeta = {
     | "insufficient_evidence"
     | "partial_evidence"
     | "clarification_needed"
-    | "verifier_failed"
     | "ambiguous_scope"
     | "pipeline_error"
     | "validation_failed"
@@ -147,7 +146,6 @@ export type ChatRetrievalMeta = {
   topK?: number;
   minSimilarity?: number;
   contextCount?: number;
-  verifierPassed?: boolean;
   scopeResolution?: ChatScopeResolution;
   latencyMs?: number;
   status?: ChatResponseStatus;
@@ -171,8 +169,6 @@ export type ChatRetrievalMeta = {
     coverageBarangays: string[];
     aggregationSource: string;
   };
-  verifierMode?: "structured" | "retrieval" | "mixed";
-  verifierPolicyPassed?: boolean;
   denseCandidateCount?: number;
   keywordCandidateCount?: number;
   fusedCandidateCount?: number;
@@ -212,13 +208,10 @@ export type ChatRetrievalMeta = {
   rewriteReasonCode?: string;
   plannerReasonCode?: string;
   responseModeReasonCode?: string;
-  verifierPolicyReasonCode?: string;
   responseModeSource?: "pipeline_generated" | "pipeline_partial" | "pipeline_refusal" | "website_repeat_cache";
   semanticStabilityKey?: string;
   responseStabilizedFromCache?: boolean;
   semanticRepeatCacheHit?: boolean;
-  borderlineDetected?: boolean;
-  borderlineReasonCode?: string;
   clarificationEmitted?: boolean;
   refusalEmitted?: boolean;
   activeChatFlags?: Record<string, boolean>;

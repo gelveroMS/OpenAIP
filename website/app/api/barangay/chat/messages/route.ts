@@ -156,11 +156,6 @@ function normalizePipelineMeta(input: {
           ? "refusal"
           : "answer";
 
-  const verifierMode =
-    raw.verifier_mode === "structured" || raw.verifier_mode === "retrieval" || raw.verifier_mode === "mixed"
-      ? raw.verifier_mode
-      : "retrieval";
-
   const routeFamilyRaw = typeof raw.route_family === "string" ? raw.route_family : null;
   const routeFamily: ChatRetrievalMeta["routeFamily"] =
     routeFamilyRaw === "sql_totals" ||
@@ -180,7 +175,6 @@ function normalizePipelineMeta(input: {
     reason,
     status,
     scopeResolution: input.scopeResolution,
-    verifierMode,
     routeFamily,
     topK: typeof raw.top_k === "number" ? raw.top_k : undefined,
     minSimilarity: typeof raw.min_similarity === "number" ? raw.min_similarity : undefined,
@@ -321,7 +315,6 @@ export async function POST(request: Request) {
           status: "clarification",
           scopeResolution: scope.scopeResolution,
           routeFamily: "pipeline_fallback",
-          verifierMode: "structured",
         },
       });
 
@@ -385,7 +378,6 @@ export async function POST(request: Request) {
         status: "refusal",
         refusalDetail: message,
         scopeResolution: scope.scopeResolution,
-        verifierMode: "retrieval",
         routeFamily: "pipeline_fallback",
       };
     }

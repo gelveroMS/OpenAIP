@@ -66,7 +66,6 @@ export type PipelineChatAnswer = {
       | "ok"
       | "insufficient_evidence"
       | "partial_evidence"
-      | "verifier_failed"
       | "ambiguous_scope"
       | "pipeline_error"
       | "validation_failed"
@@ -92,13 +91,10 @@ export type PipelineChatAnswer = {
     top_k?: number;
     min_similarity?: number;
     context_count?: number;
-    verifier_passed?: boolean;
     scope_mode?: string;
     scope_targets_count?: number;
     retrieval_mode?: "qa" | "overview";
     applied_retrieval_filters?: Record<string, unknown>;
-    verifier_mode?: "structured" | "retrieval" | "mixed";
-    verifier_policy_passed?: boolean;
     retrieved_count?: number;
     strong_count?: number;
     selected_count?: number;
@@ -121,8 +117,6 @@ export type PipelineChatAnswer = {
     active_rag_flags?: Record<string, boolean>;
     rag_calibration?: Record<string, number | boolean>;
     stage_latency_ms?: Record<string, number>;
-    borderline_detected?: boolean;
-    borderline_reason_code?: string;
     response_mode_source?: string;
   };
 };

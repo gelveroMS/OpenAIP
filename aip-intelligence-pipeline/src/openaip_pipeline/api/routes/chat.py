@@ -244,7 +244,6 @@ def _build_short_circuit_response(*, question: str, classification: IntentResult
         {
             "reason": "conversational_shortcut",
             "route_family": "conversational",
-            "verifier_mode": "structured",
             "context_count": 0,
         }
     )
@@ -297,7 +296,6 @@ def _build_classifier_failure_response(*, question: str, reason: str) -> ChatAns
             "reason": "pipeline_error",
             "status": "refusal",
             "route_family": "pipeline_fallback",
-            "verifier_mode": "structured",
             "intent": "classification_error",
             "classifier_confidence": 0.0,
             "classifier_method": "error",
@@ -428,7 +426,6 @@ def chat_answer(
         context_count=normalized["context_count"],
         evidence_gate_decision=normalized["retrieval_meta"].get("evidence_gate_decision"),
         evidence_gate_reason=normalized["retrieval_meta"].get("evidence_gate_reason"),
-        verifier_passed=normalized["retrieval_meta"].get("verifier_passed"),
     )
     return ChatAnswerResponse(
         question=normalized["question"],

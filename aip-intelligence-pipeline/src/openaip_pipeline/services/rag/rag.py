@@ -167,31 +167,12 @@ def _int_env(name: str, default: int, *, minimum: int = 1, maximum: int = 200) -
     return max(minimum, min(parsed, maximum))
 
 
-def _float_env(name: str, default: float, *, minimum: float = 0.0, maximum: float = 1.0) -> float:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    try:
-        parsed = float(value)
-    except ValueError:
-        return default
-    if parsed < minimum:
-        return minimum
-    if parsed > maximum:
-        return maximum
-    return parsed
-
-
 def _evidence_gate_enabled() -> bool:
     return _bool_env("RAG_EVIDENCE_GATE_ENABLED", False)
 
 
 def _selective_multi_query_enabled() -> bool:
     return _bool_env("RAG_SELECTIVE_MULTI_QUERY_ENABLED", False)
-
-
-def _borderline_partial_enabled() -> bool:
-    return _bool_env("RAG_BORDERLINE_PARTIAL_ENABLED", False)
 
 
 def _gate_min_final_docs() -> int:
@@ -204,10 +185,6 @@ def _gate_require_year_match() -> bool:
 
 def _selective_multi_query_max_variants() -> int:
     return _int_env("RAG_SELECTIVE_MULTI_QUERY_MAX_VARIANTS", 3, minimum=1, maximum=3)
-
-
-def _borderline_explicit_match_min() -> float:
-    return _float_env("RAG_BORDERLINE_EXPLICIT_MATCH_MIN", 0.08, minimum=0.01, maximum=0.5)
 
 
 def _diversity_selection_enabled() -> bool:
@@ -232,7 +209,6 @@ def _effective_top_k(*, top_k: int, retrieval_mode: str) -> int:
 def _active_rag_flags() -> dict[str, bool]:
     return {
         "RAG_EVIDENCE_GATE_ENABLED": _evidence_gate_enabled(),
-        "RAG_BORDERLINE_PARTIAL_ENABLED": _borderline_partial_enabled(),
         "RAG_SELECTIVE_MULTI_QUERY_ENABLED": _selective_multi_query_enabled(),
         "RAG_DIVERSITY_SELECTION_ENABLED": _diversity_selection_enabled(),
     }
@@ -242,7 +218,6 @@ def _rag_calibration_snapshot() -> dict[str, int | float | bool]:
     return {
         "RAG_GATE_MIN_FINAL_DOCS": _gate_min_final_docs(),
         "RAG_GATE_REQUIRE_YEAR_MATCH": _gate_require_year_match(),
-        "RAG_BORDERLINE_EXPLICIT_MATCH_MIN": _borderline_explicit_match_min(),
         "RAG_SELECTIVE_MULTI_QUERY_MAX_VARIANTS": _selective_multi_query_max_variants(),
     }
 
@@ -521,7 +496,6 @@ def _build_refusal(
     top_k: int,
     min_similarity: float,
     retrieval_scope: dict[str, Any] | None,
-    verifier_passed: bool,
 ) -> dict[str, Any]:
     _trace_log(
         "build_refusal",
@@ -529,7 +503,6 @@ def _build_refusal(
         context_count=len(docs),
         top_k=top_k,
         min_similarity=min_similarity,
-        verifier_passed=verifier_passed,
     )
     nearest = docs[: min(3, len(docs))]
     citations = [_build_citation(index, doc, insufficient=True) for index, doc in enumerate(nearest, start=1)]
@@ -563,7 +536,6 @@ def _build_refusal(
             "top_k": top_k,
             "min_similarity": min_similarity,
             "context_count": len(docs),
-            "verifier_passed": verifier_passed,
             "scope_mode": (retrieval_scope or {}).get("mode", "global"),
             "scope_targets_count": len((retrieval_scope or {}).get("targets") or []),
         },
@@ -601,7 +573,6 @@ def _build_partial_evidence(
             top_k=top_k,
             min_similarity=min_similarity,
             retrieval_scope=retrieval_scope,
-            verifier_passed=False,
         )
 
     return {
@@ -616,7 +587,6 @@ def _build_partial_evidence(
             "top_k": top_k,
             "min_similarity": min_similarity,
             "context_count": len(docs),
-            "verifier_passed": False,
             "scope_mode": (retrieval_scope or {}).get("mode", "global"),
             "scope_targets_count": len((retrieval_scope or {}).get("targets") or []),
         },
@@ -644,8 +614,6 @@ def _attach_selection_meta(
     stage_latency_ms: dict[str, float] | None = None,
     extra_meta: dict[str, Any] | None = None,
     response_mode_source: str | None = None,
-    borderline_detected: bool | None = None,
-    borderline_reason_code: str | None = None,
 ) -> dict[str, Any]:
     metadata = dict(result.get("retrieval_meta") or {})
     metadata.update(
@@ -682,10 +650,6 @@ def _attach_selection_meta(
         metadata["stage_latency_ms"] = stage_latency_ms
     if response_mode_source is not None:
         metadata["response_mode_source"] = response_mode_source
-    if borderline_detected is not None:
-        metadata["borderline_detected"] = borderline_detected
-    if borderline_reason_code is not None:
-        metadata["borderline_reason_code"] = borderline_reason_code
     if isinstance(extra_meta, dict):
         metadata.update(extra_meta)
     result["retrieval_meta"] = metadata
@@ -793,55 +757,6 @@ def evaluate_evidence_gate(
     }
 
 
-def evaluate_borderline_semantic_evidence(
-    *,
-    question: str,
-    selected_docs: list[Any],
-) -> dict[str, Any]:
-    # Hard guard: zero selected docs always resolve to refusal path, never borderline partial.
-    if not selected_docs:
-        return {
-            "is_borderline": False,
-            "reason_code": "no_selected_docs",
-            "metrics": {
-                "selected_doc_count": 0,
-                "top_overlap": 0.0,
-                "top_similarity": 0.0,
-            },
-        }
-
-    top_overlap = max(
-        (_text_overlap(question, str(getattr(doc, "page_content", "") or "")) for doc in selected_docs),
-        default=0.0,
-    )
-    top_similarity = max((_doc_similarity_score(doc) for doc in selected_docs), default=0.0)
-    explicit_match_min = _borderline_explicit_match_min()
-
-    is_related = top_overlap >= 0.02 and top_similarity >= 0.2
-    has_explicit_match = top_overlap >= explicit_match_min
-
-    if is_related and not has_explicit_match:
-        reason_code = "borderline_no_explicit_match"
-        borderline = True
-    elif not is_related:
-        reason_code = "not_related"
-        borderline = False
-    else:
-        reason_code = "explicit_match_detected"
-        borderline = False
-
-    return {
-        "is_borderline": borderline,
-        "reason_code": reason_code,
-        "metrics": {
-            "selected_doc_count": len(selected_docs),
-            "top_overlap": top_overlap,
-            "top_similarity": top_similarity,
-            "explicit_match_min": explicit_match_min,
-        },
-    }
-
-
 def answer_with_rag(
     *,
     supabase_url: str,
@@ -923,8 +838,6 @@ def answer_with_rag(
     selected_docs: list[Any] = []
     effective_strong_docs = list(strong_docs)
     effective_docs = list(docs)
-    borderline_detected = False
-    borderline_reason_code = "not_evaluated"
     response_mode_source = "pipeline_refusal"
     retrieval_context_meta = {
         "retrieval_mode": resolved_mode,
@@ -945,8 +858,6 @@ def answer_with_rag(
         generation_skipped_override: bool | None = None,
         extra_meta: dict[str, Any] | None = None,
         response_mode_source_override: str | None = None,
-        borderline_detected_override: bool | None = None,
-        borderline_reason_code_override: str | None = None,
     ) -> dict[str, Any]:
         stage_latency_snapshot = dict(stage_latency_ms)
         stage_latency_snapshot["total_ms"] = round((time.perf_counter() - started_at) * 1000.0, 3)
@@ -981,16 +892,6 @@ def answer_with_rag(
                 if response_mode_source_override is not None
                 else response_mode_source
             ),
-            borderline_detected=(
-                borderline_detected_override
-                if borderline_detected_override is not None
-                else borderline_detected
-            ),
-            borderline_reason_code=(
-                borderline_reason_code_override
-                if borderline_reason_code_override is not None
-                else borderline_reason_code
-            ),
         )
 
     if not effective_strong_docs:
@@ -1009,8 +910,6 @@ def answer_with_rag(
         )
         if docs and _partial_mode_enabled():
             response_mode_source = "pipeline_partial"
-            borderline_detected = False
-            borderline_reason_code = "partial_mode_initial_fallback"
             return attach(
                 _build_partial_evidence(
                     question=question,
@@ -1024,8 +923,6 @@ def answer_with_rag(
                 strong_count_override=0,
             )
         response_mode_source = "pipeline_refusal"
-        borderline_detected = False
-        borderline_reason_code = "no_strong_docs"
         return attach(
             _build_refusal(
                 question=question,
@@ -1034,7 +931,6 @@ def answer_with_rag(
                 top_k=effective_top_k,
                 min_similarity=min_similarity,
                 retrieval_scope=resolved_scope,
-                verifier_passed=False,
             ),
             selected_count=min(3, len(docs)),
             strong_count_override=0,
@@ -1145,8 +1041,6 @@ def answer_with_rag(
             generation_skipped_by_gate = True
             if gate_decision == "clarify":
                 response_mode_source = "pipeline_partial"
-                borderline_detected = False
-                borderline_reason_code = "gate_clarify"
                 return attach(
                     _build_partial_evidence(
                         question=question,
@@ -1161,8 +1055,6 @@ def answer_with_rag(
                     extra_meta=gate_metrics,
                 )
             response_mode_source = "pipeline_refusal"
-            borderline_detected = False
-            borderline_reason_code = "gate_refuse"
             _trace_log(
                 "retrieval_refusal",
                 reason="insufficient_evidence",
@@ -1179,7 +1071,6 @@ def answer_with_rag(
                     top_k=effective_top_k,
                     min_similarity=min_similarity,
                     retrieval_scope=resolved_scope,
-                    verifier_passed=False,
                 ),
                 selected_count=len(selected_docs),
                 generation_skipped_override=True,
@@ -1221,7 +1112,6 @@ def answer_with_rag(
                 top_k=effective_top_k,
                 min_similarity=min_similarity,
                 retrieval_scope=resolved_scope,
-                verifier_passed=False,
             ),
             selected_count=len(selected_docs),
             extra_meta=gate_metrics,
@@ -1238,7 +1128,6 @@ def answer_with_rag(
                 top_k=effective_top_k,
                 min_similarity=min_similarity,
                 retrieval_scope=resolved_scope,
-                verifier_passed=False,
             ),
             selected_count=len(selected_docs),
             extra_meta=gate_metrics,
@@ -1254,7 +1143,6 @@ def answer_with_rag(
                 top_k=effective_top_k,
                 min_similarity=min_similarity,
                 retrieval_scope=resolved_scope,
-                verifier_passed=False,
             ),
             selected_count=len(selected_docs),
             extra_meta=gate_metrics,
@@ -1282,7 +1170,6 @@ def answer_with_rag(
                 top_k=effective_top_k,
                 min_similarity=min_similarity,
                 retrieval_scope=resolved_scope,
-                verifier_passed=False,
             ),
             selected_count=len(selected_docs),
             extra_meta=gate_metrics,
@@ -1293,103 +1180,14 @@ def answer_with_rag(
         return attach(
             _build_refusal(
                 question=question,
-                reason="verifier_failed",
+                reason="validation_failed",
                 docs=selected_docs,
                 top_k=effective_top_k,
                 min_similarity=min_similarity,
                 retrieval_scope=resolved_scope,
-                verifier_passed=False,
             ),
             selected_count=len(selected_docs),
             extra_meta=gate_metrics,
-        )
-
-    verifier_prompt = (
-        "Validate the answer against the provided context and cited sources.\n"
-        "Return strict JSON with keys: supported (boolean), issues (array of strings).\n"
-        "Set supported=false if any claim is unsupported or if source tags are misused."
-    )
-    verifier_user_prompt = (
-        f"Question:\n{question}\n\n"
-        f"Answer:\n{answer_text}\n\n"
-        f"Cited Source IDs:\n{', '.join(used_source_ids)}\n\n"
-        f"Allowed Sources:\n{_format_source_list(selected_docs)}\n\n"
-        f"Context:\n{_format_context(selected_docs)}"
-    )
-    verifier_started_at = time.perf_counter()
-    verifier_response = llm.invoke(
-        [
-            {"role": "system", "content": verifier_prompt},
-            {"role": "user", "content": verifier_user_prompt},
-        ]
-    )
-    stage_latency_ms["verification_ms"] = round((time.perf_counter() - verifier_started_at) * 1000.0, 3)
-    parsed_verifier = _extract_json(str(getattr(verifier_response, "content", "")) or "")
-    verifier_passed = bool(parsed_verifier and parsed_verifier.get("supported") is True)
-    if not verifier_passed:
-        _trace_log("verifier_failed", verifier_payload=parsed_verifier or {})
-        borderline_eval = evaluate_borderline_semantic_evidence(
-            question=question,
-            selected_docs=selected_docs,
-        )
-        borderline_detected = bool(borderline_eval.get("is_borderline") is True)
-        borderline_reason_code = str(borderline_eval.get("reason_code") or "not_borderline")
-        borderline_metrics = dict(borderline_eval.get("metrics") or {})
-
-        if _borderline_partial_enabled() and borderline_detected:
-            response_mode_source = "pipeline_partial"
-            return attach(
-                _build_partial_evidence(
-                    question=question,
-                    reason="partial_evidence",
-                    docs=selected_docs,
-                    top_k=effective_top_k,
-                    min_similarity=min_similarity,
-                    retrieval_scope=resolved_scope,
-                ),
-                selected_count=len(selected_docs),
-                extra_meta={
-                    **gate_metrics,
-                    **borderline_metrics,
-                },
-                borderline_detected_override=True,
-                borderline_reason_code_override=borderline_reason_code,
-                response_mode_source_override="pipeline_partial",
-            )
-
-        if _partial_mode_enabled():
-            response_mode_source = "pipeline_partial"
-            return attach(
-                _build_partial_evidence(
-                    question=question,
-                    reason="partial_evidence",
-                    docs=selected_docs,
-                    top_k=effective_top_k,
-                    min_similarity=min_similarity,
-                    retrieval_scope=resolved_scope,
-                ),
-                selected_count=len(selected_docs),
-                extra_meta={
-                    **gate_metrics,
-                    **borderline_metrics,
-                },
-            )
-        response_mode_source = "pipeline_refusal"
-        return attach(
-            _build_refusal(
-                question=question,
-                reason="verifier_failed",
-                docs=selected_docs,
-                top_k=effective_top_k,
-                min_similarity=min_similarity,
-                retrieval_scope=resolved_scope,
-                verifier_passed=False,
-            ),
-            selected_count=len(selected_docs),
-            extra_meta={
-                **gate_metrics,
-                **borderline_metrics,
-            },
         )
 
     citations: list[dict[str, Any]] = []
@@ -1407,7 +1205,6 @@ def answer_with_rag(
                 top_k=effective_top_k,
                 min_similarity=min_similarity,
                 retrieval_scope=resolved_scope,
-                verifier_passed=False,
             ),
             selected_count=len(selected_docs),
             extra_meta=gate_metrics,
@@ -1426,7 +1223,6 @@ def answer_with_rag(
                 "top_k": effective_top_k,
                 "min_similarity": min_similarity,
                 "context_count": len(selected_docs),
-                "verifier_passed": True,
                 "scope_mode": resolved_scope.get("mode", "global"),
                 "scope_targets_count": len(resolved_scope.get("targets") or []),
             },
@@ -1435,8 +1231,6 @@ def answer_with_rag(
         selected_count=len(selected_docs),
         extra_meta=gate_metrics,
         response_mode_source_override="pipeline_generated",
-        borderline_detected_override=False,
-        borderline_reason_code_override="explicit_match_detected",
     )
     _trace_log(
         "answer_generated",
@@ -1444,6 +1238,5 @@ def answer_with_rag(
         citations_count=len(citations),
         context_count=result.get("context_count"),
         evidence_gate_decision=gate_decision,
-        verifier_passed=True,
     )
     return result
