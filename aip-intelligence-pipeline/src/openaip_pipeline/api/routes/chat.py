@@ -180,6 +180,28 @@ def _apply_entity_filters(filters_payload: dict[str, Any], classification: Inten
         normalized = " ".join(value.strip().split()).lower()
         return normalized if normalized else None
 
+    def _normalize_scope_name(scope_type: str, scope_name: str) -> str:
+        cleaned = " ".join(scope_name.strip().split())
+        if not cleaned:
+            return cleaned
+        lowered = cleaned.lower()
+        if scope_type == "barangay":
+            if lowered.startswith("barangay "):
+                stripped = cleaned[9:].strip()
+                return stripped if stripped else cleaned
+            return cleaned
+        if scope_type == "city":
+            if lowered.startswith("city of "):
+                base = cleaned[8:].strip()
+                return f"{base} City" if base else cleaned
+            if lowered.startswith("city "):
+                base = cleaned[5:].strip()
+                return f"{base} City" if base else cleaned
+            if lowered.endswith(" city"):
+                return cleaned
+            return f"{cleaned} City"
+        return cleaned
+
     def _merge_tags(existing: Any, additions: list[str]) -> list[str]:
         deduped: list[str] = []
         seen: set[str] = set()
@@ -201,6 +223,9 @@ def _apply_entity_filters(filters_payload: dict[str, Any], classification: Inten
         normalized_existing_scope_type = existing_scope_type.strip().lower()
         if normalized_existing_scope_type in {"barangay", "city"}:
             merged["scope_type"] = normalized_existing_scope_type
+            existing_scope_name = merged.get("scope_name")
+            if isinstance(existing_scope_name, str) and existing_scope_name.strip():
+                merged["scope_name"] = _normalize_scope_name(normalized_existing_scope_type, existing_scope_name)
         else:
             merged.pop("scope_type", None)
             merged.pop("scope_name", None)
@@ -226,21 +251,21 @@ def _apply_entity_filters(filters_payload: dict[str, Any], classification: Inten
     if "scope_type" not in merged:
         if isinstance(barangay, str) and barangay.strip():
             merged["scope_type"] = "barangay"
-            merged["scope_name"] = barangay.strip()
+            merged["scope_name"] = _normalize_scope_name("barangay", barangay)
         elif isinstance(city, str) and city.strip():
             merged["scope_type"] = "city"
-            merged["scope_name"] = city.strip()
+            merged["scope_name"] = _normalize_scope_name("city", city)
         elif normalized_entity_scope_type and normalized_entity_scope_name:
             merged["scope_type"] = normalized_entity_scope_type
-            merged["scope_name"] = normalized_entity_scope_name
+            merged["scope_name"] = _normalize_scope_name(normalized_entity_scope_type, normalized_entity_scope_name)
     elif "scope_name" not in merged:
         resolved_scope_type = merged.get("scope_type")
         if resolved_scope_type == "barangay" and isinstance(barangay, str) and barangay.strip():
-            merged["scope_name"] = barangay.strip()
+            merged["scope_name"] = _normalize_scope_name("barangay", barangay)
         elif resolved_scope_type == "city" and isinstance(city, str) and city.strip():
-            merged["scope_name"] = city.strip()
+            merged["scope_name"] = _normalize_scope_name("city", city)
         elif normalized_entity_scope_name:
-            merged["scope_name"] = normalized_entity_scope_name
+            merged["scope_name"] = _normalize_scope_name(str(resolved_scope_type or ""), normalized_entity_scope_name)
 
     sector_tag = _normalized_tag(entities.get("sector"))
     if sector_tag:
