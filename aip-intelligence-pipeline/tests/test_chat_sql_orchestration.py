@@ -46,6 +46,17 @@ def _patch_base(monkeypatch) -> None:
         ),
     )
     monkeypatch.setattr(chat_route_module, "classify_message", lambda **_kwargs: _classification())
+    monkeypatch.setattr(
+        chat_route_module,
+        "check_year_availability_preflight",
+        lambda **_kwargs: {
+            "decision": "not_applicable",
+            "reason": "requested_year_missing",
+            "requested_fiscal_year": None,
+            "available_fiscal_years": [],
+            "year_availability_scope": None,
+        },
+    )
 
 
 def _post_chat(client: TestClient, question: str):
@@ -549,6 +560,118 @@ def test_rag_clarification_status_is_normalized(monkeypatch) -> None:
     payload = response.json()
     assert payload["refused"] is False
     assert payload["retrieval_meta"]["status"] == "clarification"
+
+
+def test_year_unavailable_short_circuits_before_sql_and_rag(monkeypatch) -> None:
+    _patch_base(monkeypatch)
+    monkeypatch.setattr(
+        chat_route_module,
+        "classify_message",
+        lambda **_kwargs: _classification(
+            intent="total_aggregation",
+            needs_retrieval=True,
+            route_hint="sql_totals",
+        ),
+    )
+    monkeypatch.setattr(
+        chat_route_module,
+        "check_year_availability_preflight",
+        lambda **_kwargs: {
+            "decision": "year_unavailable",
+            "reason": "requested_year_unavailable",
+            "requested_fiscal_year": 2026,
+            "available_fiscal_years": [2024, 2025],
+            "year_availability_scope": {"scope_type": "barangay", "scope_name": "Barangay Pulo"},
+        },
+    )
+    monkeypatch.setattr(
+        chat_route_module,
+        "maybe_answer_with_sql",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("SQL should not be called.")),
+    )
+    monkeypatch.setattr(
+        chat_route_module,
+        "answer_with_rag",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("RAG should not be called.")),
+    )
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/v1/chat/answer",
+        json={
+            "question": "Which projects in Barangay Pulo FY 2026 focus on health?",
+            "retrieval_scope": {"mode": "global", "targets": []},
+            "retrieval_filters": {"fiscal_year": 2026, "scope_type": "barangay", "scope_name": "Pulo"},
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["refused"] is False
+    assert payload["retrieval_meta"]["status"] == "clarification"
+    assert payload["retrieval_meta"]["reason"] == "clarification_needed"
+    assert payload["retrieval_meta"]["route_family"] == "year_availability"
+    assert payload["retrieval_meta"]["clarification_type"] == "year_unavailable"
+    assert payload["retrieval_meta"]["requested_fiscal_year"] == 2026
+    assert payload["retrieval_meta"]["available_fiscal_years"] == [2024, 2025]
+    assert payload["retrieval_meta"]["year_availability_scope"] == {
+        "scope_type": "barangay",
+        "scope_name": "Barangay Pulo",
+    }
+    assert "No published records were found for FY 2026 in Barangay Pulo." in payload["answer"]
+    assert "Available fiscal years: FY 2024, FY 2025." in payload["answer"]
+
+
+def test_year_available_preflight_keeps_rag_execution(monkeypatch) -> None:
+    _patch_base(monkeypatch)
+    monkeypatch.setattr(
+        chat_route_module,
+        "classify_message",
+        lambda **_kwargs: _classification(intent="rag_query", needs_retrieval=True, route_hint="rag_query"),
+    )
+    monkeypatch.setattr(
+        chat_route_module,
+        "check_year_availability_preflight",
+        lambda **_kwargs: {
+            "decision": "year_available",
+            "reason": "requested_year_available",
+            "requested_fiscal_year": 2026,
+            "available_fiscal_years": [2025, 2026],
+            "year_availability_scope": {"scope_type": "barangay", "scope_name": "Barangay Pulo"},
+        },
+    )
+    monkeypatch.setattr(
+        chat_route_module,
+        "maybe_answer_with_sql",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("SQL should not be called for rag_query.")),
+    )
+    monkeypatch.setattr(
+        chat_route_module,
+        "answer_with_rag",
+        lambda **kwargs: {
+            "question": kwargs.get("question"),
+            "answer": "RAG answer after year-available preflight.",
+            "refused": False,
+            "citations": [],
+            "retrieval_meta": {"reason": "ok"},
+            "context_count": 0,
+        },
+    )
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/v1/chat/answer",
+        json={
+            "question": "Which projects in Barangay Pulo FY 2026 focus on health?",
+            "retrieval_scope": {"mode": "global", "targets": []},
+            "retrieval_filters": {"fiscal_year": 2026, "scope_type": "barangay", "scope_name": "Pulo"},
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["answer"] == "RAG answer after year-available preflight."
+    assert payload["retrieval_meta"]["status"] == "answer"
 
 
 def test_conversational_intent_short_circuits_without_sql_or_rag(monkeypatch) -> None:

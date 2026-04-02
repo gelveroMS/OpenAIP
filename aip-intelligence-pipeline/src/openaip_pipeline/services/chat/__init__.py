@@ -1,2 +1,3 @@
 from .sql_router import maybe_answer_with_sql
+from .year_availability import check_year_availability_preflight
 

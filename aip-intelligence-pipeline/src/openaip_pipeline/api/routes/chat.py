@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from openaip_pipeline.api.routes.chat_auth import require_internal_token
 from openaip_pipeline.core.settings import Settings
-from openaip_pipeline.services.chat import maybe_answer_with_sql
+from openaip_pipeline.services.chat import check_year_availability_preflight, maybe_answer_with_sql
 from openaip_pipeline.services.intent import (
     AIP_ONLY_RESPONSE,
     DEFAULT_CLARIFICATION_RESPONSE,
@@ -353,6 +353,59 @@ def _build_classifier_failure_response(*, question: str, reason: str) -> ChatAns
     )
 
 
+def _build_year_unavailable_clarification_response(
+    *,
+    question: str,
+    classification: IntentResult,
+    preflight_result: dict[str, Any],
+) -> ChatAnswerResponse:
+    requested_year = preflight_result.get("requested_fiscal_year")
+    available_years = [
+        int(year)
+        for year in list(preflight_result.get("available_fiscal_years") or [])
+        if isinstance(year, int) or (isinstance(year, float) and year.is_integer())
+    ]
+    scope_payload = dict(preflight_result.get("year_availability_scope") or {})
+    scope_name = str(scope_payload.get("scope_name") or "the selected scope").strip() or "the selected scope"
+
+    if available_years:
+        years_label = ", ".join(f"FY {year}" for year in available_years)
+        answer = (
+            f"No published records were found for FY {requested_year} in {scope_name}. "
+            f"Available fiscal years: {years_label}."
+        )
+    else:
+        answer = (
+            f"No published records were found for FY {requested_year} in {scope_name}. "
+            "No published fiscal years are currently available in that scope."
+        )
+
+    retrieval_meta = _classifier_meta(classification)
+    retrieval_meta.update(
+        {
+            "reason": "clarification_needed",
+            "status": "clarification",
+            "route_family": "year_availability",
+            "context_count": 0,
+            "clarification_type": "year_unavailable",
+            "requested_fiscal_year": requested_year,
+            "available_fiscal_years": available_years,
+            "year_availability_scope": {
+                "scope_type": str(scope_payload.get("scope_type") or "global"),
+                "scope_name": scope_name,
+            },
+        }
+    )
+    return ChatAnswerResponse(
+        question=question,
+        answer=answer,
+        refused=False,
+        citations=[],
+        retrieval_meta=retrieval_meta,
+        context_count=0,
+    )
+
+
 @router.post("/answer", response_model=ChatAnswerResponse)
 def chat_answer(
     req: ChatAnswerRequest,
@@ -411,6 +464,36 @@ def chat_answer(
         scope_targets_count=len(scope_payload.get("targets") or []),
         retrieval_filters=filters_payload,
     )
+    year_preflight = check_year_availability_preflight(
+        supabase_url=settings.supabase_url,
+        supabase_service_key=settings.supabase_service_key,
+        question=req.question,
+        retrieval_scope=scope_payload,
+        retrieval_filters=filters_payload,
+    )
+    _trace_log(
+        "year_availability_preflight",
+        decision=year_preflight.get("decision"),
+        reason=year_preflight.get("reason"),
+        requested_fiscal_year=year_preflight.get("requested_fiscal_year"),
+        available_fiscal_years=year_preflight.get("available_fiscal_years"),
+        scope=year_preflight.get("year_availability_scope"),
+    )
+    if str(year_preflight.get("decision") or "") == "year_unavailable":
+        response = _build_year_unavailable_clarification_response(
+            question=req.question,
+            classification=classification,
+            preflight_result=year_preflight,
+        )
+        _trace_log(
+            "year_availability_short_circuit",
+            status=response.retrieval_meta.get("status"),
+            reason=response.retrieval_meta.get("reason"),
+            refused=response.refused,
+            requested_fiscal_year=response.retrieval_meta.get("requested_fiscal_year"),
+            available_fiscal_years=response.retrieval_meta.get("available_fiscal_years"),
+        )
+        return response
 
     if classification.intent in _STRUCTURED_SQL_INTENTS:
         sql_result = maybe_answer_with_sql(
