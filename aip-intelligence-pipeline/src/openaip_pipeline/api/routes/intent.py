@@ -21,7 +21,7 @@ class IntentEntities(BaseModel):
     sector: str | None = None
     budget_term: str | None = None
     scope_name: str | None = None
-    scope_type: Literal["barangay", "city", "municipality"] | None = None
+    scope_type: Literal["barangay", "city"] | None = None
 
 
 class IntentClassifyRequest(BaseModel):

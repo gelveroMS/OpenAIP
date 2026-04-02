@@ -21,7 +21,7 @@ from openaip_pipeline.services.openai_utils import build_openai_client
 
 logger = logging.getLogger(__name__)
 
-_SCOPE_TYPE_VALUES = {"barangay", "city", "municipality"}
+_SCOPE_TYPE_VALUES = {"barangay", "city"}
 _DEFAULT_INTENT = "clarification"
 _DEFAULT_CONFIDENCE = 0.0
 
@@ -71,6 +71,7 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     "6. Set friendly_response for conversational intents, clarification, and out_of_scope.\n"
     "7. Use route_hint when clear: sql_totals, aggregate_sql, row_sql, metadata_sql, rag_query; otherwise null.\n"
     "8. Do not invent entities unless clearly present.\n"
+    "9. scope_type can only be barangay or city.\n"
 )
 
 
@@ -185,6 +186,28 @@ def _normalize_entities(value: Any) -> dict[str, Any]:
             normalized[key] = _normalize_scope_type(value.get(key))
             continue
         normalized[key] = _as_string_or_none(value.get(key))
+
+    barangay = _as_string_or_none(normalized.get("barangay"))
+    city = _as_string_or_none(normalized.get("city"))
+    scope_type = normalized.get("scope_type")
+    scope_name = _as_string_or_none(normalized.get("scope_name"))
+
+    # Keep scope output constrained and aligned with explicit location entities.
+    if barangay:
+        normalized["scope_type"] = "barangay"
+        normalized["scope_name"] = barangay
+        return normalized
+    if city:
+        normalized["scope_type"] = "city"
+        normalized["scope_name"] = city
+        return normalized
+    if isinstance(scope_type, str) and scope_type in _SCOPE_TYPE_VALUES and scope_name:
+        normalized["scope_type"] = scope_type
+        normalized["scope_name"] = scope_name
+        return normalized
+
+    normalized["scope_type"] = None
+    normalized["scope_name"] = None
     return normalized
 
 
@@ -239,7 +262,6 @@ def classify_with_llm(*, message: str, openai_api_key: str, model_name: str) -> 
     client = build_openai_client(openai_api_key)
     response = client.chat.completions.create(
         model=model_name,
-        temperature=0.0,
         messages=[
             {"role": "system", "content": _CLASSIFIER_SYSTEM_PROMPT},
             {"role": "user", "content": f"USER MESSAGE:\n{message.strip()}"},

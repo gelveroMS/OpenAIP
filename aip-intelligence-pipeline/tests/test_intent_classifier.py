@@ -165,6 +165,46 @@ def test_classify_with_llm_normalizes_payload(monkeypatch) -> None:
     assert result.entities["fiscal_year"] == 2025
 
 
+def test_classify_with_llm_scope_only_city_or_barangay(monkeypatch) -> None:
+    class _FakeCompletions:
+        @staticmethod
+        def create(**_kwargs):
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content=(
+                                '{"intent":"RAG_QUERY","confidence":"0.83","needs_retrieval":true,'
+                                '"friendly_response":null,"route_hint":"rag_query","entities":{'
+                                '"barangay":"Mamatid","city":"Cabuyao","fiscal_year":"2022",'
+                                '"scope_name":"City Legal Office","scope_type":"municipality"}}'
+                            )
+                        )
+                    )
+                ]
+            )
+
+    class _FakeChat:
+        completions = _FakeCompletions()
+
+    class _FakeClient:
+        chat = _FakeChat()
+
+    monkeypatch.setattr(
+        "openaip_pipeline.services.intent.classifier.build_openai_client",
+        lambda _key: _FakeClient(),
+    )
+
+    result = classify_with_llm(
+        message="What projects in Barangay Mamatid FY 2022?",
+        openai_api_key="test-key",
+        model_name="gpt-5-mini",
+    )
+
+    assert result.entities["scope_type"] == "barangay"
+    assert result.entities["scope_name"] == "Mamatid"
+
+
 def test_classify_message_uses_llm_when_rules_do_not_match(monkeypatch) -> None:
     llm_result = IntentResult(
         intent="rag_query",

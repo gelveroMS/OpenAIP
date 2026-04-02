@@ -196,31 +196,51 @@ def _apply_entity_filters(filters_payload: dict[str, Any], classification: Inten
     entities = classification.entities
     merged = dict(filters_payload)
 
+    existing_scope_type = merged.get("scope_type")
+    if isinstance(existing_scope_type, str):
+        normalized_existing_scope_type = existing_scope_type.strip().lower()
+        if normalized_existing_scope_type in {"barangay", "city"}:
+            merged["scope_type"] = normalized_existing_scope_type
+        else:
+            merged.pop("scope_type", None)
+            merged.pop("scope_name", None)
+
     fiscal_year = entities.get("fiscal_year")
     if "fiscal_year" not in merged and isinstance(fiscal_year, int):
         merged["fiscal_year"] = fiscal_year
 
-    scope_type = entities.get("scope_type")
-    if (
-        "scope_type" not in merged
-        and isinstance(scope_type, str)
-        and scope_type in {"barangay", "city", "municipality"}
-    ):
-        merged["scope_type"] = scope_type
+    barangay = entities.get("barangay")
+    city = entities.get("city")
 
-    scope_name = entities.get("scope_name")
-    if "scope_name" not in merged and isinstance(scope_name, str) and scope_name.strip():
-        merged["scope_name"] = scope_name.strip()
+    entity_scope_type = entities.get("scope_type")
+    normalized_entity_scope_type = (
+        entity_scope_type.strip().lower()
+        if isinstance(entity_scope_type, str) and entity_scope_type.strip().lower() in {"barangay", "city"}
+        else None
+    )
+    entity_scope_name = entities.get("scope_name")
+    normalized_entity_scope_name = (
+        entity_scope_name.strip() if isinstance(entity_scope_name, str) and entity_scope_name.strip() else None
+    )
 
-    if "scope_type" not in merged and "scope_name" not in merged:
-        barangay = entities.get("barangay")
-        city = entities.get("city")
+    if "scope_type" not in merged:
         if isinstance(barangay, str) and barangay.strip():
             merged["scope_type"] = "barangay"
             merged["scope_name"] = barangay.strip()
         elif isinstance(city, str) and city.strip():
             merged["scope_type"] = "city"
             merged["scope_name"] = city.strip()
+        elif normalized_entity_scope_type and normalized_entity_scope_name:
+            merged["scope_type"] = normalized_entity_scope_type
+            merged["scope_name"] = normalized_entity_scope_name
+    elif "scope_name" not in merged:
+        resolved_scope_type = merged.get("scope_type")
+        if resolved_scope_type == "barangay" and isinstance(barangay, str) and barangay.strip():
+            merged["scope_name"] = barangay.strip()
+        elif resolved_scope_type == "city" and isinstance(city, str) and city.strip():
+            merged["scope_name"] = city.strip()
+        elif normalized_entity_scope_name:
+            merged["scope_name"] = normalized_entity_scope_name
 
     sector_tag = _normalized_tag(entities.get("sector"))
     if sector_tag:

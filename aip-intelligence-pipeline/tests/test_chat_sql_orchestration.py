@@ -227,6 +227,64 @@ def test_entity_filters_and_retrieval_query_are_forwarded_to_rag(monkeypatch) ->
     assert "Structured hints:" in captured_kwargs["retrieval_query"]
 
 
+def test_entity_filters_restrict_scope_type_to_city_or_barangay(monkeypatch) -> None:
+    _patch_base(monkeypatch)
+    entities = empty_entities()
+    entities.update(
+        {
+            "scope_type": "municipality",
+            "scope_name": "City Legal Office",
+            "barangay": "Mamatid",
+            "city": "Cabuyao",
+        }
+    )
+    monkeypatch.setattr(
+        chat_route_module,
+        "classify_message",
+        lambda **_kwargs: _classification(
+            intent="rag_query",
+            needs_retrieval=True,
+            entities=entities,
+            route_hint="rag_query",
+        ),
+    )
+    monkeypatch.setattr(
+        chat_route_module,
+        "maybe_answer_with_sql",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("SQL should not be called for rag_query.")),
+    )
+
+    captured_kwargs: dict = {}
+
+    def fake_rag(**kwargs):
+        captured_kwargs.update(kwargs)
+        return {
+            "question": kwargs.get("question"),
+            "answer": "RAG answer.",
+            "refused": False,
+            "citations": [],
+            "retrieval_meta": {"reason": "ok"},
+            "context_count": 0,
+        }
+
+    monkeypatch.setattr(chat_route_module, "answer_with_rag", fake_rag)
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/v1/chat/answer",
+        json={
+            "question": "What projects are in Barangay Mamatid?",
+            "retrieval_scope": {"mode": "global", "targets": []},
+            "retrieval_filters": {"scope_type": "municipality", "scope_name": "Foo"},
+        },
+    )
+    assert response.status_code == 200
+
+    filters_payload = captured_kwargs["retrieval_filters"]
+    assert filters_payload["scope_type"] == "barangay"
+    assert filters_payload["scope_name"] == "Mamatid"
+
+
 def test_chat_defaults_forward_reference_aligned_top_k_and_similarity(monkeypatch) -> None:
     _patch_base(monkeypatch)
     monkeypatch.setattr(

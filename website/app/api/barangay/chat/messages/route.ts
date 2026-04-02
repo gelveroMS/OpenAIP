@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import type { PipelineChatCitation, RetrievalFiltersPayload, RetrievalScopePayload } from "@/lib/chat/types";
 import { requestPipelineChatAnswer } from "@/lib/chat/pipeline-client";
 import { getLguChatAuthFailure } from "@/lib/chat/lgu-route-auth";
-import { resolveRetrievalScope } from "@/lib/chat/scope-resolver.server";
 import type { Json } from "@/lib/contracts/databasev2";
 import { getActorContext } from "@/lib/domain/get-actor-context";
 import { getChatRepo } from "@/lib/repos/chat/repo.server";
@@ -16,7 +15,6 @@ import {
   type PrivilegedActorContext,
   toPrivilegedActorContext,
 } from "@/lib/supabase/privileged-ops";
-import { supabaseServer } from "@/lib/supabase/server";
 
 const MAX_MESSAGE_LENGTH = 12000;
 const RETRIEVAL_FILTER_YEAR_PATTERN = /\b(20\d{2})\b/g;
@@ -224,6 +222,25 @@ function chatResponsePayload(input: {
   };
 }
 
+function buildClassifierScopeContext(): {
+  retrievalScope: RetrievalScopePayload;
+  scopeResolution: ChatScopeResolution;
+} {
+  return {
+    retrievalScope: {
+      mode: "global",
+      targets: [],
+    },
+    scopeResolution: {
+      mode: "global",
+      requestedScopes: [],
+      resolvedTargets: [],
+      unresolvedScopes: [],
+      ambiguousScopes: [],
+    },
+  };
+}
+
 export async function POST(request: Request) {
   try {
     const csrf = enforceCsrfProtection(request);
@@ -294,39 +311,7 @@ export async function POST(request: Request) {
     }
 
     const userMessage = await repo.appendUserMessage(session.id, content);
-    const client = await supabaseServer();
-    const scope = await resolveRetrievalScope({
-      client,
-      actor,
-      question: content,
-    });
-
-    if (!scope.retrievalScope || scope.mode === "ambiguous") {
-      const assistantMessage = await appendAssistantMessage({
-        actor: privilegedActor,
-        sessionId: session.id,
-        content:
-          scope.clarificationMessage ??
-          "I couldn't confidently match one or more place names. Please clarify the exact scope.",
-        citations: [makeSystemCitation("Scope clarification required before query execution.")],
-        retrievalMeta: {
-          refused: false,
-          reason: "ambiguous_scope",
-          status: "clarification",
-          scopeResolution: scope.scopeResolution,
-          routeFamily: "pipeline_fallback",
-        },
-      });
-
-      return NextResponse.json(
-        chatResponsePayload({
-          sessionId: session.id,
-          userMessage,
-          assistantMessage,
-        }),
-        { status: 200 }
-      );
-    }
+    const scope = buildClassifierScopeContext();
 
     let assistantContent = "";
     let assistantCitations: ChatCitation[] = [];

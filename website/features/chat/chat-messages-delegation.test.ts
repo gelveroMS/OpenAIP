@@ -2,14 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatMessage, ChatSession } from "@/lib/repos/chat/types";
 
 const mockGetActorContext = vi.fn();
-const mockResolveRetrievalScope = vi.fn();
 const mockRequestPipelineChatAnswer = vi.fn();
 const mockGetTypedAppSetting = vi.fn();
 const mockIsUserBlocked = vi.fn();
 const mockConsumeChatQuota = vi.fn();
 const mockInsertAssistantChatMessage = vi.fn();
 const mockToPrivilegedActorContext = vi.fn();
-const mockSupabaseServer = vi.fn();
 const mockGetSession = vi.fn();
 const mockCreateSession = vi.fn();
 const mockAppendUserMessage = vi.fn();
@@ -20,10 +18,6 @@ vi.mock("@/lib/security/csrf", () => ({
 
 vi.mock("@/lib/domain/get-actor-context", () => ({
   getActorContext: () => mockGetActorContext(),
-}));
-
-vi.mock("@/lib/chat/scope-resolver.server", () => ({
-  resolveRetrievalScope: (...args: unknown[]) => mockResolveRetrievalScope(...args),
 }));
 
 vi.mock("@/lib/chat/pipeline-client", () => ({
@@ -39,10 +33,6 @@ vi.mock("@/lib/supabase/privileged-ops", () => ({
   consumeChatQuota: (...args: unknown[]) => mockConsumeChatQuota(...args),
   insertAssistantChatMessage: (...args: unknown[]) => mockInsertAssistantChatMessage(...args),
   toPrivilegedActorContext: (...args: unknown[]) => mockToPrivilegedActorContext(...args),
-}));
-
-vi.mock("@/lib/supabase/server", () => ({
-  supabaseServer: () => mockSupabaseServer(),
 }));
 
 vi.mock("@/lib/repos/chat/repo.server", () => ({
@@ -118,7 +108,6 @@ describe("barangay chat route delegation", () => {
       lgu_id: "brgy-1",
       lgu_scope: "barangay",
     });
-    mockSupabaseServer.mockResolvedValue({});
     mockGetSession.mockResolvedValue(session);
     mockCreateSession.mockResolvedValue(session);
     mockAppendUserMessage.mockResolvedValue(userMessage);
@@ -134,17 +123,6 @@ describe("barangay chat route delegation", () => {
   });
 
   it("delegates to pipeline and persists answer status/citations", async () => {
-    mockResolveRetrievalScope.mockResolvedValue({
-      mode: "global",
-      retrievalScope: { mode: "global", targets: [] },
-      scopeResolution: {
-        mode: "global",
-        requestedScopes: [],
-        resolvedTargets: [],
-        unresolvedScopes: [],
-        ambiguousScopes: [],
-      },
-    });
     mockRequestPipelineChatAnswer.mockResolvedValue({
       answer: "Total investment program is PHP 1,000.00.",
       refused: false,
@@ -185,20 +163,32 @@ describe("barangay chat route delegation", () => {
     expect(payload.assistantMessage.retrievalMeta.routeFamily).toBe("sql_totals");
 
     expect(mockRequestPipelineChatAnswer).toHaveBeenCalledTimes(1);
+    expect(mockRequestPipelineChatAnswer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        retrievalScope: { mode: "global", targets: [] },
+      })
+    );
     expect(mockInsertAssistantChatMessage).toHaveBeenCalledTimes(1);
   });
 
-  it("returns clarification immediately when scope resolution is ambiguous", async () => {
-    mockResolveRetrievalScope.mockResolvedValue({
-      mode: "ambiguous",
-      retrievalScope: null,
-      clarificationMessage: "Please specify the exact barangay name.",
-      scopeResolution: {
-        mode: "ambiguous",
-        requestedScopes: [{ scopeType: "barangay", scopeName: "Poblacion" }],
-        resolvedTargets: [],
-        unresolvedScopes: ["barangay:Poblacion"],
-        ambiguousScopes: [],
+  it("does not short-circuit on ambiguous scope phrases and still delegates to pipeline", async () => {
+    mockRequestPipelineChatAnswer.mockResolvedValue({
+      answer: "Found procurement-related projects for FY 2022.",
+      refused: false,
+      citations: [
+        {
+          source_id: "S1",
+          snippet: "Procurement of barangay equipment listed in FY 2022.",
+          scope_type: "city",
+          scope_name: "Cabuyao City",
+          metadata: { type: "aip_line_items" },
+        },
+      ],
+      retrieval_meta: {
+        reason: "ok",
+        status: "answer",
+        route_family: "row_sql",
+        context_count: 1,
       },
     });
 
@@ -206,16 +196,23 @@ describe("barangay chat route delegation", () => {
     const response = await POST(
       makeRequest({
         sessionId: session.id,
-        content: "Show total for Poblacion.",
+        content:
+          "What projects in Cabuyao City FY 2022 involve the procurement of barangay equipment or facilities?",
       })
     );
 
     expect(response.status).toBe(200);
     const payload = (await response.json()) as {
-      assistantMessage: { content: string; retrievalMeta: { status?: string } };
+      assistantMessage: { content: string; retrievalMeta: { status?: string; routeFamily?: string } };
     };
-    expect(payload.assistantMessage.content).toContain("specify the exact barangay name");
-    expect(payload.assistantMessage.retrievalMeta.status).toBe("clarification");
-    expect(mockRequestPipelineChatAnswer).not.toHaveBeenCalled();
+    expect(payload.assistantMessage.content).toContain("FY 2022");
+    expect(payload.assistantMessage.retrievalMeta.status).toBe("answer");
+    expect(payload.assistantMessage.retrievalMeta.routeFamily).toBe("row_sql");
+    expect(mockRequestPipelineChatAnswer).toHaveBeenCalledTimes(1);
+    expect(mockRequestPipelineChatAnswer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        retrievalScope: { mode: "global", targets: [] },
+      })
+    );
   });
 });
