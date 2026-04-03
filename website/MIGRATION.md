@@ -27,6 +27,12 @@ Rules:
 - Security-sensitive bypasses are server-only and local-only (`DEV_BYPASS_ENABLED` + per-feature flags).
 - Missing/invalid `NEXT_PUBLIC_APP_ENV` throws a config error (fail closed).
 
+## Runtime DB schema source
+
+- Operational runtime schema changes must be committed in `../supabase/migrations` and applied in ascending timestamp order.
+- `../supabase/schemas/prod.sql` is a bootstrap snapshot/reference, not the runtime migration source.
+- `docs/sql/*` and `docs/databasev2.txt` are secondary reference artifacts only.
+
 ## Repo entrypoints (`repo.ts` vs `repo.server.ts`)
 
 Every repo domain follows the same pattern:
