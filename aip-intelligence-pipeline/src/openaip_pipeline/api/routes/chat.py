@@ -92,11 +92,18 @@ class RetrievalFilters(BaseModel):
     sector_tags: list[str] = Field(default_factory=list)
 
 
+class ScopeFallback(BaseModel):
+    scope_type: Literal["barangay", "city"]
+    scope_name: str = Field(min_length=1, max_length=200)
+    scope_id: str | None = Field(default=None, min_length=1)
+
+
 class ChatAnswerRequest(BaseModel):
     question: str = Field(min_length=1, max_length=12000)
     retrieval_scope: RetrievalScope = Field(default_factory=RetrievalScope)
     retrieval_mode: Literal["qa", "overview"] = "qa"
     retrieval_filters: RetrievalFilters = Field(default_factory=RetrievalFilters)
+    scope_fallback: ScopeFallback | None = None
     model_name: str | None = None
     top_k: int = Field(default=5, ge=1, le=30)
     min_similarity: float = Field(default=0.10, ge=0.0, le=1.0)
@@ -173,34 +180,88 @@ def _merge_classifier_meta(retrieval_meta: dict[str, Any], classification: Inten
     return merged
 
 
+def _normalize_scope_name(scope_type: str, scope_name: str) -> str:
+    cleaned = " ".join(scope_name.strip().split())
+    if not cleaned:
+        return cleaned
+    lowered = cleaned.lower()
+    if scope_type == "barangay":
+        if lowered.startswith("barangay "):
+            stripped = cleaned[9:].strip()
+            return stripped if stripped else cleaned
+        return cleaned
+    if scope_type == "city":
+        if lowered.startswith("city of "):
+            base = cleaned[8:].strip()
+            return f"{base} City" if base else cleaned
+        if lowered.startswith("city "):
+            base = cleaned[5:].strip()
+            return f"{base} City" if base else cleaned
+        if lowered.endswith(" city"):
+            return cleaned
+        return f"{cleaned} City"
+    return cleaned
+
+
+def _apply_scope_fallback(
+    *,
+    filters_payload: dict[str, Any],
+    scope_payload: dict[str, Any],
+    scope_fallback: ScopeFallback | None,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    fallback_meta: dict[str, Any] = {
+        "scope_fallback_applied": False,
+        "scope_fallback_mode": "none",
+    }
+    if scope_fallback is None:
+        return filters_payload, scope_payload, fallback_meta
+
+    scope_type_value = filters_payload.get("scope_type")
+    scope_name_value = filters_payload.get("scope_name")
+    resolved_current_scope = isinstance(scope_type_value, str) and scope_type_value.strip().lower() in {
+        "barangay",
+        "city",
+    } and isinstance(scope_name_value, str) and bool(scope_name_value.strip())
+
+    if resolved_current_scope:
+        fallback_meta["scope_fallback_mode"] = "skipped_current_scope_present"
+        return filters_payload, scope_payload, fallback_meta
+
+    fallback_scope_type = scope_fallback.scope_type.strip().lower()
+    fallback_scope_name = _normalize_scope_name(fallback_scope_type, scope_fallback.scope_name)
+    if not fallback_scope_name:
+        fallback_meta["scope_fallback_mode"] = "skipped_invalid_fallback"
+        return filters_payload, scope_payload, fallback_meta
+
+    updated_filters = dict(filters_payload)
+    updated_filters["scope_type"] = fallback_scope_type
+    updated_filters["scope_name"] = fallback_scope_name
+
+    updated_scope_payload = dict(scope_payload)
+    scope_id = (scope_fallback.scope_id or "").strip()
+    if scope_id and not list(updated_scope_payload.get("targets") or []):
+        updated_scope_payload["mode"] = "named_scopes"
+        updated_scope_payload["targets"] = [
+            {
+                "scope_type": fallback_scope_type,
+                "scope_id": scope_id,
+                "scope_name": fallback_scope_name,
+            }
+        ]
+        fallback_meta["scope_fallback_mode"] = "sql_and_rag"
+    else:
+        fallback_meta["scope_fallback_mode"] = "rag_only"
+
+    fallback_meta["scope_fallback_applied"] = True
+    return updated_filters, updated_scope_payload, fallback_meta
+
+
 def _apply_entity_filters(filters_payload: dict[str, Any], classification: IntentResult) -> dict[str, Any]:
     def _normalized_tag(value: Any) -> str | None:
         if not isinstance(value, str):
             return None
         normalized = " ".join(value.strip().split()).lower()
         return normalized if normalized else None
-
-    def _normalize_scope_name(scope_type: str, scope_name: str) -> str:
-        cleaned = " ".join(scope_name.strip().split())
-        if not cleaned:
-            return cleaned
-        lowered = cleaned.lower()
-        if scope_type == "barangay":
-            if lowered.startswith("barangay "):
-                stripped = cleaned[9:].strip()
-                return stripped if stripped else cleaned
-            return cleaned
-        if scope_type == "city":
-            if lowered.startswith("city of "):
-                base = cleaned[8:].strip()
-                return f"{base} City" if base else cleaned
-            if lowered.startswith("city "):
-                base = cleaned[5:].strip()
-                return f"{base} City" if base else cleaned
-            if lowered.endswith(" city"):
-                return cleaned
-            return f"{cleaned} City"
-        return cleaned
 
     def _merge_tags(existing: Any, additions: list[str]) -> list[str]:
         deduped: list[str] = []
@@ -458,11 +519,18 @@ def chat_answer(
         req.retrieval_filters.model_dump(exclude_none=True),
         classification,
     )
+    filters_payload, scope_payload, scope_fallback_meta = _apply_scope_fallback(
+        filters_payload=filters_payload,
+        scope_payload=scope_payload,
+        scope_fallback=req.scope_fallback,
+    )
     _trace_log(
         "retrieval_started",
         scope_mode=scope_payload.get("mode"),
         scope_targets_count=len(scope_payload.get("targets") or []),
         retrieval_filters=filters_payload,
+        scope_fallback_applied=scope_fallback_meta.get("scope_fallback_applied"),
+        scope_fallback_mode=scope_fallback_meta.get("scope_fallback_mode"),
     )
     year_preflight = check_year_availability_preflight(
         supabase_url=settings.supabase_url,

@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import type { PipelineChatCitation, RetrievalFiltersPayload, RetrievalScopePayload } from "@/lib/chat/types";
+import type {
+  PipelineChatCitation,
+  RetrievalFiltersPayload,
+  RetrievalScopePayload,
+  ScopeFallbackPayload,
+} from "@/lib/chat/types";
 import { requestPipelineChatAnswer } from "@/lib/chat/pipeline-client";
 import { getLguChatAuthFailure } from "@/lib/chat/lgu-route-auth";
 import type { Json } from "@/lib/contracts/databasev2";
@@ -35,6 +40,8 @@ type ChatMessageRow = {
   retrieval_meta: unknown;
   created_at: string;
 };
+
+type ScopeType = "barangay" | "city";
 
 function resolveExpectedRouteKind(request: Request): "barangay" | "city" {
   const pathname = new URL(request.url).pathname.toLowerCase();
@@ -241,6 +248,118 @@ function buildClassifierScopeContext(): {
   };
 }
 
+function normalizeScopeType(value: unknown): ScopeType | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "barangay" || normalized === "city") return normalized;
+  return null;
+}
+
+function normalizeScopeName(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().replace(/\s+/g, " ");
+  return normalized ? normalized : null;
+}
+
+function extractScopeIdFromCitations(input: {
+  citations: ChatCitation[] | null | undefined;
+  scopeType: ScopeType;
+  scopeName: string;
+}): string | null {
+  const citations = Array.isArray(input.citations) ? input.citations : [];
+  const desiredScopeName = input.scopeName.toLowerCase();
+  let fallbackScopeId: string | null = null;
+
+  for (const citation of citations) {
+    const citationScopeType = normalizeScopeType((citation as Record<string, unknown>).scopeType ?? null);
+    const citationScopeName = normalizeScopeName((citation as Record<string, unknown>).scopeName ?? null);
+    const citationScopeId =
+      normalizeScopeName((citation as Record<string, unknown>).scopeId ?? null) ??
+      normalizeScopeName((citation as Record<string, unknown>).scope_id ?? null);
+    if (!citationScopeType || !citationScopeId) {
+      continue;
+    }
+    if (citationScopeType !== input.scopeType) {
+      continue;
+    }
+    if (citationScopeName && citationScopeName.toLowerCase() === desiredScopeName) {
+      return citationScopeId;
+    }
+    if (!fallbackScopeId) {
+      fallbackScopeId = citationScopeId;
+    }
+  }
+
+  return fallbackScopeId;
+}
+
+function extractScopeFallbackFromAssistantMessage(message: ChatMessage): ScopeFallbackPayload | null {
+  if (message.role !== "assistant") {
+    return null;
+  }
+  const meta = message.retrievalMeta;
+  if (!meta || typeof meta !== "object") {
+    return null;
+  }
+
+  const rawMeta = meta as Record<string, unknown>;
+  const status = typeof rawMeta.status === "string" ? rawMeta.status.trim().toLowerCase() : "";
+  if (status !== "answer") {
+    return null;
+  }
+
+  const rawEntities =
+    rawMeta.entities && typeof rawMeta.entities === "object" && !Array.isArray(rawMeta.entities)
+      ? (rawMeta.entities as Record<string, unknown>)
+      : {};
+
+  let scopeType =
+    normalizeScopeType(rawEntities.scope_type ?? null) ??
+    normalizeScopeType(rawEntities.scopeType ?? null) ??
+    null;
+  let scopeName =
+    normalizeScopeName(rawEntities.scope_name ?? null) ??
+    normalizeScopeName(rawEntities.scopeName ?? null) ??
+    null;
+
+  if (!scopeType || !scopeName) {
+    const barangay = normalizeScopeName(rawEntities.barangay ?? null);
+    const city = normalizeScopeName(rawEntities.city ?? null);
+    if (barangay) {
+      scopeType = "barangay";
+      scopeName = barangay;
+    } else if (city) {
+      scopeType = "city";
+      scopeName = city;
+    }
+  }
+
+  if (!scopeType || !scopeName) {
+    return null;
+  }
+
+  const scopeId = extractScopeIdFromCitations({
+    citations: message.citations ?? [],
+    scopeType,
+    scopeName,
+  });
+  return {
+    scope_type: scopeType,
+    scope_name: scopeName,
+    scope_id: scopeId,
+  };
+}
+
+function deriveLastSuccessfulScope(messages: ChatMessage[]): ScopeFallbackPayload | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const candidate = extractScopeFallbackFromAssistantMessage(messages[index]);
+    if (candidate) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
 export async function POST(request: Request) {
   try {
     const csrf = enforceCsrfProtection(request);
@@ -310,6 +429,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "Forbidden." }, { status: 403 });
     }
 
+    const priorMessages = await repo.listMessages(session.id);
+    const scopeFallback = deriveLastSuccessfulScope(priorMessages);
     const userMessage = await repo.appendUserMessage(session.id, content);
     const scope = buildClassifierScopeContext();
 
@@ -326,6 +447,7 @@ export async function POST(request: Request) {
           message: content,
           retrievalScope: scope.retrievalScope,
         }),
+        scopeFallback,
         topK: 4,
         minSimilarity: 0.3,
         timeoutMs: 60000,

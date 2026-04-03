@@ -11,6 +11,7 @@ const mockToPrivilegedActorContext = vi.fn();
 const mockGetSession = vi.fn();
 const mockCreateSession = vi.fn();
 const mockAppendUserMessage = vi.fn();
+const mockListMessages = vi.fn();
 
 vi.mock("@/lib/security/csrf", () => ({
   enforceCsrfProtection: () => ({ ok: true }),
@@ -39,6 +40,7 @@ vi.mock("@/lib/repos/chat/repo.server", () => ({
   getChatRepo: () => ({
     getSession: (...args: unknown[]) => mockGetSession(...args),
     createSession: (...args: unknown[]) => mockCreateSession(...args),
+    listMessages: (...args: unknown[]) => mockListMessages(...args),
     appendUserMessage: (...args: unknown[]) => mockAppendUserMessage(...args),
   }),
 }));
@@ -110,6 +112,7 @@ describe("barangay chat route delegation", () => {
     });
     mockGetSession.mockResolvedValue(session);
     mockCreateSession.mockResolvedValue(session);
+    mockListMessages.mockResolvedValue([]);
     mockAppendUserMessage.mockResolvedValue(userMessage);
     mockInsertAssistantChatMessage.mockImplementation(async (input: Record<string, unknown>) => ({
       id: "assistant-1",
@@ -166,6 +169,7 @@ describe("barangay chat route delegation", () => {
     expect(mockRequestPipelineChatAnswer).toHaveBeenCalledWith(
       expect.objectContaining({
         retrievalScope: { mode: "global", targets: [] },
+        scopeFallback: undefined,
       })
     );
     expect(mockInsertAssistantChatMessage).toHaveBeenCalledTimes(1);
@@ -212,6 +216,149 @@ describe("barangay chat route delegation", () => {
     expect(mockRequestPipelineChatAnswer).toHaveBeenCalledWith(
       expect.objectContaining({
         retrievalScope: { mode: "global", targets: [] },
+        scopeFallback: undefined,
+      })
+    );
+  });
+
+  it("uses last successful assistant scope as pipeline scopeFallback", async () => {
+    mockListMessages.mockResolvedValue([
+      {
+        id: "assistant-old",
+        sessionId: session.id,
+        role: "assistant",
+        content: "Old answer",
+        createdAt: "2026-03-01T00:00:10.000Z",
+        citations: [
+          {
+            sourceId: "S1",
+            snippet: "Old citation",
+            scopeType: "city",
+            scopeId: "city-old",
+            scopeName: "Old City",
+          },
+        ],
+        retrievalMeta: {
+          status: "answer",
+          entities: { city: "Old City", scope_type: "city", scope_name: "Old City" },
+        },
+      },
+      {
+        id: "assistant-new",
+        sessionId: session.id,
+        role: "assistant",
+        content: "New answer",
+        createdAt: "2026-03-01T00:00:20.000Z",
+        citations: [
+          {
+            sourceId: "S2",
+            snippet: "New citation",
+            scopeType: "city",
+            scopeId: "city-cabuyao",
+            scopeName: "Cabuyao City",
+          },
+        ],
+        retrievalMeta: {
+          status: "answer",
+          entities: { city: "Cabuyao", scope_type: "city", scope_name: "Cabuyao" },
+        },
+      },
+    ]);
+    mockRequestPipelineChatAnswer.mockResolvedValue({
+      answer: "Scoped answer.",
+      refused: false,
+      citations: [],
+      retrieval_meta: {
+        reason: "ok",
+        status: "answer",
+        route_family: "row_sql",
+        context_count: 0,
+      },
+    });
+
+    const POST = await getPostHandler();
+    const response = await POST(
+      makeRequest({
+        sessionId: session.id,
+        content: "What projects are included?",
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockRequestPipelineChatAnswer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scopeFallback: {
+          scope_type: "city",
+          scope_name: "Cabuyao",
+          scope_id: "city-cabuyao",
+        },
+      })
+    );
+  });
+
+  it("ignores non-answer assistant turns when selecting scope fallback", async () => {
+    mockListMessages.mockResolvedValue([
+      {
+        id: "assistant-answer",
+        sessionId: session.id,
+        role: "assistant",
+        content: "Answer turn",
+        createdAt: "2026-03-01T00:00:10.000Z",
+        citations: [
+          {
+            sourceId: "S1",
+            snippet: "Answer citation",
+            scopeType: "barangay",
+            scopeId: "brgy-mamatid",
+            scopeName: "Mamatid",
+          },
+        ],
+        retrievalMeta: {
+          status: "answer",
+          entities: { barangay: "Mamatid", scope_type: "barangay", scope_name: "Mamatid" },
+        },
+      },
+      {
+        id: "assistant-refusal",
+        sessionId: session.id,
+        role: "assistant",
+        content: "Refusal turn",
+        createdAt: "2026-03-01T00:00:20.000Z",
+        citations: [],
+        retrievalMeta: {
+          status: "refusal",
+          entities: { city: "Cabuyao", scope_type: "city", scope_name: "Cabuyao" },
+        },
+      },
+    ]);
+    mockRequestPipelineChatAnswer.mockResolvedValue({
+      answer: "Scoped answer.",
+      refused: false,
+      citations: [],
+      retrieval_meta: {
+        reason: "ok",
+        status: "answer",
+        route_family: "row_sql",
+        context_count: 0,
+      },
+    });
+
+    const POST = await getPostHandler();
+    const response = await POST(
+      makeRequest({
+        sessionId: session.id,
+        content: "What projects are included?",
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockRequestPipelineChatAnswer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scopeFallback: {
+          scope_type: "barangay",
+          scope_name: "Mamatid",
+          scope_id: "brgy-mamatid",
+        },
       })
     );
   });

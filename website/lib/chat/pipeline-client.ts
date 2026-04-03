@@ -7,6 +7,7 @@ import type {
   RetrievalFiltersPayload,
   RetrievalModePayload,
   RetrievalScopePayload,
+  ScopeFallbackPayload,
 } from "./types";
 
 const DEFAULT_TIMEOUT_MS = 30000;
@@ -95,6 +96,7 @@ export async function requestPipelineChatAnswer(input: {
   retrievalScope: RetrievalScopePayload;
   retrievalMode?: RetrievalModePayload;
   retrievalFilters?: RetrievalFiltersPayload;
+  scopeFallback?: ScopeFallbackPayload;
   topK?: number;
   minSimilarity?: number;
   timeoutMs?: number;
@@ -107,6 +109,7 @@ export async function requestPipelineChatAnswer(input: {
     retrieval_scope: input.retrievalScope,
     retrieval_mode: retrievalMode,
     retrieval_filters: input.retrievalFilters ?? { publication_status: "published" },
+    scope_fallback: input.scopeFallback,
     top_k: input.topK ?? defaultTopK,
     min_similarity: input.minSimilarity ?? 0.3,
   });

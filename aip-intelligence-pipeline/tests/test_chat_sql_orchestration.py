@@ -396,6 +396,190 @@ def test_payload_city_scope_name_is_normalized(monkeypatch) -> None:
     assert filters_payload["scope_name"] == "Cabuyao City"
 
 
+def test_scope_fallback_with_scope_id_applies_to_sql_and_rag_scope(monkeypatch) -> None:
+    _patch_base(monkeypatch)
+    monkeypatch.setattr(
+        chat_route_module,
+        "classify_message",
+        lambda **_kwargs: _classification(
+            intent="line_item_lookup",
+            needs_retrieval=True,
+            entities=empty_entities(),
+            route_hint="row_sql",
+        ),
+    )
+    monkeypatch.setattr(
+        chat_route_module,
+        "check_year_availability_preflight",
+        lambda **_kwargs: {"decision": "year_not_requested", "reason": "no_fiscal_year_filter"},
+    )
+
+    captured_sql_kwargs: dict = {}
+    captured_rag_kwargs: dict = {}
+
+    def fake_sql(**kwargs):
+        captured_sql_kwargs.update(kwargs)
+        return None
+
+    def fake_rag(**kwargs):
+        captured_rag_kwargs.update(kwargs)
+        return {
+            "question": kwargs.get("question"),
+            "answer": "RAG fallback answer.",
+            "refused": False,
+            "citations": [],
+            "retrieval_meta": {"reason": "ok"},
+            "context_count": 0,
+        }
+
+    monkeypatch.setattr(chat_route_module, "maybe_answer_with_sql", fake_sql)
+    monkeypatch.setattr(chat_route_module, "answer_with_rag", fake_rag)
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/v1/chat/answer",
+        json={
+            "question": "What projects are included?",
+            "retrieval_scope": {"mode": "global", "targets": []},
+            "scope_fallback": {
+                "scope_type": "city",
+                "scope_name": "Cabuyao",
+                "scope_id": "city-123",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured_sql_kwargs["retrieval_filters"]["scope_type"] == "city"
+    assert captured_sql_kwargs["retrieval_filters"]["scope_name"] == "Cabuyao City"
+    assert captured_sql_kwargs["retrieval_scope"]["mode"] == "named_scopes"
+    assert captured_sql_kwargs["retrieval_scope"]["targets"] == [
+        {"scope_type": "city", "scope_id": "city-123", "scope_name": "Cabuyao City"}
+    ]
+    assert captured_rag_kwargs["retrieval_scope"]["targets"] == [
+        {"scope_type": "city", "scope_id": "city-123", "scope_name": "Cabuyao City"}
+    ]
+
+
+def test_scope_fallback_without_scope_id_applies_to_filters_only(monkeypatch) -> None:
+    _patch_base(monkeypatch)
+    monkeypatch.setattr(
+        chat_route_module,
+        "classify_message",
+        lambda **_kwargs: _classification(
+            intent="line_item_lookup",
+            needs_retrieval=True,
+            entities=empty_entities(),
+            route_hint="row_sql",
+        ),
+    )
+    monkeypatch.setattr(
+        chat_route_module,
+        "check_year_availability_preflight",
+        lambda **_kwargs: {"decision": "year_not_requested", "reason": "no_fiscal_year_filter"},
+    )
+
+    captured_sql_kwargs: dict = {}
+    captured_rag_kwargs: dict = {}
+
+    def fake_sql(**kwargs):
+        captured_sql_kwargs.update(kwargs)
+        return None
+
+    def fake_rag(**kwargs):
+        captured_rag_kwargs.update(kwargs)
+        return {
+            "question": kwargs.get("question"),
+            "answer": "RAG fallback answer.",
+            "refused": False,
+            "citations": [],
+            "retrieval_meta": {"reason": "ok"},
+            "context_count": 0,
+        }
+
+    monkeypatch.setattr(chat_route_module, "maybe_answer_with_sql", fake_sql)
+    monkeypatch.setattr(chat_route_module, "answer_with_rag", fake_rag)
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/v1/chat/answer",
+        json={
+            "question": "What projects are included?",
+            "retrieval_scope": {"mode": "global", "targets": []},
+            "scope_fallback": {
+                "scope_type": "city",
+                "scope_name": "Cabuyao",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured_sql_kwargs["retrieval_filters"]["scope_type"] == "city"
+    assert captured_sql_kwargs["retrieval_filters"]["scope_name"] == "Cabuyao City"
+    assert captured_sql_kwargs["retrieval_scope"]["targets"] == []
+    assert captured_rag_kwargs["retrieval_scope"]["targets"] == []
+
+
+def test_scope_fallback_is_ignored_when_current_scope_exists(monkeypatch) -> None:
+    _patch_base(monkeypatch)
+    entities = empty_entities()
+    entities.update({"city": "Calamba"})
+    monkeypatch.setattr(
+        chat_route_module,
+        "classify_message",
+        lambda **_kwargs: _classification(
+            intent="line_item_lookup",
+            needs_retrieval=True,
+            entities=entities,
+            route_hint="row_sql",
+        ),
+    )
+    monkeypatch.setattr(
+        chat_route_module,
+        "check_year_availability_preflight",
+        lambda **_kwargs: {"decision": "year_not_requested", "reason": "no_fiscal_year_filter"},
+    )
+
+    captured_sql_kwargs: dict = {}
+
+    def fake_sql(**kwargs):
+        captured_sql_kwargs.update(kwargs)
+        return {
+            "question": kwargs.get("question"),
+            "answer": "SQL answer.",
+            "refused": False,
+            "citations": [],
+            "retrieval_meta": {"reason": "ok"},
+            "context_count": 0,
+        }
+
+    monkeypatch.setattr(chat_route_module, "maybe_answer_with_sql", fake_sql)
+    monkeypatch.setattr(
+        chat_route_module,
+        "answer_with_rag",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("RAG should not be called when SQL answered.")),
+    )
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/v1/chat/answer",
+        json={
+            "question": "What projects are included?",
+            "retrieval_scope": {"mode": "global", "targets": []},
+            "scope_fallback": {
+                "scope_type": "barangay",
+                "scope_name": "Mamatid",
+                "scope_id": "brgy-123",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured_sql_kwargs["retrieval_filters"]["scope_type"] == "city"
+    assert captured_sql_kwargs["retrieval_filters"]["scope_name"] == "Calamba City"
+    assert captured_sql_kwargs["retrieval_scope"]["targets"] == []
+
+
 def test_chat_defaults_forward_reference_aligned_top_k_and_similarity(monkeypatch) -> None:
     _patch_base(monkeypatch)
     monkeypatch.setattr(

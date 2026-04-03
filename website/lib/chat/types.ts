@@ -24,6 +24,12 @@ export type RetrievalFiltersPayload = {
   sector_tags?: string[];
 };
 
+export type ScopeFallbackPayload = {
+  scope_type: "barangay" | "city";
+  scope_name: string;
+  scope_id?: string | null;
+};
+
 export type ScopeResolutionResult = {
   mode: RetrievalScopeMode | "ambiguous";
   requestedScopes: Array<{
