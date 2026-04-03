@@ -25,7 +25,7 @@ Page/View
 - Supabase adapter: deferred (`lib/repos/projects/repo.supabase.ts` currently throws `NotImplementedError`).
 
 In practice:
-- `NEXT_PUBLIC_APP_ENV=dev` (or `NEXT_PUBLIC_USE_MOCKS=true`) keeps this feature on mock data.
+- `NEXT_PUBLIC_APP_ENV=local` (or `NEXT_PUBLIC_USE_MOCKS=true`) keeps this feature on mock data.
 
 ## Usage
 Example:

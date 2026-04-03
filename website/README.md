@@ -27,11 +27,19 @@ npm run dev
 ## Environment Flags
 
 - `NEXT_PUBLIC_APP_ENV`
-  - Allowed: `dev`, `staging`, `prod`
-  - Default: `dev`
+  - Allowed: `local`, `staging`, `prod`
+  - Required: missing/invalid values throw a config error
 - `NEXT_PUBLIC_USE_MOCKS`
   - `true` forces mock repositories
-  - If unset, mock mode is enabled when `NEXT_PUBLIC_APP_ENV=dev`
+- `DEV_BYPASS_ENABLED`
+  - Server-side global gate for local bypass behavior
+  - Must be `true` before any bypass helper can activate
+- `DEV_AUTH_BYPASS`
+  - Server-side local auth bypass toggle (requires `DEV_BYPASS_ENABLED=true`)
+- `TEMP_ADMIN_BYPASS_ENABLED`
+  - Server-side local admin-shell bypass toggle (requires `DEV_BYPASS_ENABLED=true`)
+- `USE_MOCKS_LOCAL`
+  - Server-side local citizen mock/auth bypass toggle (requires `DEV_BYPASS_ENABLED=true`)
 - `NEXT_PUBLIC_SITE_URL`
   - Canonical site origin used by CSRF Origin/Referer checks for state-changing API routes
   - Example: `https://openaip.example.gov`
@@ -75,7 +83,7 @@ Repository selection is centralized in:
 - Barangay write actions are strict:
   - draft create validates FY (`2000..2100`), enforces barangay scope, and is idempotent on duplicate FY
   - feedback reply validates body/length and parent eligibility, and routes reply creation through feedback threads repo for invariant + audit preservation
-- Dashboard mock mode does not use a dashboard-only toggle; it follows global flags only (`NEXT_PUBLIC_APP_ENV`, `NEXT_PUBLIC_USE_MOCKS`).
+- Dashboard mock mode does not use a dashboard-only toggle; it follows global selector flags (`NEXT_PUBLIC_APP_ENV`, `NEXT_PUBLIC_USE_MOCKS`).
 
 ## Notifications
 

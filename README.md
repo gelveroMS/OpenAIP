@@ -76,7 +76,8 @@ Core data flow:
 - Dashboard backend is implemented with server-repo adapters in `website/lib/repos/dashboard/*` (`repo.ts`, `repo.server.ts`, `repo.mock.ts`, `repo.supabase.ts`, `types.ts`).
 - Reads are scope-filtered and aggregated from existing tables (`aips`, `projects`, `feedback`, `extraction_runs`, `aip_reviews`, `uploaded_files`, `profiles`).
 - Barangay write flows are hardened: draft creation is FY-validated and idempotent; feedback replies enforce citizen-root constraints through feedback threads repo.
-- Mock behavior follows global selector flags only (`NEXT_PUBLIC_APP_ENV`, `NEXT_PUBLIC_USE_MOCKS`).
+- Mock behavior follows global selector flags (`NEXT_PUBLIC_APP_ENV`, `NEXT_PUBLIC_USE_MOCKS`).
+- Security-sensitive bypasses are gated only by server-side flags in local development.
 
 ## Project Structure
 | Path | Responsibility |
@@ -155,11 +156,14 @@ AIP_UPLOAD_FAILURE_WINDOW_MINUTES=60
 AIP_UPLOAD_FAILURE_COOLDOWN_MINUTES=15
 
 BASE_URL=http://localhost:3000
-NEXT_PUBLIC_APP_ENV=dev
-NEXT_PUBLIC_USE_MOCKS=true
+NEXT_PUBLIC_APP_ENV=local
+NEXT_PUBLIC_USE_MOCKS=false
 NEXT_PUBLIC_FEEDBACK_DEBUG=0
-NEXT_PUBLIC_TEMP_ADMIN_BYPASS=false
 NEXT_PUBLIC_API_BASE_URL=
+DEV_BYPASS_ENABLED=false
+DEV_AUTH_BYPASS=false
+TEMP_ADMIN_BYPASS_ENABLED=false
+USE_MOCKS_LOCAL=false
 PIPELINE_API_BASE_URL=http://localhost:8000
 PIPELINE_HMAC_SECRET=<shared-hmac-secret>
 # Legacy/unused for chat s2s auth.
@@ -239,10 +243,13 @@ Website env reference:
 | `AIP_UPLOAD_FAILURE_WINDOW_MINUTES` | No | Server-only | Lookback window for failed runs used by upload throttle (default `60`) |
 | `AIP_UPLOAD_FAILURE_COOLDOWN_MINUTES` | No | Server-only | Cooldown duration after repeated failed runs (default `15`) |
 | `BASE_URL` | Yes | Server-only | Absolute app origin for auth page helpers |
-| `NEXT_PUBLIC_APP_ENV` | No | Client-exposed | `dev`/`staging`/`prod`; controls mock selection |
+| `NEXT_PUBLIC_APP_ENV` | Yes | Client-exposed | Runtime env selector. Must be one of `local`/`staging`/`prod`. Missing/invalid values fail closed with a config error |
 | `NEXT_PUBLIC_USE_MOCKS` | No | Client-exposed | Force mock repos when `true` |
 | `NEXT_PUBLIC_FEEDBACK_DEBUG` | No | Client-exposed | Feedback debug toggle (`1` enables) |
-| `NEXT_PUBLIC_TEMP_ADMIN_BYPASS` | No | Client-exposed | Dev-only bypass toggle |
+| `DEV_BYPASS_ENABLED` | No | Server-only | Global local-only bypass gate. Must be `true` before any bypass helper can activate |
+| `DEV_AUTH_BYPASS` | No | Server-only | Enables local dev auth bypass only when `DEV_BYPASS_ENABLED=true` |
+| `TEMP_ADMIN_BYPASS_ENABLED` | No | Server-only | Enables local admin-shell bypass only when `DEV_BYPASS_ENABLED=true` |
+| `USE_MOCKS_LOCAL` | No | Server-only | Enables local citizen auth/mock bypass only when `DEV_BYPASS_ENABLED=true` |
 | `NEXT_PUBLIC_API_BASE_URL` | No | Client-exposed | Optional API base override |
 | `PIPELINE_API_BASE_URL` | Yes (chatbot) | Server-only | Internal base URL for pipeline chat endpoint |
 | `PIPELINE_HMAC_SECRET` | Yes (chatbot) | Server-only | Shared secret used to sign `x-pipeline-*` chat request headers (`aud|ts|nonce|rawBody`) |

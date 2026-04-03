@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getActorContext } from "@/lib/domain/get-actor-context";
 import { getChatRepo } from "@/lib/repos/chat/repo.server";
+import { enforceCsrfProtection } from "@/lib/security/csrf";
 
 function parseTitle(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
@@ -15,6 +16,11 @@ export async function PATCH(
   context: { params: Promise<{ sessionId: string }> }
 ) {
   try {
+    const csrf = enforceCsrfProtection(request);
+    if (!csrf.ok) {
+      return csrf.response;
+    }
+
     const actor = await getActorContext();
     if (!actor || actor.role !== "barangay_official") {
       return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
@@ -46,10 +52,15 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ sessionId: string }> }
 ) {
   try {
+    const csrf = enforceCsrfProtection(request);
+    if (!csrf.ok) {
+      return csrf.response;
+    }
+
     const actor = await getActorContext();
     if (!actor || actor.role !== "barangay_official") {
       return NextResponse.json({ message: "Unauthorized." }, { status: 401 });

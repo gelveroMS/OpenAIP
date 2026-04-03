@@ -11,7 +11,7 @@ export async function runDashboardProjectUpdateLogsTests() {
   const oldUseMocks = process.env.NEXT_PUBLIC_USE_MOCKS;
 
   try {
-    process.env.NEXT_PUBLIC_APP_ENV = "dev";
+    process.env.NEXT_PUBLIC_APP_ENV = "local";
     process.env.NEXT_PUBLIC_USE_MOCKS = "true";
 
     const repo = getDashboardRepo();
