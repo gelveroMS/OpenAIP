@@ -91,6 +91,8 @@ Behavior:
 - Sends email via Resend
 - Updates status/attempt counters
 - Emits admin in-app alerts when hourly failure threshold is exceeded
+- Authorizes only when `Authorization: Bearer <token>` matches `SUPABASE_SERVICE_ROLE_KEY` in code (constant-time compare)
+- Does not trust unsigned/decoded JWT payload claims for access control
 
 Required env for outbox function:
 - `SUPABASE_URL`

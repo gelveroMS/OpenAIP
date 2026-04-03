@@ -99,9 +99,10 @@ async function expectAuditEvent(page: Page, input: AuditEventAssertion): Promise
   }
 
   await page.goto(`/admin/audit-logs?${params.toString()}`, { waitUntil: "domcontentloaded" });
-  await expect(page.getByTestId("admin-audit-table")).toBeVisible();
+  const auditTable = page.locator('[data-testid="admin-audit-table"]:visible').first();
+  await expect(auditTable).toBeVisible();
 
-  const firstRow = page.getByTestId("admin-audit-row").first();
+  const firstRow = auditTable.locator('[data-testid="admin-audit-row"]').first();
   await expect(firstRow).toBeVisible({ timeout: 30_000 });
   if (input.rowPattern) {
     await expect(firstRow).toContainText(input.rowPattern);

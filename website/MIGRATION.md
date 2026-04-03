@@ -1,4 +1,4 @@
-# Lib + Repo Migration Guide
+﻿# Lib + Repo Migration Guide
 
 This repo uses a strict boundary:
 
@@ -8,13 +8,13 @@ This repo uses a strict boundary:
 
 ## New `lib/` layout (high level)
 
-- `lib/core/` — shared errors/utilities used across layers
-- `lib/config/` — env parsing and runtime flags
-- `lib/contracts/databasev2/` — DBV2 canonical types (enums + row shapes)
-- `lib/domain/` — domain helpers (UI-agnostic)
-- `lib/formatting/` — UI-agnostic formatting helpers (dates/numbers/currency)
-- `lib/repos/` — repo contracts + adapters + server-only queries
-- `lib/supabase/` — Supabase clients (SSR cookie pattern via `@supabase/ssr`)
+- `lib/core/` â€” shared errors/utilities used across layers
+- `lib/config/` â€” env parsing and runtime flags
+- `lib/contracts/databasev2/` â€” DBV2 canonical types (enums + row shapes)
+- `lib/domain/` â€” domain helpers (UI-agnostic)
+- `lib/formatting/` â€” UI-agnostic formatting helpers (dates/numbers/currency)
+- `lib/repos/` â€” repo contracts + adapters + server-only queries
+- `lib/supabase/` â€” Supabase clients (SSR cookie pattern via `@supabase/ssr`)
 
 ## Mock vs Supabase selection
 
@@ -22,8 +22,16 @@ Selection is centralized in `lib/repos/_shared/selector.ts` and ultimately depen
 
 Rules:
 
-- `NEXT_PUBLIC_APP_ENV` defaults to `"dev"` → mocks enabled by default.
-- `NEXT_PUBLIC_USE_MOCKS="true"` forces mocks on (even in `"staging"` / `"prod"`).
+- `NEXT_PUBLIC_APP_ENV` is required and must be one of `"local"`, `"staging"`, or `"prod"`.
+- `NEXT_PUBLIC_USE_MOCKS="true"` forces mock repositories at selector level.
+- Security-sensitive bypasses are server-only and local-only (`DEV_BYPASS_ENABLED` + per-feature flags).
+- Missing/invalid `NEXT_PUBLIC_APP_ENV` throws a config error (fail closed).
+
+## Runtime DB schema source
+
+- Operational runtime schema changes must be committed in `../supabase/migrations` and applied in ascending timestamp order.
+- `../supabase/schemas/prod.sql` is a bootstrap snapshot/reference, not the runtime migration source.
+- `docs/sql/*` and `docs/databasev2.txt` are secondary reference artifacts only.
 
 ## Repo entrypoints (`repo.ts` vs `repo.server.ts`)
 
@@ -47,10 +55,10 @@ Every repo domain follows the same pattern:
 
 Optional supporting files (server-side only unless otherwise stated):
 
-- `types.ts` — repo surface types used in method signatures
-- `db.types.ts` — DBV2 snake_case row types (types-only), usually re-exported from `lib/contracts/databasev2`
-- `mappers.ts` — pure mapping functions (`db.types.ts` → `types.ts`)
-- `queries.ts` — server-only orchestration/services (`import "server-only"`)
+- `types.ts` â€” repo surface types used in method signatures
+- `db.types.ts` â€” DBV2 snake_case row types (types-only), usually re-exported from `lib/contracts/databasev2`
+- `mappers.ts` â€” pure mapping functions (`db.types.ts` â†’ `types.ts`)
+- `queries.ts` â€” server-only orchestration/services (`import "server-only"`)
 
 ## Supabase access rules
 
@@ -97,9 +105,10 @@ Barangay/city dashboard backend access is now migrated to the standard repo doma
   - `lib/repos/dashboard/repo.mock.ts`
   - `lib/repos/dashboard/repo.supabase.ts`
 - Dashboard hooks/actions now resolve repositories from `@/lib/repos/dashboard/repo.server`.
-- Dashboard mock behavior now follows global policy only (`NEXT_PUBLIC_APP_ENV`, `NEXT_PUBLIC_USE_MOCKS`).
+- Dashboard mock behavior now follows global selector policy (`NEXT_PUBLIC_APP_ENV`, `NEXT_PUBLIC_USE_MOCKS`).
 - Dashboard AIP rows now include uploader metadata from latest `uploaded_files.is_current` joined to `profiles.full_name`.
 - Barangay write actions are hardened:
   - draft create validates fiscal year, enforces barangay scope, supports idempotent create
   - reply flow validates body/parent constraints and delegates reply creation to feedback threads repo to preserve audit behavior
+
 
