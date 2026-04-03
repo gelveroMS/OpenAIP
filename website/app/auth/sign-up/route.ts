@@ -1,7 +1,6 @@
 import { supabaseServer } from "@/lib/supabase/server";
 import {
   fail,
-  mapSupabaseAuthErrorMessage,
   normalizeEmail,
   normalizePassword,
   ok,
@@ -14,6 +13,8 @@ type SignUpRequestBody = {
   email?: unknown;
   password?: unknown;
 };
+
+const GENERIC_SIGN_UP_MESSAGE = "If the request can be processed, check your email for the next step.";
 
 export async function POST(request: Request) {
   try {
@@ -32,7 +33,7 @@ export async function POST(request: Request) {
     }
 
     const client = await supabaseServer();
-    const { data, error } = await client.auth.signUp({
+    await client.auth.signUp({
       email,
       password,
       options: {
@@ -40,22 +41,11 @@ export async function POST(request: Request) {
       },
     });
 
-    if (error) {
-      return fail(mapSupabaseAuthErrorMessage(error.message), 400);
-    }
-
-    if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-      return fail("Account already exists. Please sign in instead.", 409);
-    }
-
     return ok({
       next: "verify_otp",
-      message: "OTP sent to your email.",
+      message: GENERIC_SIGN_UP_MESSAGE,
     });
-  } catch (error) {
-    return fail(
-      error instanceof Error ? error.message : "Unable to start sign-up.",
-      500
-    );
+  } catch {
+    return fail("Unable to start sign-up.", 500);
   }
 }
