@@ -58,6 +58,14 @@ export type LoginAttemptStateEntryValue = {
 
 export type LoginAttemptStateValue = Record<string, LoginAttemptStateEntryValue>;
 
+export type AuthThrottleStateEntryValue = {
+  events: number[];
+  lockedUntil: number | null;
+  updatedAt: number;
+};
+
+export type AuthThrottleStateValue = Record<string, AuthThrottleStateEntryValue>;
+
 export type BlockedUserSetting = {
   blockedUntil: string;
   reason: string;
@@ -156,6 +164,7 @@ export type AppSettingsMap = {
   "system.banner_draft": SystemBannerDraftValue;
   "system.banner_published": SystemBannerPublishedValue | null;
   "system.login_attempt_state": LoginAttemptStateValue;
+  "system.auth_throttle_state": AuthThrottleStateValue;
   "content.citizen_about_us": CitizenAboutUsContentValue;
   "content.citizen_dashboard": CitizenDashboardContentValue;
 };
@@ -198,6 +207,7 @@ const DEFAULT_SETTINGS: AppSettingsMap = {
   },
   "system.banner_published": null,
   "system.login_attempt_state": {},
+  "system.auth_throttle_state": {},
   "content.citizen_about_us": {
     referenceDocs: [
       {
