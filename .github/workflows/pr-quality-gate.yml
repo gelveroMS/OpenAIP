@@ -81,3 +81,58 @@ jobs:
 
       - name: Run send-email-outbox tests
         run: deno test --node-modules-dir=auto --allow-env supabase/functions/send-email-outbox/index.test.ts
+
+  dependency-audit-node:
+    name: Dependency Audit (Node runtime)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install website dependencies
+        working-directory: website
+        run: npm ci
+
+      - name: Run npm audit (runtime only, fail on high+)
+        working-directory: website
+        run: npm audit --omit=dev --audit-level=high
+
+  dependency-audit-python:
+    name: Dependency Audit (Python runtime)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: aip-intelligence-pipeline/pyproject.toml
+
+      - name: Install pip-audit
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pip-audit
+
+      - name: Build isolated runtime env for audit target
+        run: |
+          python -m venv .venv-runtime-audit
+          . .venv-runtime-audit/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install ./aip-intelligence-pipeline
+
+      - name: Run pip-audit (runtime environment)
+        run: |
+          SITE_PACKAGES=$(./.venv-runtime-audit/bin/python -c "import site; print(site.getsitepackages()[0])")
+          python -m pip_audit --path "$SITE_PACKAGES" --progress-spinner off
