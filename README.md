@@ -551,7 +551,8 @@ Tracked-open behavior:
 
 Outbox processor:
 - Edge Function: `supabase/functions/send-email-outbox/index.ts`
-- Authorization: requires bearer JWT with `role=service_role`.
+- Authorization: requires `Authorization: Bearer <token>` where token matches `SUPABASE_SERVICE_ROLE_KEY` via in-code constant-time comparison.
+- Unsigned/forged JWT payload claims are not trusted for authorization.
 - Reads queued rows from `public.email_outbox`, sends via Resend, updates status/attempt counters.
 - Emits hourly deduped admin notifications when failure threshold is exceeded (`OUTBOX_FAILURE_THRESHOLD_REACHED`).
 
@@ -704,7 +705,7 @@ Common hosting options for this codebase:
 | `Invalid schema: app` from chatbot/admin settings APIs | Supabase Data API does not expose `app` schema, or `app.settings` is missing/inaccessible | Expose `app` in Supabase Data API schemas and apply pending runtime migrations from `supabase/migrations` |
 | Notifications inbox is empty for events that should notify | Notifications tables/triggers or realtime publication membership are missing from DB baseline | Apply pending runtime migrations from `supabase/migrations` and verify notification/outbox objects from current runtime schema |
 | Clicking "Open related page" does not mark rows as read | `GET /api/notifications/open` route not reached (or unsafe `next` path) | Ensure links are built via tracked-open helper and `next` is an internal path beginning with `/` |
-| `send-email-outbox` returns 401/500 | Missing service-role bearer auth or missing outbox env values | Invoke with service-role JWT and set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, `FROM_EMAIL`, `APP_BASE_URL` |
+| `send-email-outbox` returns 401/500 | Missing/invalid bearer token or missing outbox env values | Invoke with `Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY>` and set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, `FROM_EMAIL`, `APP_BASE_URL` |
 | Citizen about-us/dashboard content does not load seeded values | `app.settings` seeds not applied or `about-us-docs` bucket missing | Apply March 1 content seed SQL files and create/verify `about-us-docs` bucket objects |
 | `pytest`/`ruff`/`pyright` command not found | Dev extras not installed | Reinstall with `python -m pip install -e ".[dev]"` |
 | `Fatal error in launcher` when running `pip` inside pipeline venv | Venv launchers still point to old folder path after rename | Recreate `.venv`, then use `python -m pip install --upgrade pip` and `python -m pip install -e ".[dev]"` |

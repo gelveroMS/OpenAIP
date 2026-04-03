@@ -136,34 +136,30 @@ function parseBearerToken(request: Request): string | null {
   return token;
 }
 
-function decodeJwtPayload(token: string): Record<string, unknown> | null {
-  const parts = token.split(".");
-  if (parts.length !== 3) return null;
+function constantTimeEqual(a: string, b: string): boolean {
+  const encoder = new TextEncoder();
+  const aBytes = encoder.encode(a);
+  const bBytes = encoder.encode(b);
+  const maxLength = Math.max(aBytes.length, bBytes.length);
+  let diff = aBytes.length ^ bBytes.length;
 
-  const payloadPart = parts[1];
-  if (!payloadPart) return null;
-
-  const normalized = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
-
-  try {
-    const decoded = atob(padded);
-    const parsed = JSON.parse(decoded);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-    return parsed as Record<string, unknown>;
-  } catch {
-    return null;
+  for (let index = 0; index < maxLength; index += 1) {
+    const aByte = index < aBytes.length ? aBytes[index] : 0;
+    const bByte = index < bBytes.length ? bBytes[index] : 0;
+    diff |= aByte ^ bByte;
   }
+
+  return diff === 0;
 }
 
-export function isAuthorizedRequest(request: Request): boolean {
+export function isAuthorizedRequest(
+  request: Request,
+  expectedBearerToken: string
+): boolean {
+  if (!expectedBearerToken) return false;
   const token = parseBearerToken(request);
   if (!token) return false;
-
-  const payload = decodeJwtPayload(token);
-  if (!payload) return false;
-
-  return payload.role === "service_role";
+  return constantTimeEqual(token, expectedBearerToken);
 }
 export { renderNotificationEmail, renderTemplateHtml, renderTemplateText };
 
@@ -487,7 +483,13 @@ export async function handleRequest(request: Request): Promise<Response> {
     return json(405, { error: "Method not allowed. Use POST." });
   }
 
-  if (!isAuthorizedRequest(request)) {
+  const trustedBearerToken = Deno.env.get("OUTBOX_JOB_SECRET") ?? "";
+  if (!trustedBearerToken) {
+    console.error("[OUTBOX][AUTH_CONFIG_MISSING]");
+    return json(500, { error: "Server auth configuration is missing." });
+  }
+
+  if (!isAuthorizedRequest(request, trustedBearerToken)) {
     return json(401, { error: "Unauthorized." });
   }
 
