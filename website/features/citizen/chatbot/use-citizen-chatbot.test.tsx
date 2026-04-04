@@ -253,4 +253,84 @@ describe("useCitizenChatbot", () => {
       "temporarily blocked from using the AI Assistant"
     );
   });
+
+  it("parses LGU-style assistant payload and surfaces retrievalMeta.suggestions as follow-ups", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, isComplete: true, userId: "citizen-20" }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          sessionId: "session-20",
+          userMessage: {
+            id: "msg-user-20",
+            sessionId: "session-20",
+            role: "user",
+            content: "Show budget details",
+            createdAt: "2026-03-01T00:00:10.000Z",
+            citations: null,
+            retrievalMeta: null,
+          },
+          assistantMessage: {
+            id: "msg-assistant-20",
+            sessionId: "session-20",
+            role: "assistant",
+            content: "Here are budget details.",
+            createdAt: "2026-03-01T00:00:20.000Z",
+            citations: [],
+            retrievalMeta: {
+              status: "answer",
+              suggestions: ["Show top projects", "Compare with last year"],
+            },
+          },
+        }),
+      } as Response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    mockRepo.createSession.mockResolvedValue({
+      id: "session-20",
+      userId: "citizen-20",
+      title: null,
+      context: {},
+      lastMessageAt: null,
+      createdAt: "2026-03-01T00:00:00.000Z",
+      updatedAt: "2026-03-01T00:00:00.000Z",
+    });
+    mockRepo.appendUserMessage.mockResolvedValue({
+      id: "msg-user-20",
+      sessionId: "session-20",
+      role: "user",
+      content: "Show budget details",
+      citations: null,
+      retrievalMeta: null,
+      createdAt: "2026-03-01T00:00:10.000Z",
+    });
+
+    const { result } = renderHook(() => useCitizenChatbot());
+
+    await waitFor(() => {
+      expect(result.current.isBootstrapping).toBe(false);
+    });
+
+    act(() => {
+      result.current.setMessageInput("Show budget details");
+    });
+
+    await act(async () => {
+      await result.current.handleSend();
+    });
+
+    await waitFor(() => {
+      expect(result.current.messages).toHaveLength(2);
+    });
+    expect(result.current.messages[1]?.followUps.map((item) => item.label)).toEqual([
+      "Show top projects",
+      "Compare with last year",
+    ]);
+  });
 });

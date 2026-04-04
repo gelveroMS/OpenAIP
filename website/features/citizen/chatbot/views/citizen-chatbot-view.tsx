@@ -36,6 +36,11 @@ export default function CitizenChatbotView() {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const previousSessionIdRef = useRef<string | null>(null);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+  const lastMessageSignature = useMemo(() => {
+    const lastMessage = messages[messages.length - 1];
+    if (!lastMessage) return "none";
+    return `${lastMessage.id}:${lastMessage.content.length}`;
+  }, [messages]);
 
   const isNearBottom = useCallback(() => {
     const node = scrollContainerRef.current;
@@ -50,28 +55,34 @@ export default function CitizenChatbotView() {
     }
   }, [isNearBottom]);
 
-  const handleJumpToLatest = useCallback(() => {
-    if (!threadRef.current) return;
-    threadRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    const node = scrollContainerRef.current;
+    if (!node) return;
+    if (typeof node.scrollTo === "function") {
+      node.scrollTo({ top: node.scrollHeight, behavior });
+    } else {
+      node.scrollTop = node.scrollHeight;
+    }
     setShowJumpToLatest(false);
   }, []);
 
+  const handleJumpToLatest = useCallback(() => {
+    scrollToBottom("smooth");
+  }, [scrollToBottom]);
+
   useEffect(() => {
-    if (!threadRef.current) return;
+    if (!scrollContainerRef.current) return;
 
     const sessionChanged = previousSessionIdRef.current !== activeSession?.id;
     previousSessionIdRef.current = activeSession?.id ?? null;
 
-    if (sessionChanged || isNearBottom()) {
-      threadRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
-      setShowJumpToLatest(false);
-      return;
+    if (sessionChanged || lastMessageSignature !== "none" || isSending) {
+      scrollToBottom(sessionChanged ? "auto" : "smooth");
+      requestAnimationFrame(() => {
+        scrollToBottom("auto");
+      });
     }
-
-    if (messages.length > 0 || isSending) {
-      setShowJumpToLatest(true);
-    }
-  }, [activeSession?.id, isNearBottom, isSending, messages.length]);
+  }, [activeSession?.id, isSending, lastMessageSignature, scrollToBottom]);
 
   const stableExamples = useMemo(() => exampleQueries, [exampleQueries]);
 

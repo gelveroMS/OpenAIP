@@ -35,6 +35,7 @@ def test_build_partial_evidence_returns_non_refusal_with_citations() -> None:
     )
 
     assert result["refused"] is False
+    assert result["answer"] == "Insufficient context."
     assert result["retrieval_meta"]["reason"] == "partial_evidence"
     assert len(result["citations"]) == 1
     assert result["citations"][0]["source_id"] == "S1"
@@ -50,14 +51,10 @@ def test_answer_with_rag_returns_partial_evidence_when_enabled(monkeypatch) -> N
 
     docs = [_FakeDoc(source_id="S1", similarity=0.22, content="Limited matching context.")]
     monkeypatch.setattr(
-        "openaip_pipeline.services.rag.rag.run_hybrid_retrieval",
+        "openaip_pipeline.services.rag.rag.run_dense_retrieval",
         lambda **_kwargs: {
-            "hybrid_enabled": False,
-            "keyword_enabled": False,
-            "rrf_enabled": False,
             "dense_docs": docs,
-            "keyword_docs": [],
-            "fused_docs": docs,
+            "docs": docs,
             "strong_docs": [],
         },
     )
@@ -75,5 +72,6 @@ def test_answer_with_rag_returns_partial_evidence_when_enabled(monkeypatch) -> N
     )
 
     assert result["refused"] is False
+    assert result["answer"] == "Insufficient context."
     assert result["retrieval_meta"]["reason"] == "partial_evidence"
     assert len(result["citations"]) == 1

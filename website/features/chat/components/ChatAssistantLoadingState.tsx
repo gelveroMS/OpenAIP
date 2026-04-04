@@ -11,7 +11,7 @@ export default function ChatAssistantLoadingState() {
             <FileSearch className="h-4 w-4" />
           </div>
           <p className="text-sm font-semibold leading-tight tracking-tight">
-            Searching AIP documents...
+            Analyzing your request...
           </p>
         </div>
 

@@ -24,6 +24,12 @@ export type RetrievalFiltersPayload = {
   sector_tags?: string[];
 };
 
+export type ScopeFallbackPayload = {
+  scope_type: "barangay" | "city";
+  scope_name: string;
+  scope_id?: string | null;
+};
+
 export type ScopeResolutionResult = {
   mode: RetrievalScopeMode | "ambiguous";
   requestedScopes: Array<{
@@ -57,29 +63,6 @@ export type PipelineChatCitation = {
   metadata?: unknown | null;
 };
 
-export type PipelineIntentType =
-  | "GREETING"
-  | "THANKS"
-  | "COMPLAINT"
-  | "CLARIFY"
-  | "TOTAL_AGGREGATION"
-  | "CATEGORY_AGGREGATION"
-  | "LINE_ITEM_LOOKUP"
-  | "PROJECT_DETAIL"
-  | "DOCUMENT_EXPLANATION"
-  | "OUT_OF_SCOPE"
-  | "SCOPE_NEEDS_CLARIFICATION"
-  | "UNKNOWN";
-
-export type PipelineIntentClassification = {
-  intent: PipelineIntentType;
-  confidence: number;
-  top2_intent: PipelineIntentType | null;
-  top2_confidence: number | null;
-  margin: number;
-  method: "rule" | "semantic" | "none";
-};
-
 export type PipelineChatAnswer = {
   answer: string;
   refused: boolean;
@@ -89,22 +72,35 @@ export type PipelineChatAnswer = {
       | "ok"
       | "insufficient_evidence"
       | "partial_evidence"
-      | "verifier_failed"
       | "ambiguous_scope"
       | "pipeline_error"
       | "validation_failed"
       | "conversational_shortcut"
       | "unknown";
+    intent?: string;
+    classifier_confidence?: number;
+    classifier_method?: "rule" | "llm" | "error";
+    needs_retrieval?: boolean;
+    entities?: Record<string, unknown>;
+    route_hint?: string | null;
+    status?: "answer" | "clarification" | "refusal";
+    refusal_reason?: "unsupported_request" | string;
+    route_family?:
+      | "sql_totals"
+      | "aggregate_sql"
+      | "row_sql"
+      | "metadata_sql"
+      | "pipeline_fallback"
+      | "mixed_plan"
+      | "conversational"
+      | "unknown";
     top_k?: number;
     min_similarity?: number;
     context_count?: number;
-    verifier_passed?: boolean;
     scope_mode?: string;
     scope_targets_count?: number;
     retrieval_mode?: "qa" | "overview";
     applied_retrieval_filters?: Record<string, unknown>;
-    verifier_mode?: "structured" | "retrieval" | "mixed";
-    verifier_policy_passed?: boolean;
     retrieved_count?: number;
     strong_count?: number;
     selected_count?: number;
@@ -127,8 +123,6 @@ export type PipelineChatAnswer = {
     active_rag_flags?: Record<string, boolean>;
     rag_calibration?: Record<string, number | boolean>;
     stage_latency_ms?: Record<string, number>;
-    borderline_detected?: boolean;
-    borderline_reason_code?: string;
     response_mode_source?: string;
   };
 };

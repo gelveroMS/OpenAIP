@@ -16,6 +16,8 @@ export type CitizenChatEvidenceItem = {
   snippet: string;
   fiscalYear: string | null;
   pageOrSection: string | null;
+  href: string | null;
+  linkLabel: string | null;
 };
 
 export type CitizenChatSessionVM = {
@@ -37,7 +39,17 @@ export type CitizenChatMessageVM = {
 };
 
 export type CitizenChatReplyResult = {
-  message: {
+  sessionId: string;
+  userMessage: {
+    id: string;
+    sessionId: string;
+    role: "user" | "system";
+    content: string;
+    createdAt: string;
+    citations: Json | null;
+    retrievalMeta: Json | null;
+  };
+  assistantMessage: {
     id: string;
     sessionId: string;
     role: "assistant";
@@ -46,7 +58,6 @@ export type CitizenChatReplyResult = {
     citations: Json | null;
     retrievalMeta: Json | null;
   };
-  suggestedFollowUps: string[];
 };
 
 export type CitizenChatErrorState = "none" | "no_published_aip" | "retrieval_failed";

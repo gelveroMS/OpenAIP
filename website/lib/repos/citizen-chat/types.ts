@@ -38,6 +38,7 @@ export type CitizenChatMessage = {
 };
 
 export type CitizenChatReplyPayload = {
-  message: CitizenChatMessage;
-  suggestedFollowUps: string[];
+  sessionId: string;
+  userMessage: CitizenChatMessage;
+  assistantMessage: CitizenChatMessage;
 };
