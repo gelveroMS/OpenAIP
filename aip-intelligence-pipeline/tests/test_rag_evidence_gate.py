@@ -328,7 +328,7 @@ def test_answer_with_rag_skips_generation_when_gate_blocks(monkeypatch) -> None:
     assert result["retrieval_meta"]["generation_skipped_by_gate"] is True
 
 
-def test_answer_with_rag_sql_fallback_enforces_limit_and_disclosure(monkeypatch) -> None:
+def test_answer_with_rag_sql_fallback_exhaustive_enforces_limit_and_disclosure(monkeypatch) -> None:
     monkeypatch.setenv("RAG_PARTIAL_MODE_ENABLED", "false")
     monkeypatch.setenv("RAG_EVIDENCE_GATE_ENABLED", "false")
 
@@ -369,7 +369,7 @@ def test_answer_with_rag_sql_fallback_enforces_limit_and_disclosure(monkeypatch)
         openai_api_key="openai-key",
         embeddings_model="text-embedding-3-large",
         chat_model="gpt-5.2",
-        question="Show projects in Barangay Pulo FY 2026.",
+        question="Show all projects in Barangay Pulo FY 2026.",
         retrieval_scope={"mode": "global", "targets": []},
         top_k=8,
         min_similarity=0.3,
@@ -382,7 +382,56 @@ def test_answer_with_rag_sql_fallback_enforces_limit_and_disclosure(monkeypatch)
     assert result["retrieval_meta"]["limit_sentences"] == 2
 
 
-def test_answer_with_rag_sql_fallback_missing_disclosure_fails(monkeypatch) -> None:
+def test_answer_with_rag_sql_fallback_exhaustive_missing_disclosure_fails(monkeypatch) -> None:
+    monkeypatch.setenv("RAG_PARTIAL_MODE_ENABLED", "false")
+    monkeypatch.setenv("RAG_EVIDENCE_GATE_ENABLED", "false")
+
+    fake_supabase_client_module = types.SimpleNamespace(create_client=lambda *_args, **_kwargs: object())
+    monkeypatch.setitem(sys.modules, "supabase.client", fake_supabase_client_module)
+
+    class _FakeChatOpenAI:
+        def __init__(self, *args, **kwargs):  # noqa: D401, ANN001, ANN003
+            pass
+
+        def invoke(self, _messages):  # noqa: ANN001
+            return types.SimpleNamespace(
+                content='{"answer":"1. Project A [S1]. 2. Project B [S1].","used_source_ids":["S1"]}'
+            )
+
+    monkeypatch.setitem(sys.modules, "langchain_openai", types.SimpleNamespace(ChatOpenAI=_FakeChatOpenAI))
+    docs = [
+        _FakeDoc(
+            chunk_id="c1",
+            similarity=0.76,
+            content="Projects A and B are listed in the 2026 AIP.",
+            fiscal_year=2026,
+            channels=["dense"],
+        )
+    ]
+    monkeypatch.setattr(
+        "openaip_pipeline.services.rag.rag.run_dense_retrieval",
+        lambda **_kwargs: {"dense_docs": docs, "docs": docs, "strong_docs": docs},
+    )
+    monkeypatch.setattr("openaip_pipeline.services.rag.rag._select_diverse_docs", lambda docs, **_kwargs: docs)
+
+    result = answer_with_rag(
+        supabase_url="https://example.test",
+        supabase_service_key="service-key",
+        openai_api_key="openai-key",
+        embeddings_model="text-embedding-3-large",
+        chat_model="gpt-5.2",
+        question="Show all projects in Barangay Pulo FY 2026.",
+        retrieval_scope={"mode": "global", "targets": []},
+        top_k=8,
+        min_similarity=0.3,
+        sql_fallback=True,
+    )
+
+    assert result["refused"] is True
+    assert result["retrieval_meta"]["reason"] == "validation_failed"
+
+
+def test_answer_with_rag_sql_fallback_non_exhaustive_missing_disclosure_passes(monkeypatch) -> None:
     monkeypatch.setenv("RAG_PARTIAL_MODE_ENABLED", "false")
     monkeypatch.setenv("RAG_EVIDENCE_GATE_ENABLED", "false")
 
@@ -427,5 +476,58 @@ def test_answer_with_rag_sql_fallback_missing_disclosure_fails(monkeypatch) -> N
         sql_fallback=True,
     )
 
-    assert result["refused"] is True
-    assert result["retrieval_meta"]["reason"] == "validation_failed"
+    assert result["refused"] is False
+    assert result["retrieval_meta"]["limit_disclosure_required"] is False
+
+
+def test_answer_with_rag_sql_fallback_non_exhaustive_strips_disclosure_sentence(monkeypatch) -> None:
+    monkeypatch.setenv("RAG_PARTIAL_MODE_ENABLED", "false")
+    monkeypatch.setenv("RAG_EVIDENCE_GATE_ENABLED", "false")
+
+    fake_supabase_client_module = types.SimpleNamespace(create_client=lambda *_args, **_kwargs: object())
+    monkeypatch.setitem(sys.modules, "supabase.client", fake_supabase_client_module)
+
+    class _FakeChatOpenAI:
+        def __init__(self, *args, **kwargs):  # noqa: D401, ANN001, ANN003
+            pass
+
+        def invoke(self, _messages):  # noqa: ANN001
+            return types.SimpleNamespace(
+                content=(
+                    '{"answer":"Health item A — Completion Date: 12/31/2023 [S1]. '
+                    'Health item B — Completion Date: 12/31/2023 [S1]. '
+                    'I limited this response to 2 items based on the prompt policy.","used_source_ids":["S1"]}'
+                )
+            )
+
+    monkeypatch.setitem(sys.modules, "langchain_openai", types.SimpleNamespace(ChatOpenAI=_FakeChatOpenAI))
+    docs = [
+        _FakeDoc(
+            chunk_id="c1",
+            similarity=0.76,
+            content="Health projects and completion dates are listed in the 2023 AIP.",
+            fiscal_year=2023,
+            channels=["dense"],
+        )
+    ]
+    monkeypatch.setattr(
+        "openaip_pipeline.services.rag.rag.run_dense_retrieval",
+        lambda **_kwargs: {"dense_docs": docs, "docs": docs, "strong_docs": docs},
+    )
+    monkeypatch.setattr("openaip_pipeline.services.rag.rag._select_diverse_docs", lambda docs, **_kwargs: docs)
+
+    result = answer_with_rag(
+        supabase_url="https://example.test",
+        supabase_service_key="service-key",
+        openai_api_key="openai-key",
+        embeddings_model="text-embedding-3-large",
+        chat_model="gpt-5.2",
+        question="What are the completion date of the projects about health in barangay pulo?",
+        retrieval_scope={"mode": "global", "targets": []},
+        top_k=8,
+        min_similarity=0.3,
+        sql_fallback=True,
+    )
+
+    assert result["refused"] is False
+    assert "I limited this response to 2 items based on the prompt policy." not in result["answer"]

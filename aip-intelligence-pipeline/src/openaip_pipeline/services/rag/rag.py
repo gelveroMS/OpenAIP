@@ -9,6 +9,7 @@ import time
 from typing import Any
 
 from openaip_pipeline.core.resources import read_text
+from openaip_pipeline.services.query_intent import detect_exhaustive_intent
 from openaip_pipeline.services.rag.multi_query import (
     build_multi_query_variants,
     multi_query_reason_code,
@@ -818,6 +819,8 @@ def answer_with_rag(
     stage_latency_ms: dict[str, float] = {}
     active_rag_flags = _active_rag_flags()
     rag_calibration = _rag_calibration_snapshot()
+    exhaustive_intent = detect_exhaustive_intent(question)
+    fallback_exhaustive = bool(sql_fallback and exhaustive_intent.get("exhaustive_intent"))
     resolved_scope = retrieval_scope or {"mode": "global", "targets": []}
     resolved_mode = _normalize_retrieval_mode(retrieval_mode)
     effective_top_k = _effective_top_k(top_k=top_k, retrieval_mode=resolved_mode)
@@ -889,6 +892,7 @@ def answer_with_rag(
         "limit_policy_applied": bool(sql_fallback),
         "limit_items": FALLBACK_LIMIT_POLICY["max_list_items"] if sql_fallback else None,
         "limit_sentences": FALLBACK_LIMIT_POLICY["max_sentences"] if sql_fallback else None,
+        "limit_disclosure_required": fallback_exhaustive,
         "result_cap": None,
         "total_matches": None,
         "returned_count": None,
@@ -1132,7 +1136,7 @@ def answer_with_rag(
         "- used_source_ids must list unique source IDs actually used in answer.\n"
         f"- If evidence is insufficient, return answer exactly: {INSUFFICIENT_CONTEXT_RESPONSE}"
     )
-    if sql_fallback:
+    if fallback_exhaustive:
         generation_instruction += (
             "\n- Keep the answer within 2 sentences and at most 2 listed items."
             f"\n- End with this exact sentence: {FALLBACK_LIMIT_DISCLOSURE}"
@@ -1183,11 +1187,29 @@ def answer_with_rag(
             extra_meta=gate_metrics,
         )
 
+    if not fallback_exhaustive and FALLBACK_LIMIT_DISCLOSURE in answer_text:
+        answer_text = _strip_disclosure_sentence(answer_text).strip()
+        _trace_log("fallback_disclosure_stripped_non_exhaustive")
+        if not answer_text:
+            _trace_log("generation_empty_answer_after_strip")
+            return attach(
+                _build_refusal(
+                    question=question,
+                    reason="validation_failed",
+                    docs=selected_docs,
+                    top_k=effective_top_k,
+                    min_similarity=min_similarity,
+                    retrieval_scope=resolved_scope,
+                ),
+                selected_count=len(selected_docs),
+                extra_meta=gate_metrics,
+            )
+
     if _answer_violates_constraints(
         answer_text,
         max_sentences=FALLBACK_LIMIT_POLICY["max_sentences"] if sql_fallback else MAX_RESPONSE_SENTENCES,
         max_list_items=FALLBACK_LIMIT_POLICY["max_list_items"] if sql_fallback else None,
-        require_disclosure=sql_fallback,
+        require_disclosure=fallback_exhaustive,
     ):
         _trace_log("generation_constraint_violation", answer_preview=_preview(answer_text))
         return attach(
