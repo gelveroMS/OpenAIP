@@ -326,3 +326,106 @@ def test_answer_with_rag_skips_generation_when_gate_blocks(monkeypatch) -> None:
     assert result["retrieval_meta"]["evidence_gate_decision"] == "clarify"
     assert result["retrieval_meta"]["evidence_gate_reason_code"] == "clarify_partial_evidence"
     assert result["retrieval_meta"]["generation_skipped_by_gate"] is True
+
+
+def test_answer_with_rag_sql_fallback_enforces_limit_and_disclosure(monkeypatch) -> None:
+    monkeypatch.setenv("RAG_PARTIAL_MODE_ENABLED", "false")
+    monkeypatch.setenv("RAG_EVIDENCE_GATE_ENABLED", "false")
+
+    fake_supabase_client_module = types.SimpleNamespace(create_client=lambda *_args, **_kwargs: object())
+    monkeypatch.setitem(sys.modules, "supabase.client", fake_supabase_client_module)
+
+    class _FakeChatOpenAI:
+        def __init__(self, *args, **kwargs):  # noqa: D401, ANN001, ANN003
+            pass
+
+        def invoke(self, _messages):  # noqa: ANN001
+            return types.SimpleNamespace(
+                content=(
+                    '{"answer":"1. Project A [S1]. 2. Project B [S1]. '
+                    'I limited this response to 2 items based on the prompt policy.","used_source_ids":["S1"]}'
+                )
+            )
+
+    monkeypatch.setitem(sys.modules, "langchain_openai", types.SimpleNamespace(ChatOpenAI=_FakeChatOpenAI))
+    docs = [
+        _FakeDoc(
+            chunk_id="c1",
+            similarity=0.76,
+            content="Projects A and B are listed in the 2026 AIP.",
+            fiscal_year=2026,
+            channels=["dense"],
+        )
+    ]
+    monkeypatch.setattr(
+        "openaip_pipeline.services.rag.rag.run_dense_retrieval",
+        lambda **_kwargs: {"dense_docs": docs, "docs": docs, "strong_docs": docs},
+    )
+    monkeypatch.setattr("openaip_pipeline.services.rag.rag._select_diverse_docs", lambda docs, **_kwargs: docs)
+
+    result = answer_with_rag(
+        supabase_url="https://example.test",
+        supabase_service_key="service-key",
+        openai_api_key="openai-key",
+        embeddings_model="text-embedding-3-large",
+        chat_model="gpt-5.2",
+        question="Show projects in Barangay Pulo FY 2026.",
+        retrieval_scope={"mode": "global", "targets": []},
+        top_k=8,
+        min_similarity=0.3,
+        sql_fallback=True,
+    )
+
+    assert result["refused"] is False
+    assert result["retrieval_meta"]["limit_policy_applied"] is True
+    assert result["retrieval_meta"]["limit_items"] == 2
+    assert result["retrieval_meta"]["limit_sentences"] == 2
+
+
+def test_answer_with_rag_sql_fallback_missing_disclosure_fails(monkeypatch) -> None:
+    monkeypatch.setenv("RAG_PARTIAL_MODE_ENABLED", "false")
+    monkeypatch.setenv("RAG_EVIDENCE_GATE_ENABLED", "false")
+
+    fake_supabase_client_module = types.SimpleNamespace(create_client=lambda *_args, **_kwargs: object())
+    monkeypatch.setitem(sys.modules, "supabase.client", fake_supabase_client_module)
+
+    class _FakeChatOpenAI:
+        def __init__(self, *args, **kwargs):  # noqa: D401, ANN001, ANN003
+            pass
+
+        def invoke(self, _messages):  # noqa: ANN001
+            return types.SimpleNamespace(
+                content='{"answer":"1. Project A [S1]. 2. Project B [S1].","used_source_ids":["S1"]}'
+            )
+
+    monkeypatch.setitem(sys.modules, "langchain_openai", types.SimpleNamespace(ChatOpenAI=_FakeChatOpenAI))
+    docs = [
+        _FakeDoc(
+            chunk_id="c1",
+            similarity=0.76,
+            content="Projects A and B are listed in the 2026 AIP.",
+            fiscal_year=2026,
+            channels=["dense"],
+        )
+    ]
+    monkeypatch.setattr(
+        "openaip_pipeline.services.rag.rag.run_dense_retrieval",
+        lambda **_kwargs: {"dense_docs": docs, "docs": docs, "strong_docs": docs},
+    )
+    monkeypatch.setattr("openaip_pipeline.services.rag.rag._select_diverse_docs", lambda docs, **_kwargs: docs)
+
+    result = answer_with_rag(
+        supabase_url="https://example.test",
+        supabase_service_key="service-key",
+        openai_api_key="openai-key",
+        embeddings_model="text-embedding-3-large",
+        chat_model="gpt-5.2",
+        question="Show projects in Barangay Pulo FY 2026.",
+        retrieval_scope={"mode": "global", "targets": []},
+        top_k=8,
+        min_similarity=0.3,
+        sql_fallback=True,
+    )
+
+    assert result["refused"] is True
+    assert result["retrieval_meta"]["reason"] == "validation_failed"

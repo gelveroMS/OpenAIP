@@ -205,6 +205,35 @@ def _fake_db() -> _FakeSupabase:
     )
 
 
+def _fake_db_with_many_gad_rows() -> _FakeSupabase:
+    db = _fake_db()
+    rows = list(db._tables.get("aip_line_items", []))
+    for index in range(1, 25):
+        rows.append(
+            {
+                "id": f"line-gad-{index}",
+                "aip_id": "aip-1",
+                "fiscal_year": 2025,
+                "barangay_id": "brgy-1",
+                "aip_ref_code": f"2025-001-900-{index:03d}",
+                "program_project_title": f"GAD Initiative {index}",
+                "implementing_agency": "GAD Office",
+                "start_date": "2025-01-01",
+                "end_date": "2025-12-31",
+                "fund_source": "GAD Fund",
+                "sector_code": "SOC",
+                "sector_name": "Social Services",
+                "total": 100 + index,
+                "expected_output": "GAD support services",
+                "page_no": 20,
+                "row_no": index,
+                "table_no": 2,
+            }
+        )
+    db._tables["aip_line_items"] = rows
+    return db
+
+
 def _scope_brgy_1() -> dict[str, Any]:
     return {
         "mode": "named_scopes",
@@ -297,6 +326,29 @@ def test_metadata_route(monkeypatch) -> None:
     assert result["retrieval_meta"]["route_family"] == "metadata_sql"
     assert result["retrieval_meta"]["metadata_intent"] == "years"
     assert "Available fiscal years" in result["answer"]
+
+
+def test_filtered_project_list_route_with_cap(monkeypatch) -> None:
+    monkeypatch.setattr(supabase_client, "create_client", lambda *_args, **_kwargs: _fake_db_with_many_gad_rows())
+    result = _call("Show all projects where fund source is GAD fund for FY 2025.", scope=_scope_brgy_1())
+    assert result is not None
+    assert result["retrieval_meta"]["route_family"] == "filtered_list_sql"
+    assert result["retrieval_meta"]["aggregation"] == "filtered_project_list"
+    assert result["retrieval_meta"]["exhaustive_intent"] is True
+    assert result["retrieval_meta"]["result_cap"] == 20
+    assert result["retrieval_meta"]["total_matches"] == 24
+    assert result["retrieval_meta"]["returned_count"] == 20
+    assert result["retrieval_meta"]["truncated"] is True
+    assert "Showing first 20 of 24 matches" in result["answer"]
+
+
+def test_filtered_project_list_route_supports_typo_synonym(monkeypatch) -> None:
+    monkeypatch.setattr(supabase_client, "create_client", lambda *_args, **_kwargs: _fake_db_with_many_gad_rows())
+    result = _call("Show evry projects where funcing source is GAD fund for FY 2025.", scope=_scope_brgy_1())
+    assert result is not None
+    assert result["retrieval_meta"]["route_family"] == "filtered_list_sql"
+    assert result["retrieval_meta"]["aggregation"] == "filtered_project_list"
+    assert result["retrieval_meta"]["exhaustive_signal"] == "evry"
 
 
 def test_unmatched_query_returns_none(monkeypatch) -> None:

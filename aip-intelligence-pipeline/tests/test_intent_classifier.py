@@ -61,6 +61,18 @@ def test_classify_message_rules_detects_total_aggregation() -> None:
     assert result.route_hint == "sql_totals"
 
 
+def test_classify_message_rules_detects_filtered_project_list_aggregation() -> None:
+    result = classify_message(
+        message="Show all projects where fund source is GAD fund.",
+        openai_api_key=None,
+        default_model="gpt-5.2",
+    )
+
+    assert result.intent == "category_aggregation"
+    assert result.needs_retrieval is True
+    assert result.route_hint == "aggregate_sql"
+
+
 def test_classify_message_rules_detects_out_of_scope() -> None:
     result = classify_message(
         message="What's the weather tomorrow?",

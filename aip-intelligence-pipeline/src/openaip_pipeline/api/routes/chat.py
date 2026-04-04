@@ -563,33 +563,35 @@ def chat_answer(
         )
         return response
 
-    if classification.intent in _STRUCTURED_SQL_INTENTS:
-        sql_result = maybe_answer_with_sql(
-            supabase_url=settings.supabase_url,
-            supabase_service_key=settings.supabase_service_key,
-            question=req.question,
-            retrieval_scope=scope_payload,
-            retrieval_filters=filters_payload,
+    sql_result = maybe_answer_with_sql(
+        supabase_url=settings.supabase_url,
+        supabase_service_key=settings.supabase_service_key,
+        question=req.question,
+        retrieval_scope=scope_payload,
+        retrieval_filters=filters_payload,
+    )
+    if sql_result is not None:
+        normalized = _normalize_result_payload(sql_result, default_question=req.question)
+        normalized["retrieval_meta"]["sql_attempted"] = True
+        normalized["retrieval_meta"]["sql_scoped"] = True
+        normalized["retrieval_meta"]["fallback_source"] = "sql"
+        normalized["retrieval_meta"] = _merge_classifier_meta(normalized["retrieval_meta"], classification)
+        _trace_log(
+            "sql_answered",
+            status=normalized["retrieval_meta"].get("status"),
+            reason=normalized["retrieval_meta"].get("reason"),
+            refused=normalized["refused"],
+            context_count=normalized["context_count"],
         )
-        if sql_result is not None:
-            normalized = _normalize_result_payload(sql_result, default_question=req.question)
-            normalized["retrieval_meta"] = _merge_classifier_meta(normalized["retrieval_meta"], classification)
-            _trace_log(
-                "sql_answered",
-                status=normalized["retrieval_meta"].get("status"),
-                reason=normalized["retrieval_meta"].get("reason"),
-                refused=normalized["refused"],
-                context_count=normalized["context_count"],
-            )
-            return ChatAnswerResponse(
-                question=normalized["question"],
-                answer=normalized["answer"],
-                refused=normalized["refused"],
-                citations=normalized["citations"],
-                retrieval_meta=normalized["retrieval_meta"],
-                context_count=normalized["context_count"],
-            )
-        _trace_log("sql_no_answer")
+        return ChatAnswerResponse(
+            question=normalized["question"],
+            answer=normalized["answer"],
+            refused=normalized["refused"],
+            citations=normalized["citations"],
+            retrieval_meta=normalized["retrieval_meta"],
+            context_count=normalized["context_count"],
+        )
+    _trace_log("sql_no_answer")
 
     retrieval_query = build_retrieval_query(
         question=req.question,
@@ -612,8 +614,12 @@ def chat_answer(
         retrieval_filters=filters_payload,
         top_k=req.top_k,
         min_similarity=req.min_similarity,
+        sql_fallback=True,
     )
     normalized = _normalize_result_payload(rag_result, default_question=req.question)
+    normalized["retrieval_meta"]["sql_attempted"] = True
+    normalized["retrieval_meta"]["sql_scoped"] = False
+    normalized["retrieval_meta"]["fallback_source"] = "rag"
     normalized["retrieval_meta"] = _merge_classifier_meta(normalized["retrieval_meta"], classification)
     _trace_log(
         "rag_completed",

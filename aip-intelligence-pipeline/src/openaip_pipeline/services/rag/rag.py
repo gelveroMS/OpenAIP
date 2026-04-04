@@ -25,6 +25,11 @@ MAX_SNIPPET_LENGTH = 360
 MAX_RESPONSE_SENTENCES = 2
 MAX_RETRIEVAL_QUERY_PREVIEW = 240
 INSUFFICIENT_CONTEXT_RESPONSE = "Insufficient context."
+FALLBACK_LIMIT_POLICY = {
+    "max_sentences": 2,
+    "max_list_items": 2,
+}
+FALLBACK_LIMIT_DISCLOSURE = "I limited this response to 2 items based on the prompt policy."
 
 
 def _source_id(index: int, doc: Any) -> str:
@@ -474,14 +479,46 @@ def _split_answer_sentences(answer_text: str) -> list[str]:
     return parts if parts else [normalized]
 
 
-def _answer_violates_constraints(answer_text: str) -> bool:
+def _list_item_count(answer_text: str) -> int:
+    lines = [line.strip() for line in str(answer_text or "").splitlines() if line.strip()]
+    count = sum(1 for line in lines if re.match(r"^\d+\.\s+", line) or re.match(r"^[-*]\s+", line))
+    if count > 0:
+        return count
+    numbered_inline = re.findall(r"(?:^|\s)(\d+\.\s+)", str(answer_text or ""))
+    return len(numbered_inline)
+
+
+def _strip_disclosure_sentence(answer_text: str) -> str:
+    text = str(answer_text or "")
+    pattern = rf"(?:^|\s){re.escape(FALLBACK_LIMIT_DISCLOSURE)}\.?(?:\s|$)"
+    cleaned = re.sub(pattern, " ", text).strip()
+    return re.sub(r"\s{2,}", " ", cleaned)
+
+
+def _answer_violates_constraints(
+    answer_text: str,
+    *,
+    max_sentences: int = MAX_RESPONSE_SENTENCES,
+    max_list_items: int | None = None,
+    require_disclosure: bool = False,
+) -> bool:
     if not answer_text:
         return True
     if answer_text.strip() == INSUFFICIENT_CONTEXT_RESPONSE:
         return False
 
-    sentences = _split_answer_sentences(answer_text)
-    if len(sentences) > MAX_RESPONSE_SENTENCES:
+    if require_disclosure and FALLBACK_LIMIT_DISCLOSURE not in answer_text:
+        return True
+
+    check_text = _strip_disclosure_sentence(answer_text) if require_disclosure else answer_text
+    constraint_text = re.sub(r"(?m)(?:^|\s)\d+\.\s+", " ", check_text)
+    constraint_text = re.sub(r"(?m)(?:^|\s)[-*]\s+", " ", constraint_text)
+    constraint_text = re.sub(r"\s{2,}", " ", constraint_text).strip()
+    sentences = _split_answer_sentences(constraint_text)
+    if len(sentences) > max_sentences:
+        return True
+
+    if max_list_items is not None and _list_item_count(check_text) > max_list_items:
         return True
 
     # Each sentence in generated grounded output must carry at least one source tag.
@@ -772,6 +809,7 @@ def answer_with_rag(
     top_k: int = 4,
     min_similarity: float = 0.3,
     metadata_filter: dict[str, Any] | None = None,
+    sql_fallback: bool = False,
 ) -> dict[str, Any]:
     from langchain_openai import ChatOpenAI
     from supabase.client import create_client
@@ -848,6 +886,13 @@ def answer_with_rag(
         "candidate_counts": candidate_counts,
         "retrieval_query_applied": retrieval_text != question,
         "retrieval_query_preview": _preview(retrieval_text, limit=MAX_RETRIEVAL_QUERY_PREVIEW),
+        "limit_policy_applied": bool(sql_fallback),
+        "limit_items": FALLBACK_LIMIT_POLICY["max_list_items"] if sql_fallback else None,
+        "limit_sentences": FALLBACK_LIMIT_POLICY["max_sentences"] if sql_fallback else None,
+        "result_cap": None,
+        "total_matches": None,
+        "returned_count": None,
+        "truncated": False,
     }
 
     def attach(
@@ -1087,6 +1132,11 @@ def answer_with_rag(
         "- used_source_ids must list unique source IDs actually used in answer.\n"
         f"- If evidence is insufficient, return answer exactly: {INSUFFICIENT_CONTEXT_RESPONSE}"
     )
+    if sql_fallback:
+        generation_instruction += (
+            "\n- Keep the answer within 2 sentences and at most 2 listed items."
+            f"\n- End with this exact sentence: {FALLBACK_LIMIT_DISCLOSURE}"
+        )
     generation_user_prompt = (
         f"Question:\n{question}\n\n"
         f"Allowed Sources:\n{_format_source_list(selected_docs)}\n\n"
@@ -1133,7 +1183,12 @@ def answer_with_rag(
             extra_meta=gate_metrics,
         )
 
-    if _answer_violates_constraints(answer_text):
+    if _answer_violates_constraints(
+        answer_text,
+        max_sentences=FALLBACK_LIMIT_POLICY["max_sentences"] if sql_fallback else MAX_RESPONSE_SENTENCES,
+        max_list_items=FALLBACK_LIMIT_POLICY["max_list_items"] if sql_fallback else None,
+        require_disclosure=sql_fallback,
+    ):
         _trace_log("generation_constraint_violation", answer_preview=_preview(answer_text))
         return attach(
             _build_refusal(
@@ -1225,6 +1280,13 @@ def answer_with_rag(
                 "context_count": len(selected_docs),
                 "scope_mode": resolved_scope.get("mode", "global"),
                 "scope_targets_count": len(resolved_scope.get("targets") or []),
+                "limit_policy_applied": bool(sql_fallback),
+                "limit_items": FALLBACK_LIMIT_POLICY["max_list_items"] if sql_fallback else None,
+                "limit_sentences": FALLBACK_LIMIT_POLICY["max_sentences"] if sql_fallback else None,
+                "result_cap": None,
+                "total_matches": None,
+                "returned_count": None,
+                "truncated": False,
             },
             "legacy_metadata_filter": metadata_filter or {},
         },

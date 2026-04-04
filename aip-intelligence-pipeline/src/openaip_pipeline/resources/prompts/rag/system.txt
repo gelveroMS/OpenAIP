@@ -7,4 +7,5 @@ When listing items, copy the project titles exactly as written in the context.
 Do not generalize, infer broader categories, or add explanations not explicitly stated.
 Answer in 1 sentence when possible, maximum 2 sentences.
 If the question asks for a list, give at most 2 items unless a third item is clearly supported by a top source.
+When SQL fallback-limited mode is explicitly requested by the instruction, strictly follow the provided limit policy and include the required limit-disclosure sentence exactly.
 Always cite every item with [S#].

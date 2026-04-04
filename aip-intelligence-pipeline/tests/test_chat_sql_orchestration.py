@@ -105,6 +105,9 @@ def test_sql_result_short_circuits_rag(monkeypatch) -> None:
     assert payload["answer"] == "Total investment program: PHP 1,000.00."
     assert payload["retrieval_meta"]["status"] == "answer"
     assert payload["retrieval_meta"]["route_family"] == "sql_totals"
+    assert payload["retrieval_meta"]["sql_attempted"] is True
+    assert payload["retrieval_meta"]["sql_scoped"] is True
+    assert payload["retrieval_meta"]["fallback_source"] == "sql"
 
 
 def test_fallback_to_rag_when_sql_returns_none_for_structured_intent(monkeypatch) -> None:
@@ -122,7 +125,10 @@ def test_fallback_to_rag_when_sql_returns_none_for_structured_intent(monkeypatch
     def fake_sql(**_kwargs):
         return None
 
+    captured_rag_kwargs: dict = {}
+
     def fake_rag(**kwargs):
+        captured_rag_kwargs.update(kwargs)
         return {
             "question": kwargs.get("question"),
             "answer": "RAG fallback answer.",
@@ -142,20 +148,26 @@ def test_fallback_to_rag_when_sql_returns_none_for_structured_intent(monkeypatch
     payload = response.json()
     assert payload["answer"] == "RAG fallback answer."
     assert payload["retrieval_meta"]["status"] == "answer"
+    assert payload["retrieval_meta"]["sql_attempted"] is True
+    assert payload["retrieval_meta"]["sql_scoped"] is False
+    assert payload["retrieval_meta"]["fallback_source"] == "rag"
+    assert captured_rag_kwargs["sql_fallback"] is True
 
 
-def test_rag_query_skips_sql_and_calls_rag_directly(monkeypatch) -> None:
+def test_rag_query_attempts_sql_then_falls_back_to_rag(monkeypatch) -> None:
     _patch_base(monkeypatch)
     monkeypatch.setattr(
         chat_route_module,
         "classify_message",
         lambda **_kwargs: _classification(intent="rag_query", needs_retrieval=True, route_hint="rag_query"),
     )
-    monkeypatch.setattr(
-        chat_route_module,
-        "maybe_answer_with_sql",
-        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("SQL should not be called for rag_query.")),
-    )
+    sql_calls = {"count": 0}
+
+    def _fake_sql(**_kwargs):
+        sql_calls["count"] += 1
+        return None
+
+    monkeypatch.setattr(chat_route_module, "maybe_answer_with_sql", _fake_sql)
     monkeypatch.setattr(
         chat_route_module,
         "answer_with_rag",
@@ -176,6 +188,10 @@ def test_rag_query_skips_sql_and_calls_rag_directly(monkeypatch) -> None:
     payload = response.json()
     assert payload["answer"] == "RAG direct answer."
     assert payload["retrieval_meta"]["status"] == "answer"
+    assert sql_calls["count"] == 1
+    assert payload["retrieval_meta"]["sql_attempted"] is True
+    assert payload["retrieval_meta"]["sql_scoped"] is False
+    assert payload["retrieval_meta"]["fallback_source"] == "rag"
 
 
 def test_entity_filters_and_retrieval_query_are_forwarded_to_rag(monkeypatch) -> None:
@@ -204,7 +220,7 @@ def test_entity_filters_and_retrieval_query_are_forwarded_to_rag(monkeypatch) ->
     monkeypatch.setattr(
         chat_route_module,
         "maybe_answer_with_sql",
-        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("SQL should not be called for rag_query.")),
+        lambda **_kwargs: None,
     )
 
     captured_kwargs: dict = {}
@@ -262,7 +278,7 @@ def test_entity_filters_restrict_scope_type_to_city_or_barangay(monkeypatch) -> 
     monkeypatch.setattr(
         chat_route_module,
         "maybe_answer_with_sql",
-        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("SQL should not be called for rag_query.")),
+        lambda **_kwargs: None,
     )
 
     captured_kwargs: dict = {}
@@ -319,7 +335,7 @@ def test_entity_filters_normalize_city_scope_name_to_city_suffix(monkeypatch) ->
     monkeypatch.setattr(
         chat_route_module,
         "maybe_answer_with_sql",
-        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("SQL should not be called for rag_query.")),
+        lambda **_kwargs: None,
     )
 
     captured_kwargs: dict = {}
@@ -362,7 +378,7 @@ def test_payload_city_scope_name_is_normalized(monkeypatch) -> None:
     monkeypatch.setattr(
         chat_route_module,
         "maybe_answer_with_sql",
-        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("SQL should not be called for rag_query.")),
+        lambda **_kwargs: None,
     )
 
     captured_kwargs: dict = {}
@@ -590,7 +606,7 @@ def test_chat_defaults_forward_reference_aligned_top_k_and_similarity(monkeypatc
     monkeypatch.setattr(
         chat_route_module,
         "maybe_answer_with_sql",
-        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("SQL should not be called for rag_query.")),
+        lambda **_kwargs: None,
     )
 
     captured_kwargs: dict = {}
@@ -639,7 +655,7 @@ def test_chat_uses_pipeline_model_for_generation_without_intent_override(monkeyp
     monkeypatch.setattr(
         chat_route_module,
         "maybe_answer_with_sql",
-        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("SQL should not be called for rag_query.")),
+        lambda **_kwargs: None,
     )
     monkeypatch.setattr(chat_route_module, "answer_with_rag", _fake_rag)
 
@@ -675,7 +691,7 @@ def test_chat_model_override_is_passed_to_intent_and_generation(monkeypatch) -> 
     monkeypatch.setattr(
         chat_route_module,
         "maybe_answer_with_sql",
-        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("SQL should not be called for rag_query.")),
+        lambda **_kwargs: None,
     )
     monkeypatch.setattr(chat_route_module, "answer_with_rag", _fake_rag)
 
@@ -827,7 +843,7 @@ def test_year_available_preflight_keeps_rag_execution(monkeypatch) -> None:
     monkeypatch.setattr(
         chat_route_module,
         "maybe_answer_with_sql",
-        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("SQL should not be called for rag_query.")),
+        lambda **_kwargs: None,
     )
     monkeypatch.setattr(
         chat_route_module,

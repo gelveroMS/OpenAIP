@@ -3,9 +3,12 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from openaip_pipeline.services.query_intent import detect_exhaustive_intent
+
 YEAR_RE = re.compile(r"\b(20\d{2})\b")
 REF_RE = re.compile(r"\b\d{4}-[a-z0-9-]{3,}\b", re.IGNORECASE)
 TOP_RE = re.compile(r"\btop\s+(\d{1,2})\b", re.IGNORECASE)
+FILTERED_LIST_CAP = 20
 
 
 def _norm(text: str) -> str:
@@ -133,6 +136,12 @@ def _response(
         "status": status,
         "route_family": route_family,
         "context_count": len(citations),
+        "exhaustive_intent": False,
+        "exhaustive_signal": None,
+        "result_cap": None,
+        "total_matches": None,
+        "returned_count": None,
+        "truncated": False,
     }
     if extra_meta:
         meta.update(extra_meta)
@@ -235,6 +244,14 @@ def _fetch_name_map(*, supabase: Any, table: str, ids: list[str]) -> dict[str, s
     return out
 
 def _detect_metadata(normalized: str) -> str | None:
+    exhaustive = detect_exhaustive_intent(normalized)
+    if (
+        exhaustive["exhaustive_intent"]
+        and any(token in normalized for token in ["project", "projects", "program", "programs"])
+        and _extract_filtered_project_filters(normalized)
+    ):
+        return None
+
     has_enum = any(
         token in normalized
         for token in ["list", "show", "available", "which", "what are", "what years", "which years"]
@@ -271,8 +288,82 @@ def _is_totals(normalized: str) -> bool:
     )
 
 
+def _extract_filter_value(normalized: str, patterns: list[str]) -> str | None:
+    tail_stop = (
+        r"(?=\s+(?:for\s+fy|for\s+fiscal\s+year|in\s+fy|in\s+fiscal\s+year|"
+        r"in\s+barangay|in\s+city|in\s+municipality|with\s+citations|with\s+sources)\b|$)"
+    )
+    for head in patterns:
+        match = re.search(
+            rf"(?:{head})\s*(?:is|=|:)?\s*([a-z0-9/&().,\- ]+?){tail_stop}",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            continue
+        value = " ".join(str(match.group(1) or "").strip().split())
+        value = value.strip(" .,;:")
+        if value:
+            return value
+    return None
+
+
+def _extract_filtered_project_filters(normalized: str) -> dict[str, str]:
+    filters: dict[str, str] = {}
+    fund_source = _extract_filter_value(
+        normalized,
+        [
+            r"fund\s+source",
+            r"funding\s+source",
+            r"source\s+of\s+funds",
+            r"funcing\s+source",
+            r"fund\s+from",
+        ],
+    )
+    if fund_source:
+        filters["fund_source"] = fund_source
+
+    sector = _extract_filter_value(
+        normalized,
+        [
+            r"sector",
+            r"sector\s+name",
+            r"under\s+sector",
+            r"in\s+sector",
+        ],
+    )
+    if sector:
+        filters["sector"] = sector
+
+    implementing_agency = _extract_filter_value(
+        normalized,
+        [
+            r"implementing\s+agency",
+            r"implemented\s+by",
+            r"agency",
+            r"office",
+        ],
+    )
+    if implementing_agency:
+        filters["implementing_agency"] = implementing_agency
+    return filters
+
+
+def _matches_filter(value: Any, filter_value: str) -> bool:
+    if not filter_value:
+        return True
+    left = _norm(str(value or ""))
+    right = _norm(filter_value)
+    if not left or not right:
+        return False
+    return right in left
+
+
 def _detect_aggregation(normalized: str) -> str | None:
     has_projects = any(token in normalized for token in ["project", "projects", "program", "programs"])
+    exhaustive = detect_exhaustive_intent(normalized)
+    if has_projects and exhaustive["exhaustive_intent"] and _extract_filtered_project_filters(normalized):
+        return "filtered_project_list"
     if has_projects and any(token in normalized for token in ["top ", "largest", "highest", "most funded"]):
         return "top_projects"
     if any(token in normalized for token in ["by sector", "sector totals", "sector breakdown", "breakdown by sector"]):
@@ -451,6 +542,135 @@ def _answer_top_projects(
             "limit": limit,
         },
     )
+
+
+def _answer_filtered_project_list(
+    *,
+    supabase: Any,
+    question: str,
+    normalized: str,
+    targets: list[dict[str, str]],
+    fiscal_year: int | None,
+    exhaustive_signal: str | None,
+) -> dict[str, Any] | None:
+    filters = _extract_filtered_project_filters(normalized)
+    if not filters:
+        return None
+
+    aips = _fetch_aips(supabase=supabase, fiscal_year=fiscal_year, targets=targets)
+    if not aips:
+        return None
+    aip_ids = [str(row.get("id")) for row in aips if row.get("id")]
+    rows = _fetch_line_items(supabase=supabase, aip_ids=aip_ids, fiscal_year=fiscal_year)
+
+    filtered_rows: list[dict[str, Any]] = []
+    for row in rows:
+        if "fund_source" in filters and not _matches_filter(row.get("fund_source"), filters["fund_source"]):
+            continue
+        if "sector" in filters:
+            sector_label = " ".join(
+                [
+                    str(row.get("sector_code") or "").strip(),
+                    str(row.get("sector_name") or "").strip(),
+                ]
+            ).strip()
+            if not _matches_filter(sector_label, filters["sector"]):
+                continue
+        if "implementing_agency" in filters and not _matches_filter(
+            row.get("implementing_agency"), filters["implementing_agency"]
+        ):
+            continue
+        filtered_rows.append(row)
+
+    deduped: dict[str, dict[str, Any]] = {}
+    for row in filtered_rows:
+        title = str(row.get("program_project_title") or "").strip() or "Untitled project"
+        ref_code = str(row.get("aip_ref_code") or "").strip()
+        key = "|".join([str(row.get("aip_id") or ""), title.lower(), ref_code.lower()])
+        if key not in deduped:
+            deduped[key] = row
+
+    ranked = sorted(
+        deduped.values(),
+        key=lambda row: (
+            str(row.get("program_project_title") or "").strip().lower(),
+            str(row.get("aip_ref_code") or "").strip().lower(),
+            str(row.get("id") or "").strip().lower(),
+        ),
+    )
+    total_matches = len(ranked)
+    if total_matches == 0:
+        return None
+
+    returned_rows = ranked[:FILTERED_LIST_CAP]
+    returned_count = len(returned_rows)
+    truncated = total_matches > returned_count
+    scope_label = _scope_label(targets)
+    fy_label = f"FY {fiscal_year}" if fiscal_year is not None else "All fiscal years"
+
+    filter_parts = []
+    if "fund_source" in filters:
+        filter_parts.append(f"fund source='{filters['fund_source']}'")
+    if "sector" in filters:
+        filter_parts.append(f"sector='{filters['sector']}'")
+    if "implementing_agency" in filters:
+        filter_parts.append(f"implementing agency='{filters['implementing_agency']}'")
+    filter_label = ", ".join(filter_parts) if filter_parts else "applied filters"
+
+    lines: list[str] = []
+    citations: list[dict[str, Any]] = []
+    for index, row in enumerate(returned_rows, start=1):
+        title = str(row.get("program_project_title") or "Untitled project").strip()
+        amount = _php(_num(row.get("total")))
+        ref_code = str(row.get("aip_ref_code") or "").strip() or "N/A"
+        fund_source = str(row.get("fund_source") or "").strip() or "Unspecified"
+        agency = str(row.get("implementing_agency") or "").strip() or "Unspecified"
+        lines.append(f"{index}. {title} - {amount} - Fund: {fund_source} - Agency: {agency} - Ref {ref_code}")
+        citations.append(
+            {
+                "source_id": f"F{index}",
+                "scope_type": "system",
+                "scope_name": "Published AIP line items",
+                "snippet": f"{title} - {fund_source} - {agency} - Ref {ref_code}",
+                "insufficient": False,
+                "metadata": {
+                    "type": "aip_line_item",
+                    "line_item_id": row.get("id"),
+                    "aip_id": row.get("aip_id"),
+                    "fiscal_year": row.get("fiscal_year"),
+                    "page_no": row.get("page_no"),
+                    "row_no": row.get("row_no"),
+                    "table_no": row.get("table_no"),
+                },
+            }
+        )
+
+    answer = f"Projects matching {filter_label} ({scope_label}; {fy_label}):\n" + "\n".join(lines)
+    if truncated:
+        remaining = total_matches - returned_count
+        answer += (
+            f"\nShowing first {returned_count} of {total_matches} matches. "
+            f"{remaining} more matches are available. Narrow the scope, fiscal year, or filters for the next query."
+        )
+
+    return _response(
+        question=question,
+        answer=answer,
+        citations=citations,
+        route_family="filtered_list_sql",
+        extra_meta={
+            "aggregation": "filtered_project_list",
+            "fiscal_year_filter": fiscal_year,
+            "applied_filters": filters,
+            "exhaustive_intent": True,
+            "exhaustive_signal": exhaustive_signal,
+            "result_cap": FILTERED_LIST_CAP,
+            "total_matches": total_matches,
+            "returned_count": returned_count,
+            "truncated": truncated,
+        },
+    )
+
 
 def _answer_totals_by_sector(
     *,
@@ -865,6 +1085,7 @@ def maybe_answer_with_sql(
     normalized = _norm(question)
     if not normalized:
         return None
+    exhaustive = detect_exhaustive_intent(question)
 
     from supabase.client import create_client
 
@@ -927,6 +1148,15 @@ def maybe_answer_with_sql(
     aggregation_intent = _detect_aggregation(normalized)
     if aggregation_intent is not None:
         try:
+            if aggregation_intent == "filtered_project_list":
+                return _answer_filtered_project_list(
+                    supabase=supabase,
+                    question=question,
+                    normalized=normalized,
+                    targets=targets,
+                    fiscal_year=fiscal_year,
+                    exhaustive_signal=exhaustive["exhaustive_signal"],
+                )
             if aggregation_intent == "top_projects":
                 return _answer_top_projects(
                     supabase=supabase,
