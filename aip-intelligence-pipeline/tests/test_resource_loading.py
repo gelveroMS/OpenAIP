@@ -21,6 +21,12 @@ def test_resource_loading() -> None:
     assert "Return JSON only" in summary_reduce_prompt
     assert '"summary": "string"' in summary_reduce_prompt
 
+    rag_system_prompt = read_text("prompts/rag/system.txt")
+    assert 'You are OpenAIP\'s RAG assistant.' in rag_system_prompt
+    assert "If the context is insufficient, reply exactly: Insufficient context." in rag_system_prompt
+    assert 'Always cite every item with [S#].' in rag_system_prompt
+    assert '"You are OpenAIP' not in rag_system_prompt
+
     barangay_validation_prompt = read_text("prompts/validation/barangay_system.txt")
     assert "R001" in barangay_validation_prompt
     assert "R002" in barangay_validation_prompt

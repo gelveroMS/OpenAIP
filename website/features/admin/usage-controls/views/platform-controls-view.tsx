@@ -10,11 +10,9 @@ import FlaggedUsersTable from "../components/FlaggedUsersTable";
 import UserAuditHistoryDialog from "../components/UserAuditHistoryDialog";
 import BlockUserDialog from "../components/BlockUserDialog";
 import UnblockUserDialog from "../components/UnblockUserDialog";
-import ChatbotMetricsRow from "../components/ChatbotMetricsRow";
 import ChatbotRateLimitsCard from "../components/ChatbotRateLimitsCard";
 import { getUsageControlsRepo } from "@/lib/repos/usage-controls/repo";
 import type {
-  ChatbotMetrics,
   ChatbotRateLimitPolicy,
   FlaggedUserRowVM,
   RateLimitSettingsVM,
@@ -35,8 +33,6 @@ export default function PlatformControlsView() {
   const searchParams = useSearchParams();
   const repo = useMemo(() => getUsageControlsRepo(), []);
   const tabParam = searchParams.get("tab");
-  const metricsDateFrom = searchParams.get("from");
-  const metricsDateTo = searchParams.get("to");
   const initialTab: PlatformControlsTab = tabParam === "chatbot" ? "chatbot" : "feedback";
   const [activeTab, setActiveTab] = useState<PlatformControlsTab>(initialTab);
 
@@ -47,7 +43,6 @@ export default function PlatformControlsView() {
   const [auditError, setAuditError] = useState<string | null>(null);
   const [selectedUser, setSelectedUser] = useState<FlaggedUserRowVM | null>(null);
   const [activeModal, setActiveModal] = useState<"audit" | "block" | "unblock" | null>(null);
-  const [chatbotMetrics, setChatbotMetrics] = useState<ChatbotMetrics | null>(null);
   const [chatbotRateLimit, setChatbotRateLimit] = useState<ChatbotRateLimitPolicy | null>(null);
 
   const [blockReason, setBlockReason] = useState("");
@@ -66,25 +61,20 @@ export default function PlatformControlsView() {
     setLoading(true);
     setError(null);
     try {
-      const [settings, users, rateLimitPolicy, metrics] = await Promise.all([
+      const [settings, users, rateLimitPolicy] = await Promise.all([
         repo.getRateLimitSettings(),
         repo.listFlaggedUsers(),
         repo.getChatbotRateLimitPolicy(),
-        repo.getChatbotMetrics({
-          dateFrom: metricsDateFrom,
-          dateTo: metricsDateTo,
-        }),
       ]);
       setRateSettings(settings);
       setFlaggedUsers(users);
-      setChatbotMetrics(metrics);
       setChatbotRateLimit(rateLimitPolicy);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load platform controls.");
     } finally {
       setLoading(false);
     }
-  }, [metricsDateFrom, metricsDateTo, repo]);
+  }, [repo]);
 
   useEffect(() => {
     refresh();
@@ -196,7 +186,7 @@ export default function PlatformControlsView() {
         <h1 className="text-[28px] font-semibold text-slate-900">Platform Controls</h1>
         <p className="mt-2 text-[14px] text-muted-foreground">
           Configure usage protections and manage abusive/flagged users. Govern chatbot availability
-          and request limits while viewing chatbot performance metrics
+          and request limits.
         </p>
       </div>
 
@@ -248,8 +238,6 @@ export default function PlatformControlsView() {
 
       {activeTab === "chatbot" && (
         <div className="space-y-6">
-          <ChatbotMetricsRow metrics={chatbotMetrics} loading={loading || !chatbotMetrics} />
-
           <div>
             <div className="text-[15px] font-semibold text-slate-900">Chatbot Rate Limits</div>
             <div className="text-[13.5px] text-slate-500">

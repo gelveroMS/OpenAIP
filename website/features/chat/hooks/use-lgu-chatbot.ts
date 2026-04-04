@@ -153,6 +153,7 @@ export function useLguChatbot(routePrefix = "/api/barangay/chat") {
   const [messageInput, setMessageInput] = useState("");
   const [isSessionsLoading, setIsSessionsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
+  const [isAwaitingAssistant, setIsAwaitingAssistant] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const mergeSessions = useCallback((incoming: ChatSession[]) => {
@@ -340,9 +341,10 @@ export function useLguChatbot(routePrefix = "/api/barangay/chat") {
   const sendMessage = useCallback(
     async (rawContent: string, retryMessageId?: string) => {
       const content = rawContent.trim();
-      if (!content || isSending) return;
+      if (!content || isSending || isAwaitingAssistant) return;
 
       setError(null);
+      setIsAwaitingAssistant(false);
       setIsSending(true);
 
       let sessionId = activeSessionId;
@@ -399,7 +401,7 @@ export function useLguChatbot(routePrefix = "/api/barangay/chat") {
       setLoadedSessionIds((prev) => ({ ...prev, [sessionId]: true }));
 
       try {
-        const payload = await postJson<{
+        const payloadPromise = postJson<{
           sessionId: string;
           userMessage: ChatMessage;
           assistantMessage: ChatMessage;
@@ -407,6 +409,16 @@ export function useLguChatbot(routePrefix = "/api/barangay/chat") {
           sessionId,
           content,
         });
+        setMessagesBySession((prev) => ({
+          ...prev,
+          [sessionId]: (prev[sessionId] ?? []).map((message) =>
+            message.id === optimisticId ? { ...message, deliveryStatus: "sent" } : message
+          ),
+        }));
+        setIsSending(false);
+        setIsAwaitingAssistant(true);
+
+        const payload = await payloadPromise;
 
         const resolvedSessionId = payload.sessionId;
         const userMessage = payload.userMessage;
@@ -446,9 +458,10 @@ export function useLguChatbot(routePrefix = "/api/barangay/chat") {
         setError(mapLguChatbotErrorMessage(err, "Failed to send message."));
       } finally {
         setIsSending(false);
+        setIsAwaitingAssistant(false);
       }
     },
-    [activeSessionId, createSession, isSending, loadSessions, refreshSearch, routePrefix]
+    [activeSessionId, createSession, isAwaitingAssistant, isSending, loadSessions, refreshSearch, routePrefix]
   );
 
   const handleSend = useCallback(async () => {
@@ -547,6 +560,7 @@ export function useLguChatbot(routePrefix = "/api/barangay/chat") {
     isSessionsLoading,
     isMessagesLoading,
     isSending,
+    isAwaitingAssistant,
     error,
     sessionListItems,
     activeSession,

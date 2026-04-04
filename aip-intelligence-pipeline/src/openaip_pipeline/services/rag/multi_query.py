@@ -101,12 +101,12 @@ def _doc_key(doc: Any) -> str:
 
 def _doc_score(doc: Any) -> float:
     metadata = getattr(doc, "metadata", {}) or {}
-    value = metadata.get("hybrid_score")
-    if isinstance(value, (int, float)):
-        return float(value)
     sim = metadata.get("similarity")
     if isinstance(sim, (int, float)):
         return float(sim)
+    rank_score = metadata.get("rank_score")
+    if isinstance(rank_score, (int, float)):
+        return float(rank_score)
     return 0.0
 
 

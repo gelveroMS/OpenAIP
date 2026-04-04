@@ -3,13 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import AipDetailsTabs from "./components/aip-details-tabs";
 import type { AipDetails } from "./types";
 
-const replaceMock = vi.fn();
 const searchParams = new URLSearchParams();
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({
-    replace: (...args: unknown[]) => replaceMock(...args),
-  }),
   usePathname: () => "/aips/aip-1",
   useSearchParams: () => searchParams,
 }));
@@ -66,8 +62,8 @@ function buildAipDetails(): AipDetails {
 }
 
 describe("AipDetailsTabs mobile layout", () => {
-  it("renders tabs in a horizontal-scroll container and preserves tab routing behavior", async () => {
-    replaceMock.mockReset();
+  it("renders tabs in a horizontal-scroll container and updates tab URL without navigation", async () => {
+    const replaceStateSpy = vi.spyOn(window.history, "replaceState");
     searchParams.set("tab", "overview");
 
     render(<AipDetailsTabs aip={buildAipDetails()} />);
@@ -80,7 +76,12 @@ describe("AipDetailsTabs mobile layout", () => {
     fireEvent.mouseDown(accountabilityTab);
     fireEvent.click(accountabilityTab);
     await waitFor(() => {
-      expect(replaceMock).toHaveBeenCalledWith("/aips/aip-1?tab=accountability", { scroll: false });
+      expect(replaceStateSpy).toHaveBeenCalled();
     });
+
+    const [, , url] = replaceStateSpy.mock.calls.at(-1) ?? [];
+    expect(url).toBe("/aips/aip-1?tab=accountability");
+
+    replaceStateSpy.mockRestore();
   });
 });

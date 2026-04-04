@@ -355,6 +355,28 @@ export function buildDisplay(
         actionUrl,
       };
     }
+    case "AIP_FORCE_UNCLAIMED": {
+      const recipientRole = (row.recipient_role ?? "").toLowerCase();
+      const reason = safeTruncate(
+        asString(metadata.note) ?? asString(metadata.reason),
+        REVISION_EXCERPT_MAX
+      );
+      const dropdownTitle =
+        recipientRole === "city_official" || recipientRole === "municipal_official"
+          ? "Your AIP review claim was removed by an admin."
+          : "A review claim was removed by an admin.";
+      return {
+        title:
+          surface === "dropdown"
+            ? withDropdownTitleLimit(dropdownTitle)
+            : "AIP force-unclaimed by admin",
+        context,
+        excerpt: reason || undefined,
+        iconKey: "shield",
+        pill: "Admin",
+        actionUrl,
+      };
+    }
     case "AIP_REVISION_REQUESTED": {
       const revisionNotes =
         safeTruncate(
@@ -370,6 +392,20 @@ export function buildDisplay(
         excerpt: revisionNotes,
         iconKey: "pencil-alert",
         pill: "Revision",
+        actionUrl,
+      };
+    }
+    case "AIP_REVIEW_REMINDER": {
+      const actorName = asString(metadata.actor_name);
+      return {
+        title:
+          surface === "dropdown"
+            ? withDropdownTitleLimit("Reminder: pending AIP submission needs review.")
+            : "AIP review reminder",
+        context,
+        excerpt: actorName ? `Reminder sent by ${actorName}.` : undefined,
+        iconKey: "refresh-cw",
+        pill: "Reminder",
         actionUrl,
       };
     }
@@ -672,6 +708,15 @@ export function buildNotificationTemplate(input: NotifyInput): NotificationTempl
         emailSubject: "OpenAIP - Your AIP was claimed for review",
         templateKey: "AIP_CLAIMED",
       };
+    case "AIP_FORCE_UNCLAIMED":
+      return {
+        title: "AIP Force-Unclaimed",
+        message: note
+          ? `An admin force-unclaimed this AIP review: ${note}`
+          : withActorPrefix(input.actorName, "An admin force-unclaimed an AIP review."),
+        emailSubject: "OpenAIP - AIP review claim removed by admin",
+        templateKey: "AIP_FORCE_UNCLAIMED",
+      };
     case "AIP_REVISION_REQUESTED":
       return {
         title: "AIP Revision Requested",
@@ -701,6 +746,13 @@ export function buildNotificationTemplate(input: NotifyInput): NotificationTempl
         message: "A revised barangay AIP was resubmitted for city review.",
         emailSubject: "OpenAIP - AIP resubmitted after revision",
         templateKey: "AIP_RESUBMITTED",
+      };
+    case "AIP_REVIEW_REMINDER":
+      return {
+        title: "AIP Review Reminder",
+        message: "Reminder: a pending barangay AIP needs review.",
+        emailSubject: "OpenAIP - Reminder to review pending AIP submission",
+        templateKey: "AIP_REVIEW_REMINDER",
       };
     case "AIP_EXTRACTION_SUCCEEDED":
       return {

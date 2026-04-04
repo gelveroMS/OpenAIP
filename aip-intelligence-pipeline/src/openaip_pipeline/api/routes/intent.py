@@ -1,47 +1,80 @@
 from __future__ import annotations
 
-import hmac
-import os
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 
-from openaip_pipeline.services.intent import IntentRouter
+from openaip_pipeline.api.routes.chat_auth import chat_auth_dependency
+from openaip_pipeline.core.settings import Settings
+from openaip_pipeline.services.intent import IntentClassificationError, classify_message
 
-MAX_INTENT_TEXT_LENGTH = 2000
-
-def _load_intent_token() -> str:
-    token = os.getenv("PIPELINE_INTERNAL_TOKEN", "").strip()
-    if not token:
-        raise HTTPException(status_code=500, detail="PIPELINE_INTERNAL_TOKEN is not configured.")
-    return token
+router = APIRouter(prefix="/v1/intent", tags=["intent"], dependencies=[Depends(chat_auth_dependency)])
 
 
-async def _require_intent_token_auth(request: Request) -> None:
-    provided = (request.headers.get("x-pipeline-token") or "").strip()
-    if not provided:
-        raise HTTPException(status_code=401, detail="Unauthorized.")
-
-    expected = _load_intent_token()
-    if not hmac.compare_digest(provided, expected):
-        raise HTTPException(status_code=401, detail="Unauthorized.")
-
-
-router = APIRouter(prefix="/intent", tags=["intent"], dependencies=[Depends(_require_intent_token_auth)])
-
-_INTENT_ROUTER = IntentRouter()
+class IntentEntities(BaseModel):
+    barangay: str | None = None
+    city: str | None = None
+    fiscal_year: int | None = None
+    topic: str | None = None
+    project_type: str | None = None
+    sector: str | None = None
+    budget_term: str | None = None
+    scope_name: str | None = None
+    scope_type: Literal["barangay", "city"] | None = None
 
 
 class IntentClassifyRequest(BaseModel):
-    text: str
+    message: str = Field(min_length=1, max_length=12000)
+    model_name: str | None = None
 
 
-@router.post("/classify")
-def classify_intent(payload: IntentClassifyRequest) -> dict[str, str | float | None]:
-    text = payload.text
-    # Truncate oversized payloads instead of rejecting them to keep the endpoint easy to consume.
-    if len(text) > MAX_INTENT_TEXT_LENGTH:
-        text = text[:MAX_INTENT_TEXT_LENGTH]
+class IntentClassifyResponse(BaseModel):
+    intent: str
+    confidence: float
+    needs_retrieval: bool
+    friendly_response: str | None
+    entities: IntentEntities
+    route_hint: str | None
+    classifier_method: str
 
-    result = _INTENT_ROUTER.route(text)
-    return result.to_dict()
+
+@router.post("/classify", response_model=IntentClassifyResponse)
+def classify_intent(req: IntentClassifyRequest) -> IntentClassifyResponse:
+    settings = Settings.load(require_supabase=False, require_openai=False)
+    intent_model_override = (req.model_name or "").strip()
+
+    try:
+        result = classify_message(
+            message=req.message,
+            openai_api_key=settings.openai_api_key,
+            default_model=intent_model_override,
+        )
+    except IntentClassificationError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+    payload = result.to_dict()
+    entities = payload.get("entities") if isinstance(payload.get("entities"), dict) else {}
+    normalized_entities: dict[str, Any] = {
+        "barangay": entities.get("barangay"),
+        "city": entities.get("city"),
+        "fiscal_year": entities.get("fiscal_year"),
+        "topic": entities.get("topic"),
+        "project_type": entities.get("project_type"),
+        "sector": entities.get("sector"),
+        "budget_term": entities.get("budget_term"),
+        "scope_name": entities.get("scope_name"),
+        "scope_type": entities.get("scope_type"),
+    }
+
+    return IntentClassifyResponse(
+        intent=str(payload.get("intent") or ""),
+        confidence=float(payload.get("confidence") or 0.0),
+        needs_retrieval=bool(payload.get("needs_retrieval")),
+        friendly_response=payload.get("friendly_response")
+        if isinstance(payload.get("friendly_response"), str)
+        else None,
+        entities=IntentEntities(**normalized_entities),
+        route_hint=payload.get("route_hint") if isinstance(payload.get("route_hint"), str) else None,
+        classifier_method=str(payload.get("classifier_method") or ""),
+    )

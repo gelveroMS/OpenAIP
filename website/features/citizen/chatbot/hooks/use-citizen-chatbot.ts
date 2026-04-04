@@ -86,7 +86,11 @@ async function requestAssistantReply(params: {
 
   const payload = (await response.json().catch(() => ({}))) as
     | CitizenChatReplyResult
-    | { error?: string };
+    | {
+      message?: CitizenChatReplyResult["assistantMessage"];
+      suggestedFollowUps?: string[];
+      error?: string;
+    };
 
   if (!response.ok) {
     const error = "error" in payload && typeof payload.error === "string"
@@ -95,7 +99,48 @@ async function requestAssistantReply(params: {
     throw new Error(error);
   }
 
-  return payload as CitizenChatReplyResult;
+  if (
+    payload &&
+    typeof payload === "object" &&
+    "assistantMessage" in payload &&
+    payload.assistantMessage &&
+    typeof payload.assistantMessage === "object"
+  ) {
+    return payload as CitizenChatReplyResult;
+  }
+
+  // Backward compatibility: adapt legacy citizen payload into LGU-style contract.
+  if (payload && typeof payload === "object" && "message" in payload && payload.message) {
+    const legacyMessage = payload.message;
+    const suggestedFollowUps =
+      Array.isArray(payload.suggestedFollowUps) ? payload.suggestedFollowUps : [];
+
+    return {
+      sessionId: params.sessionId,
+      userMessage: {
+        id: `user_echo_${Date.now()}`,
+        sessionId: params.sessionId,
+        role: "user",
+        content: params.userMessage,
+        createdAt: new Date().toISOString(),
+        citations: null,
+        retrievalMeta: null,
+      },
+      assistantMessage: {
+        ...legacyMessage,
+        retrievalMeta: {
+          ...(legacyMessage.retrievalMeta &&
+          typeof legacyMessage.retrievalMeta === "object" &&
+          !Array.isArray(legacyMessage.retrievalMeta)
+            ? legacyMessage.retrievalMeta
+            : {}),
+          suggestions: suggestedFollowUps,
+        },
+      },
+    };
+  }
+
+  throw new Error("Invalid assistant response payload.");
 }
 
 export function useCitizenChatbot() {
@@ -161,9 +206,15 @@ export function useCitizenChatbot() {
     setErrorMessage(null);
   }, []);
 
-  const refreshAuthStatus = useCallback(async (force = false) => {
-    setIsAuthResolved(false);
-    setIsProfileResolved(false);
+  const refreshAuthStatus = useCallback(async (options?: { force?: boolean; silent?: boolean }) => {
+    const force = options?.force === true;
+    const silent = options?.silent === true;
+
+    if (!silent) {
+      setIsAuthResolved(false);
+      setIsProfileResolved(false);
+    }
+
     try {
       const statusResult = await getCitizenProfileStatus({ force });
       if (statusResult.kind === "anonymous" || statusResult.kind === "error") {
@@ -191,17 +242,17 @@ export function useCitizenChatbot() {
   }, [clearAuthDependentState]);
 
   useEffect(() => {
-    void refreshAuthStatus(false);
+    void refreshAuthStatus({ force: false });
 
     const cleanupAuthChanged = addCitizenAuthChangedListener(() => {
       invalidateCitizenProfileStatusCache();
-      void refreshAuthStatus(true);
+      void refreshAuthStatus({ force: true, silent: true });
     });
 
     const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
       if (event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") return;
       invalidateCitizenProfileStatusCache();
-      void refreshAuthStatus(true);
+      void refreshAuthStatus({ force: true, silent: true });
     });
 
     return () => {
@@ -496,31 +547,27 @@ export function useCitizenChatbot() {
         sessionId: resolvedSessionId,
         userMessage: content,
       });
+      const replySessionId = reply.sessionId || resolvedSessionId;
 
       const assistantMessage: CitizenChatMessage = {
-        id: reply.message.id,
-        sessionId: reply.message.sessionId,
+        id: reply.assistantMessage.id,
+        sessionId: reply.assistantMessage.sessionId,
         role: "assistant",
-        content: reply.message.content,
-        citations: reply.message.citations,
-        retrievalMeta: {
-          ...(reply.message.retrievalMeta && typeof reply.message.retrievalMeta === "object" && !Array.isArray(reply.message.retrievalMeta)
-            ? reply.message.retrievalMeta
-            : {}),
-          suggestedFollowUps: reply.suggestedFollowUps,
-        },
-        createdAt: reply.message.createdAt,
+        content: reply.assistantMessage.content,
+        citations: reply.assistantMessage.citations,
+        retrievalMeta: reply.assistantMessage.retrievalMeta,
+        createdAt: reply.assistantMessage.createdAt,
       };
 
       setMessagesBySession((prev) => ({
         ...prev,
-        [resolvedSessionId]: [...(prev[resolvedSessionId] ?? []), assistantMessage],
+        [replySessionId]: [...(prev[replySessionId] ?? []), assistantMessage],
       }));
 
       setSessions((prev) =>
         sortSessionsByUpdatedAt(
           prev.map((session) =>
-            session.id === resolvedSessionId
+            session.id === replySessionId
               ? {
                   ...session,
                   lastMessageAt: assistantMessage.createdAt,

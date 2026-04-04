@@ -36,7 +36,7 @@ type BarangayNameRow = {
 type ReviewSelectRow = {
   aip_id: string;
   reviewer_id: string;
-  action: "approve" | "request_revision" | "claim_review";
+  action: "approve" | "request_revision" | "claim_review" | "force_unclaim";
   note: string | null;
   created_at: string;
 };
@@ -53,6 +53,14 @@ function assertAuthorizedActor(
 ): asserts actor is import("@/lib/domain/actor-context").ActorContext {
   if (!actor) throw new Error(UNAUTHORIZED_ERROR);
   if (actor.role !== "admin" && actor.role !== "city_official") {
+    throw new Error(UNAUTHORIZED_ERROR);
+  }
+}
+
+function assertAdminActor(
+  actor: import("@/lib/domain/actor-context").ActorContext | null
+): asserts actor is import("@/lib/domain/actor-context").ActorContext {
+  if (!actor || actor.role !== "admin") {
     throw new Error(UNAUTHORIZED_ERROR);
   }
 }
@@ -300,6 +308,7 @@ async function claimReviewViaRpc(aipId: string): Promise<AipStatus> {
 // [DBV2] Method -> table mapping:
 //   - listSubmissionsForCity -> `public.aips` (status <> 'draft', barangay scope within city jurisdiction) + latest `public.aip_reviews`
 //   - claimReview -> RPC `public.claim_aip_review` (row lock + append-only `claim_review`)
+//   - forceUnclaimReview -> RPC `public.force_unclaim_aip_review` (admin only, append-only `force_unclaim`, under_review -> pending_review)
 //   - startReviewIfNeeded -> legacy alias of `claimReview`
 //   - requestRevision/publishAip -> insert `public.aip_reviews` + update `public.aips.status` (`for_revision` / `published`)
 // [SECURITY] RLS enforces jurisdiction + non-draft reviewer gates (`aips_update_policy`, `aip_reviews_insert_policy`).
@@ -406,6 +415,50 @@ export function createSupabaseAipSubmissionsReviewRepo(): AipSubmissionsReviewRe
       const cityId = await resolveActorCityIdForAip(aipId, actor);
       await assertBarangayAipInCity(aipId, cityId);
       return claimReviewViaRpc(aipId);
+    },
+
+    async forceUnclaimReview({ aipId, note, actor }) {
+      const trimmed = note.trim();
+      if (!trimmed) {
+        throw new Error("Admin message is required.");
+      }
+
+      assertAdminActor(actor);
+
+      const aip = await loadAipStatusRow(aipId);
+      if (!aip) throw new Error("AIP not found.");
+      if (!aip.barangay_id) {
+        throw new Error("AIP is not a barangay submission.");
+      }
+      if (aip.status !== "under_review") {
+        throw new Error("Force unclaim is only allowed when the AIP is under review.");
+      }
+
+      const client = await supabaseServer();
+      const { data, error } = await client.rpc("force_unclaim_aip_review", {
+        p_aip_id: aipId,
+        p_note: trimmed,
+      });
+      if (error) throw new Error(error.message);
+
+      const row = Array.isArray(data) ? data[0] : data;
+      const status = row && typeof row.status === "string" ? row.status : null;
+      const previousReviewerId =
+        row && typeof row.previous_reviewer_id === "string"
+          ? row.previous_reviewer_id
+          : null;
+
+      if (status !== "pending_review") {
+        throw new Error("Unexpected status returned by force_unclaim_aip_review.");
+      }
+      if (!previousReviewerId) {
+        throw new Error("Missing reviewer assignment in force-unclaim response.");
+      }
+
+      return {
+        status: "pending_review",
+        previousReviewerId,
+      };
     },
 
     async startReviewIfNeeded({ aipId, actor }): Promise<AipStatus> {

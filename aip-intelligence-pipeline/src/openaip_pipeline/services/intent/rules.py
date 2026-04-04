@@ -2,126 +2,188 @@ from __future__ import annotations
 
 import re
 
-from .text_norm import is_effectively_empty, normalize_text
-
-_LINE_ITEM_REF_PATTERN = re.compile(
-    r"\bref\b(?:[\s:-]+)(?:[a-z0-9]{2,})(?:[\s:-]+[a-z0-9]{2,})+"
-)
-_LINE_ITEM_CODE_PHRASE_PATTERN = re.compile(r"\b(?:ref code|reference number|project code)\b")
-_LINE_ITEM_CODE_TOKEN_PATTERN = re.compile(r"\b[a-z0-9]+(?:-[a-z0-9]+)*\b")
-
-_AGGREGATION_CUES = ("grand total", "total", "sum", "overall")
-_TOTAL_DOMAIN_CUES = ("aip", "budget", "investment", "projects", "programs")
-
-_CATEGORY_DIMENSION_CUES = (
-    "sector",
-    "sectors",
-    "fund source",
-    "fund sources",
-    "funding source",
-    "funding sources",
-    "source of funds",
-    "sources of funds",
-    "category",
-    "categories",
-)
-_CATEGORY_PRESENTATION_CUES = (
-    "by",
-    "per",
-    "breakdown",
-    "distribution",
-    "list",
-    "show",
-    "what are",
-    "what is",
-    "give",
-    "provide",
-    "exist",
-    "available",
+from openaip_pipeline.services.chat import sql_router
+from openaip_pipeline.services.intent.types import (
+    AIP_ONLY_RESPONSE,
+    DEFAULT_CLARIFICATION_RESPONSE,
+    DEFAULT_FRIENDLY_RESPONSES,
+    INTENT_ROUTE_HINTS,
+    IntentResult,
+    empty_entities,
 )
 
-_SCOPE_AMBIGUOUS_CUES = (
-    "which barangay is this",
-    "which barangay is this for",
-    "which city is this",
-    "which city is this for",
-    "which city should i check",
-    "which municipality should i check",
-    "which barangay has this project",
-    "which barangay has that project",
-    "anong barangay ito",
-    "anong siyudad ito",
-    "what city do you mean",
-    "what barangay do you mean",
-    "saan ito",
-    "for that city",
-    "for that barangay",
-    "check this municipality",
-    "show me the budget there",
-    "compare that place to ours",
+_GREETING_RE = re.compile(r"\b(hi|hello|hey|good morning|good afternoon|good evening|kumusta)\b", re.IGNORECASE)
+_FAREWELL_RE = re.compile(r"\b(bye|goodbye|see you|quit|exit|paalam)\b", re.IGNORECASE)
+_THANKS_RE = re.compile(r"\b(thanks|thank you|thx|ty|salamat|maraming salamat)\b", re.IGNORECASE)
+_HELP_RE = re.compile(
+    r"\b(help|assist|what can you do|how can you help|paano ka makakatulong|anong pwede mong gawin)\b",
+    re.IGNORECASE,
 )
-_SCOPE_QUALIFIERS = ("barangay", "city", "municipality", "munisipyo")
+_SMALL_TALK_RE = re.compile(
+    r"\b(how are you|who are you|what are you|are you there|what's up|kamusta ka)\b",
+    re.IGNORECASE,
+)
+
+_OUT_OF_SCOPE_TOKENS = (
+    "weather",
+    "temperature",
+    "coding",
+    "code",
+    "python",
+    "javascript",
+    "math",
+    "algebra",
+    "politics",
+    "election",
+    "president",
+    "mayor",
+    "who is",
+    "what did you eat",
+    "recipe",
+    "movie",
+    "song",
+    "news",
+    "stock",
+    "crypto",
+    "sports",
+)
 
 
-def match_line_item_ref(text: str) -> bool:
-    normalized = normalize_text(text)
-    if is_effectively_empty(normalized):
-        return False
-
-    if _LINE_ITEM_REF_PATTERN.search(normalized):
-        return True
-
-    phrase_match = _LINE_ITEM_CODE_PHRASE_PATTERN.search(normalized)
-    if not phrase_match:
-        return False
-
-    trailing = normalized[phrase_match.end() :]
-    code_match = _LINE_ITEM_CODE_TOKEN_PATTERN.search(trailing)
-    if not code_match:
-        return False
-
-    code_token = code_match.group(0)
-    return any(character.isdigit() for character in code_token)
+def normalize_text(text: str) -> str:
+    return " ".join((text or "").strip().split())
 
 
-def match_total_aggregation(text: str) -> bool:
-    normalized = normalize_text(text)
-    if is_effectively_empty(normalized):
-        return False
-
-    if any(cue in normalized for cue in _CATEGORY_DIMENSION_CUES):
-        return False
-
-    has_aggregation_cue = any(cue in normalized for cue in _AGGREGATION_CUES)
-    if not has_aggregation_cue:
-        return False
-
-    return any(cue in normalized for cue in _TOTAL_DOMAIN_CUES)
-
-
-def match_category_aggregation(text: str) -> bool:
-    normalized = normalize_text(text)
-    if is_effectively_empty(normalized):
-        return False
-
-    if not any(cue in normalized for cue in _CATEGORY_DIMENSION_CUES):
-        return False
-
-    if any(cue in normalized for cue in _CATEGORY_PRESENTATION_CUES):
-        return True
-
-    return any(cue in normalized for cue in _TOTAL_DOMAIN_CUES)
+def _result(
+    *,
+    intent: str,
+    confidence: float,
+    needs_retrieval: bool,
+    friendly_response: str | None = None,
+    route_hint: str | None = None,
+) -> IntentResult:
+    return IntentResult(
+        intent=intent,
+        confidence=max(0.0, min(1.0, float(confidence))),
+        needs_retrieval=needs_retrieval,
+        friendly_response=friendly_response,
+        entities=empty_entities(),
+        route_hint=route_hint if route_hint is not None else INTENT_ROUTE_HINTS.get(intent),
+        classifier_method="rule",
+    )
 
 
-def match_scope_needs_clarification(text: str) -> bool:
-    normalized = normalize_text(text)
-    if is_effectively_empty(normalized):
-        return False
+def _is_out_of_scope(normalized_lower: str) -> bool:
+    return any(token in normalized_lower for token in _OUT_OF_SCOPE_TOKENS)
 
-    if any(cue in normalized for cue in _SCOPE_AMBIGUOUS_CUES):
-        return True
 
-    if "poblacion" not in normalized:
-        return False
+def _classify_domain_intent(original: str, normalized_lower: str) -> IntentResult | None:
+    metadata_intent = sql_router._detect_metadata(normalized_lower)
+    if metadata_intent is not None:
+        return _result(
+            intent="metadata_query",
+            confidence=0.96,
+            needs_retrieval=True,
+            route_hint="metadata_sql",
+        )
 
-    return not any(qualifier in normalized for qualifier in _SCOPE_QUALIFIERS)
+    if sql_router._is_compare_years(normalized_lower):
+        return _result(
+            intent="compare_years",
+            confidence=0.96,
+            needs_retrieval=True,
+            route_hint="aggregate_sql",
+        )
+
+    if sql_router._is_totals(normalized_lower):
+        return _result(
+            intent="total_aggregation",
+            confidence=0.95,
+            needs_retrieval=True,
+            route_hint="sql_totals",
+        )
+
+    aggregation_intent = sql_router._detect_aggregation(normalized_lower)
+    if aggregation_intent is not None:
+        return _result(
+            intent="category_aggregation",
+            confidence=0.95,
+            needs_retrieval=True,
+            route_hint="aggregate_sql",
+        )
+
+    if sql_router._is_line_item_query(original, normalized_lower):
+        return _result(
+            intent="line_item_lookup",
+            confidence=0.95,
+            needs_retrieval=True,
+            route_hint="row_sql",
+        )
+
+    return None
+
+
+def classify_with_rules(message: str) -> IntentResult | None:
+    normalized = normalize_text(message)
+    if not normalized:
+        return _result(
+            intent="clarification",
+            confidence=1.0,
+            needs_retrieval=False,
+            friendly_response=DEFAULT_CLARIFICATION_RESPONSE,
+        )
+
+    lowered = normalized.lower()
+
+    if _GREETING_RE.search(normalized):
+        return _result(
+            intent="greeting",
+            confidence=1.0,
+            needs_retrieval=False,
+            friendly_response=DEFAULT_FRIENDLY_RESPONSES["greeting"],
+        )
+
+    if _FAREWELL_RE.search(normalized):
+        return _result(
+            intent="farewell",
+            confidence=1.0,
+            needs_retrieval=False,
+            friendly_response=DEFAULT_FRIENDLY_RESPONSES["farewell"],
+        )
+
+    if _THANKS_RE.search(normalized):
+        return _result(
+            intent="thanks",
+            confidence=1.0,
+            needs_retrieval=False,
+            friendly_response=DEFAULT_FRIENDLY_RESPONSES["thanks"],
+        )
+
+    if _HELP_RE.search(normalized):
+        return _result(
+            intent="help",
+            confidence=0.98,
+            needs_retrieval=False,
+            friendly_response=DEFAULT_FRIENDLY_RESPONSES["help"],
+        )
+
+    if _SMALL_TALK_RE.search(normalized):
+        return _result(
+            intent="small_talk",
+            confidence=0.9,
+            needs_retrieval=False,
+            friendly_response=DEFAULT_FRIENDLY_RESPONSES["small_talk"],
+        )
+
+    domain = _classify_domain_intent(normalized, lowered)
+    if domain is not None:
+        return domain
+
+    if _is_out_of_scope(lowered):
+        return _result(
+            intent="out_of_scope",
+            confidence=0.95,
+            needs_retrieval=False,
+            friendly_response=AIP_ONLY_RESPONSE,
+        )
+
+    return None

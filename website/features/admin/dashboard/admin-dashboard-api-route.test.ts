@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AdminDashboardSnapshot } from "@/lib/repos/admin-dashboard/types";
 
 const mockGetActorContext = vi.fn();
-const mockParseAdminDashboardFilters = vi.fn();
+const mockCreateDefaultAdminDashboardFilters = vi.fn();
 const mockLoadAdminDashboardSnapshot = vi.fn();
 
 vi.mock("@/lib/domain/get-actor-context", () => ({
@@ -10,7 +10,8 @@ vi.mock("@/lib/domain/get-actor-context", () => ({
 }));
 
 vi.mock("@/lib/repos/admin-dashboard/snapshot.server", () => ({
-  parseAdminDashboardFilters: (...args: unknown[]) => mockParseAdminDashboardFilters(...args),
+  createDefaultAdminDashboardFilters: (...args: unknown[]) =>
+    mockCreateDefaultAdminDashboardFilters(...args),
   loadAdminDashboardSnapshot: (...args: unknown[]) => mockLoadAdminDashboardSnapshot(...args),
 }));
 
@@ -61,12 +62,12 @@ describe("GET /api/admin/dashboard", () => {
     vi.clearAllMocks();
 
     mockGetActorContext.mockResolvedValue({ role: "admin", userId: "admin-1" });
-    mockParseAdminDashboardFilters.mockReturnValue({
-      dateFrom: "2026-03-01",
-      dateTo: "2026-03-31",
-      lguScope: "city",
-      lguId: "city-1",
-      aipStatus: "under_review",
+    mockCreateDefaultAdminDashboardFilters.mockReturnValue({
+      dateFrom: null,
+      dateTo: null,
+      lguScope: "all",
+      lguId: null,
+      aipStatus: "all",
     });
     mockLoadAdminDashboardSnapshot.mockResolvedValue(mockSnapshot);
   });
@@ -83,11 +84,11 @@ describe("GET /api/admin/dashboard", () => {
     expect(mockLoadAdminDashboardSnapshot).not.toHaveBeenCalled();
   });
 
-  it("returns dashboard snapshot payload for admin with no-store header", async () => {
+  it("returns dashboard snapshot payload for admin with no-store header and overall filters", async () => {
     const { GET } = await import("@/app/api/admin/dashboard/route");
     const response = await GET(
       new Request(
-        "http://localhost/api/admin/dashboard?from=2026-03-01&to=2026-03-31&lguScope=city&lguId=city-1&status=under_review"
+        "http://localhost/api/admin/dashboard?from=2026-01-01&to=2026-01-31&lguScope=city&lguId=city-1&status=under_review&usageFrom=2026-03-01&usageTo=2026-03-31"
       )
     );
     const body = await response.json();
@@ -103,15 +104,19 @@ describe("GET /api/admin/dashboard", () => {
       lguOptions: expect.any(Array),
     });
 
-    expect(mockParseAdminDashboardFilters).toHaveBeenCalledWith(expect.any(URLSearchParams));
+    expect(mockCreateDefaultAdminDashboardFilters).toHaveBeenCalledTimes(1);
     expect(mockLoadAdminDashboardSnapshot).toHaveBeenCalledWith(
       expect.objectContaining({
-        dateFrom: "2026-03-01",
-        dateTo: "2026-03-31",
-        lguScope: "city",
-        lguId: "city-1",
-        aipStatus: "under_review",
-      })
+        dateFrom: null,
+        dateTo: null,
+        lguScope: "all",
+        lguId: null,
+        aipStatus: "all",
+      }),
+      {
+        usageFrom: "2026-03-01",
+        usageTo: "2026-03-31",
+      }
     );
   });
 });

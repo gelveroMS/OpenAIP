@@ -4,33 +4,16 @@ import { createHmac, randomUUID } from "node:crypto";
 
 import type {
   PipelineChatAnswer,
-  PipelineIntentClassification,
-  PipelineIntentType,
   RetrievalFiltersPayload,
   RetrievalModePayload,
   RetrievalScopePayload,
+  ScopeFallbackPayload,
 } from "./types";
 
 const DEFAULT_TIMEOUT_MS = 30000;
-const PIPELINE_INTENT_TYPES: readonly PipelineIntentType[] = [
-  "GREETING",
-  "THANKS",
-  "COMPLAINT",
-  "CLARIFY",
-  "TOTAL_AGGREGATION",
-  "CATEGORY_AGGREGATION",
-  "LINE_ITEM_LOOKUP",
-  "PROJECT_DETAIL",
-  "DOCUMENT_EXPLANATION",
-  "OUT_OF_SCOPE",
-  "SCOPE_NEEDS_CLARIFICATION",
-  "UNKNOWN",
-] as const;
 const PIPELINE_AUDIENCE = "website-backend";
 
-function requireEnv(
-  name: "PIPELINE_API_BASE_URL" | "PIPELINE_HMAC_SECRET" | "PIPELINE_INTERNAL_TOKEN"
-): string {
+function requireEnv(name: "PIPELINE_API_BASE_URL" | "PIPELINE_HMAC_SECRET"): string {
   const value = process.env[name]?.trim();
   if (!value) {
     throw new Error(`${name} is not configured.`);
@@ -108,51 +91,12 @@ function parseEmbeddingResponse(payload: unknown): {
   };
 }
 
-function isPipelineIntentType(value: unknown): value is PipelineIntentType {
-  return typeof value === "string" && PIPELINE_INTENT_TYPES.includes(value as PipelineIntentType);
-}
-
-function parseIntentResponse(payload: unknown): PipelineIntentClassification {
-  if (!payload || typeof payload !== "object") {
-    throw new Error("Intent response is invalid.");
-  }
-
-  const data = payload as Record<string, unknown>;
-  const intent = isPipelineIntentType(data.intent) ? data.intent : "UNKNOWN";
-  const top2Intent =
-    data.top2_intent === null || data.top2_intent === undefined
-      ? null
-      : isPipelineIntentType(data.top2_intent)
-        ? data.top2_intent
-        : null;
-
-  return {
-    intent,
-    confidence:
-      typeof data.confidence === "number" && Number.isFinite(data.confidence)
-        ? data.confidence
-        : 0,
-    top2_intent: top2Intent,
-    top2_confidence:
-      typeof data.top2_confidence === "number" && Number.isFinite(data.top2_confidence)
-        ? data.top2_confidence
-        : null,
-    margin:
-      typeof data.margin === "number" && Number.isFinite(data.margin)
-        ? data.margin
-        : 0,
-    method:
-      data.method === "rule" || data.method === "semantic" || data.method === "none"
-        ? data.method
-        : "none",
-  };
-}
-
 export async function requestPipelineChatAnswer(input: {
   question: string;
   retrievalScope: RetrievalScopePayload;
   retrievalMode?: RetrievalModePayload;
   retrievalFilters?: RetrievalFiltersPayload;
+  scopeFallback?: ScopeFallbackPayload;
   topK?: number;
   minSimilarity?: number;
   timeoutMs?: number;
@@ -165,6 +109,7 @@ export async function requestPipelineChatAnswer(input: {
     retrieval_scope: input.retrievalScope,
     retrieval_mode: retrievalMode,
     retrieval_filters: input.retrievalFilters ?? { publication_status: "published" },
+    scope_fallback: input.scopeFallback,
     top_k: input.topK ?? defaultTopK,
     min_similarity: input.minSimilarity ?? 0.3,
   });
@@ -174,16 +119,25 @@ export async function requestPipelineChatAnswer(input: {
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(`${baseUrl}/v1/chat/answer`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...signedHeaders,
-      },
-      body: rawBody,
-      signal: controller.signal,
-      cache: "no-store",
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl}/v1/chat/answer`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...signedHeaders,
+        },
+        body: rawBody,
+        signal: controller.signal,
+        cache: "no-store",
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw new Error(`Pipeline chat request timed out after ${timeoutMs}ms.`);
+      }
+      const message = error instanceof Error ? error.message : "unknown network error";
+      throw new Error(`Pipeline chat request failed before response: ${message}`);
+    }
 
     const payload = await response
       .json()
@@ -219,16 +173,25 @@ export async function requestPipelineQueryEmbedding(input: {
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(`${baseUrl}/v1/chat/embed-query`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...signedHeaders,
-      },
-      body: rawBody,
-      signal: controller.signal,
-      cache: "no-store",
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl}/v1/chat/embed-query`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...signedHeaders,
+        },
+        body: rawBody,
+        signal: controller.signal,
+        cache: "no-store",
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw new Error(`Pipeline embedding request timed out after ${timeoutMs}ms.`);
+      }
+      const message = error instanceof Error ? error.message : "unknown network error";
+      throw new Error(`Pipeline embedding request failed before response: ${message}`);
+    }
 
     const payload = await response
       .json()
@@ -243,48 +206,6 @@ export async function requestPipelineQueryEmbedding(input: {
     }
 
     return parseEmbeddingResponse(payload);
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-export async function requestPipelineIntentClassify(input: {
-  text: string;
-  timeoutMs?: number;
-}): Promise<PipelineIntentClassification> {
-  const baseUrl = requireEnv("PIPELINE_API_BASE_URL").replace(/\/+$/, "");
-  const token = requireEnv("PIPELINE_INTERNAL_TOKEN");
-  const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const response = await fetch(`${baseUrl}/intent/classify`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-pipeline-token": token,
-      },
-      body: JSON.stringify({
-        text: input.text,
-      }),
-      signal: controller.signal,
-      cache: "no-store",
-    });
-
-    const payload = await response
-      .json()
-      .catch(() => ({ message: "Failed to parse intent response." }));
-
-    if (!response.ok) {
-      const detail =
-        payload && typeof payload === "object" && "detail" in payload
-          ? String((payload as { detail: unknown }).detail)
-          : response.statusText;
-      throw new Error(`Pipeline intent request failed (${response.status}): ${detail}`);
-    }
-
-    return parseIntentResponse(payload);
   } finally {
     clearTimeout(timeout);
   }

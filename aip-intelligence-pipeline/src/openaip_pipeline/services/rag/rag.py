@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import hashlib
@@ -8,29 +9,40 @@ import time
 from typing import Any
 
 from openaip_pipeline.core.resources import read_text
+from openaip_pipeline.services.query_intent import detect_exhaustive_intent
 from openaip_pipeline.services.rag.multi_query import (
     build_multi_query_variants,
     multi_query_reason_code,
     merge_multi_query_candidates,
     should_retry_multi_query,
 )
-from openaip_pipeline.services.rag.retriever import (
-    fuse_docs_rrf,
-    retrieve_dense_docs,
-    retrieve_keyword_docs,
-)
+from openaip_pipeline.services.rag.retriever import retrieve_dense_docs_bundle
+
+logger = logging.getLogger(__name__)
 
 SOURCE_TAG_PATTERN = re.compile(r"\[(S\d+)\]")
 YEAR_PATTERN = re.compile(r"\b(20\d{2})\b")
 MAX_SNIPPET_LENGTH = 360
+MAX_RESPONSE_SENTENCES = 2
+MAX_RETRIEVAL_QUERY_PREVIEW = 240
+INSUFFICIENT_CONTEXT_RESPONSE = "Insufficient context."
+FALLBACK_LIMIT_POLICY = {
+    "max_sentences": 2,
+    "max_list_items": 2,
+}
+FALLBACK_LIMIT_DISCLOSURE = "I limited this response to 2 items based on the prompt policy."
 
 
 def _source_id(index: int, doc: Any) -> str:
+    return f"S{index}"
+
+
+def _original_source_id(doc: Any) -> str | None:
     metadata = getattr(doc, "metadata", {}) or {}
     source = metadata.get("source_id")
     if isinstance(source, str) and source.strip():
         return source.strip()
-    return f"S{index}"
+    return None
 
 
 def _truncate(text: str, limit: int = MAX_SNIPPET_LENGTH) -> str:
@@ -40,16 +52,23 @@ def _truncate(text: str, limit: int = MAX_SNIPPET_LENGTH) -> str:
     return normalized[: limit - 3].rstrip() + "..."
 
 
+def _preview(text: str, *, limit: int = 200) -> str:
+    return _truncate(text, limit=limit)
+
+
 def _format_context(docs: list[Any]) -> str:
     sections: list[str] = []
     for index, doc in enumerate(docs, start=1):
         metadata = getattr(doc, "metadata", {}) or {}
+        normalized_source_id = _source_id(index, doc)
+        original_source_id = _original_source_id(doc)
         sections.append(
             "\n".join(
                 [
-                    f"{_source_id(index, doc)}",
+                    normalized_source_id,
                     f"scope={metadata.get('scope_type')}:{metadata.get('scope_name')}",
                     f"aip_id={metadata.get('aip_id')} fiscal_year={metadata.get('fiscal_year')} similarity={metadata.get('similarity')}",
+                    f"original_source_id={original_source_id}",
                     f"content={getattr(doc, 'page_content', '')}",
                 ]
             )
@@ -61,11 +80,45 @@ def _format_source_list(docs: list[Any]) -> str:
     lines: list[str] = []
     for index, doc in enumerate(docs, start=1):
         metadata = getattr(doc, "metadata", {}) or {}
+        original_source_id = _original_source_id(doc)
         lines.append(
-            f"[{_source_id(index, doc)}] scope={metadata.get('scope_type')}:{metadata.get('scope_name')} "
+            f"[{_source_id(index, doc)}] original_source_id={original_source_id} "
+            f"scope={metadata.get('scope_type')}:{metadata.get('scope_name')} "
             f"aip_id={metadata.get('aip_id')} fy={metadata.get('fiscal_year')}"
         )
     return "\n".join(lines)
+
+
+def build_retrieval_query(*, question: str, entities: dict[str, Any] | None) -> str:
+    query = str(question or "").strip()
+    parsed_entities = entities if isinstance(entities, dict) else {}
+    hints: list[str] = []
+
+    def _append_hint(label: str, value: Any) -> None:
+        if value is None:
+            return
+        if isinstance(value, str):
+            normalized = value.strip()
+            if not normalized:
+                return
+            hints.append(f"{label}: {normalized}")
+            return
+        if isinstance(value, (int, float)):
+            hints.append(f"{label}: {value}")
+
+    _append_hint("barangay", parsed_entities.get("barangay"))
+    _append_hint("city", parsed_entities.get("city"))
+    _append_hint("scope_type", parsed_entities.get("scope_type"))
+    _append_hint("scope_name", parsed_entities.get("scope_name"))
+    _append_hint("fiscal year", parsed_entities.get("fiscal_year"))
+    _append_hint("topic", parsed_entities.get("topic"))
+    _append_hint("project type", parsed_entities.get("project_type"))
+    _append_hint("sector", parsed_entities.get("sector"))
+    _append_hint("budget term", parsed_entities.get("budget_term"))
+
+    if not hints:
+        return query
+    return f"{query}\n\nStructured hints: {' | '.join(hints)}"
 
 
 def _safe_float(value: Any) -> float | None:
@@ -74,11 +127,39 @@ def _safe_float(value: Any) -> float | None:
     return None
 
 
+def _coerce_year(value: Any) -> int | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str):
+        cleaned = value.strip()
+        if cleaned.isdigit():
+            return int(cleaned)
+    return None
+
+
 def _bool_env(name: str, default: bool) -> bool:
     value = os.getenv(name)
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _rag_trace_enabled() -> bool:
+    explicit = os.getenv("RAG_TRACE_ENABLED")
+    if explicit is not None:
+        return explicit.strip().lower() in {"1", "true", "yes", "on"}
+    inherited = os.getenv("PIPELINE_TRACE_ENABLED", "false")
+    return inherited.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _trace_log(event: str, **fields: Any) -> None:
+    if not _rag_trace_enabled():
+        return
+    payload: dict[str, Any] = {"trace": "rag", "event": event}
+    payload.update(fields)
+    logger.info(json.dumps(payload, separators=(",", ":"), sort_keys=True, default=str))
 
 
 def _int_env(name: str, default: int, *, minimum: int = 1, maximum: int = 200) -> int:
@@ -92,55 +173,12 @@ def _int_env(name: str, default: int, *, minimum: int = 1, maximum: int = 200) -
     return max(minimum, min(parsed, maximum))
 
 
-def _float_env(name: str, default: float, *, minimum: float = 0.0, maximum: float = 1.0) -> float:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    try:
-        parsed = float(value)
-    except ValueError:
-        return default
-    if parsed < minimum:
-        return minimum
-    if parsed > maximum:
-        return maximum
-    return parsed
-
-
-def _hybrid_retrieval_enabled() -> bool:
-    return _bool_env("RAG_HYBRID_RETRIEVAL_ENABLED", False)
-
-
-def _keyword_retrieval_enabled() -> bool:
-    return _bool_env("RAG_KEYWORD_RETRIEVAL_ENABLED", False)
-
-
-def _rrf_fusion_enabled() -> bool:
-    return _bool_env("RAG_RRF_FUSION_ENABLED", False)
-
-
 def _evidence_gate_enabled() -> bool:
     return _bool_env("RAG_EVIDENCE_GATE_ENABLED", False)
 
 
 def _selective_multi_query_enabled() -> bool:
     return _bool_env("RAG_SELECTIVE_MULTI_QUERY_ENABLED", False)
-
-
-def _borderline_partial_enabled() -> bool:
-    return _bool_env("RAG_BORDERLINE_PARTIAL_ENABLED", False)
-
-
-def _hybrid_dense_k() -> int:
-    return _int_env("RAG_HYBRID_DENSE_K", 20, minimum=1, maximum=60)
-
-
-def _hybrid_keyword_k() -> int:
-    return _int_env("RAG_HYBRID_KEYWORD_K", 20, minimum=1, maximum=60)
-
-
-def _rrf_k() -> int:
-    return _int_env("RAG_RRF_K", 60, minimum=1, maximum=200)
 
 
 def _gate_min_final_docs() -> int:
@@ -155,17 +193,9 @@ def _selective_multi_query_max_variants() -> int:
     return _int_env("RAG_SELECTIVE_MULTI_QUERY_MAX_VARIANTS", 3, minimum=1, maximum=3)
 
 
-def _borderline_explicit_match_min() -> float:
-    return _float_env("RAG_BORDERLINE_EXPLICIT_MATCH_MIN", 0.08, minimum=0.01, maximum=0.5)
-
-
 def _diversity_selection_enabled() -> bool:
     value = os.getenv("RAG_DIVERSITY_SELECTION_ENABLED", "true").strip().lower()
     return value in {"1", "true", "yes", "on"}
-
-
-def _legacy_dual_read_enabled() -> bool:
-    return _bool_env("RAG_LEGACY_DUAL_READ_ENABLED", True)
 
 
 def _normalize_retrieval_mode(mode: str | None) -> str:
@@ -184,25 +214,16 @@ def _effective_top_k(*, top_k: int, retrieval_mode: str) -> int:
 
 def _active_rag_flags() -> dict[str, bool]:
     return {
-        "RAG_HYBRID_RETRIEVAL_ENABLED": _hybrid_retrieval_enabled(),
-        "RAG_KEYWORD_RETRIEVAL_ENABLED": _keyword_retrieval_enabled(),
-        "RAG_RRF_FUSION_ENABLED": _rrf_fusion_enabled(),
         "RAG_EVIDENCE_GATE_ENABLED": _evidence_gate_enabled(),
-        "RAG_BORDERLINE_PARTIAL_ENABLED": _borderline_partial_enabled(),
         "RAG_SELECTIVE_MULTI_QUERY_ENABLED": _selective_multi_query_enabled(),
         "RAG_DIVERSITY_SELECTION_ENABLED": _diversity_selection_enabled(),
-        "RAG_LEGACY_DUAL_READ_ENABLED": _legacy_dual_read_enabled(),
     }
 
 
 def _rag_calibration_snapshot() -> dict[str, int | float | bool]:
     return {
-        "RAG_HYBRID_DENSE_K": _hybrid_dense_k(),
-        "RAG_HYBRID_KEYWORD_K": _hybrid_keyword_k(),
-        "RAG_RRF_K": _rrf_k(),
         "RAG_GATE_MIN_FINAL_DOCS": _gate_min_final_docs(),
         "RAG_GATE_REQUIRE_YEAR_MATCH": _gate_require_year_match(),
-        "RAG_BORDERLINE_EXPLICIT_MATCH_MIN": _borderline_explicit_match_min(),
         "RAG_SELECTIVE_MULTI_QUERY_MAX_VARIANTS": _selective_multi_query_max_variants(),
     }
 
@@ -220,7 +241,6 @@ def _evidence_gate_reason_code(reason: str) -> str:
     return "retry_low_confidence"
 
 
-
 def _normalize_content(text: str) -> str:
     return " ".join((text or "").lower().split())
 
@@ -231,71 +251,17 @@ def _content_hash(text: str) -> str:
 
 def _doc_similarity_score(doc: Any) -> float:
     metadata = getattr(doc, "metadata", {}) or {}
-    hybrid = _safe_float(metadata.get("hybrid_score"))
-    if hybrid is not None:
-        return hybrid
     return _safe_float(metadata.get("similarity")) or 0.0
 
 
-def _channels_for_doc(doc: Any) -> set[str]:
+def _doc_meets_min_similarity(doc: Any, *, min_similarity: float) -> bool:
     metadata = getattr(doc, "metadata", {}) or {}
-    channels = metadata.get("retrieval_channels")
-    if isinstance(channels, list):
-        return {str(channel).strip().lower() for channel in channels if str(channel).strip()}
-    return set()
+    similarity = _safe_float(metadata.get("similarity"))
+    score = similarity if similarity is not None else _doc_similarity_score(doc)
+    return score >= min_similarity
 
 
-def _count_channel_contribution(docs: list[Any]) -> tuple[int, int]:
-    dense_count = 0
-    keyword_count = 0
-    for doc in docs:
-        channels = _channels_for_doc(doc)
-        if "dense" in channels:
-            dense_count += 1
-        if "keyword" in channels:
-            keyword_count += 1
-    return dense_count, keyword_count
-
-
-def _merge_ranked_docs(
-    dense_docs: list[Any],
-    keyword_docs: list[Any],
-    *,
-    max_candidates: int,
-) -> list[Any]:
-    # Fallback merge path used when RRF flag is disabled.
-    merged: list[Any] = []
-    seen: set[str] = set()
-
-    def key_for(doc: Any) -> str:
-        metadata = getattr(doc, "metadata", {}) or {}
-        chunk_id = str(metadata.get("chunk_id") or "").strip()
-        if chunk_id:
-            return f"chunk:{chunk_id}"
-        return f"text:{_content_hash(str(getattr(doc, 'page_content', '') or ''))}"
-
-    for doc in [*dense_docs, *keyword_docs]:
-        key = key_for(doc)
-        if key in seen:
-            continue
-        seen.add(key)
-        metadata = getattr(doc, "metadata", {}) or {}
-        if metadata.get("hybrid_score") is None:
-            metadata["hybrid_score"] = _doc_similarity_score(doc)
-        merged.append(doc)
-        if len(merged) >= max_candidates:
-            break
-
-    merged.sort(
-        key=lambda doc: (
-            -_doc_similarity_score(doc),
-            str((getattr(doc, "metadata", {}) or {}).get("chunk_id") or ""),
-        )
-    )
-    return merged
-
-
-def run_hybrid_retrieval(
+def run_dense_retrieval(
     *,
     supabase: Any,
     embeddings_model: str,
@@ -308,14 +274,9 @@ def run_hybrid_retrieval(
 ) -> dict[str, Any]:
     resolved_mode = _normalize_retrieval_mode(retrieval_mode)
     effective_top_k = _effective_top_k(top_k=top_k, retrieval_mode=resolved_mode)
-    hybrid_enabled = _hybrid_retrieval_enabled()
-    keyword_enabled = _keyword_retrieval_enabled()
+    dense_k = max(1, min(effective_top_k, 12))
 
-    dense_k = _hybrid_dense_k() if hybrid_enabled else max(1, min(effective_top_k, 12))
-    keyword_k = _hybrid_keyword_k() if hybrid_enabled else 0
-    max_candidates = max(1, min(dense_k + max(0, keyword_k), 60))
-
-    dense_docs = retrieve_dense_docs(
+    retrieval_bundle = retrieve_dense_docs_bundle(
         supabase=supabase,
         embeddings_model=embeddings_model,
         question=question,
@@ -324,57 +285,24 @@ def run_hybrid_retrieval(
         retrieval_scope=retrieval_scope,
         retrieval_mode=resolved_mode,
         retrieval_filters=retrieval_filters,
-        allow_legacy_fallback=_legacy_dual_read_enabled(),
     )
-    keyword_docs: list[Any] = []
-    fused_docs: list[Any] = dense_docs[:max_candidates]
-
-    if hybrid_enabled and keyword_enabled:
-        keyword_docs = retrieve_keyword_docs(
-            supabase=supabase,
-            question=question,
-            k=keyword_k,
-            retrieval_scope=retrieval_scope,
-            min_rank=0.0,
-            retrieval_filters=retrieval_filters,
-        )
-        if keyword_docs:
-            if _rrf_fusion_enabled():
-                fused_docs = fuse_docs_rrf(
-                    dense_docs=dense_docs,
-                    keyword_docs=keyword_docs,
-                    rrf_k=_rrf_k(),
-                    max_candidates=max_candidates,
-                )
-            else:
-                fused_docs = _merge_ranked_docs(
-                    dense_docs=dense_docs,
-                    keyword_docs=keyword_docs,
-                    max_candidates=max_candidates,
-                )
-
-    # Keep the old dense-threshold behavior when hybrid retrieval is disabled.
-    strong_docs = (
-        [
-            doc
-            for doc in fused_docs
-            if (_safe_float((getattr(doc, "metadata", {}) or {}).get("similarity")) or 0.0) >= min_similarity
-        ]
-        if not hybrid_enabled
-        else fused_docs
-    )
+    dense_docs = list(retrieval_bundle.get("docs") or [])
+    retrieval_diagnostics = dict(retrieval_bundle.get("diagnostics") or {})
+    strong_docs = [doc for doc in dense_docs if _doc_meets_min_similarity(doc, min_similarity=min_similarity)]
+    candidate_counts = dict(retrieval_diagnostics.get("candidate_counts") or {})
+    candidate_counts["strong"] = len(strong_docs)
 
     return {
-        "hybrid_enabled": hybrid_enabled,
-        "keyword_enabled": keyword_enabled and hybrid_enabled,
-        "rrf_enabled": _rrf_fusion_enabled() and hybrid_enabled and keyword_enabled,
         "dense_docs": dense_docs,
-        "keyword_docs": keyword_docs,
-        "fused_docs": fused_docs,
+        "docs": dense_docs,
         "strong_docs": strong_docs,
         "retrieval_mode": resolved_mode,
         "effective_top_k": effective_top_k,
         "retrieval_filters": retrieval_filters or {},
+        "hard_filters_applied": dict(retrieval_diagnostics.get("hard_filters_applied") or {}),
+        "soft_preferences": dict(retrieval_diagnostics.get("soft_preferences") or {}),
+        "theme_boost_usage": dict(retrieval_diagnostics.get("theme_boost_usage") or {}),
+        "candidate_counts": candidate_counts,
     }
 
 
@@ -485,8 +413,10 @@ def _select_diverse_docs(
 
 def _build_citation(index: int, doc: Any, *, insufficient: bool = False) -> dict[str, Any]:
     metadata = getattr(doc, "metadata", {}) or {}
+    original_source_id = _original_source_id(doc)
     return {
         "source_id": _source_id(index, doc),
+        "original_source_id": original_source_id,
         "chunk_id": metadata.get("chunk_id"),
         "chunk_type": metadata.get("chunk_type"),
         "document_type": metadata.get("document_type"),
@@ -542,6 +472,60 @@ def _extract_source_ids(answer_text: str) -> list[str]:
     return ordered
 
 
+def _split_answer_sentences(answer_text: str) -> list[str]:
+    normalized = " ".join((answer_text or "").split())
+    if not normalized:
+        return []
+    parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", normalized) if part.strip()]
+    return parts if parts else [normalized]
+
+
+def _list_item_count(answer_text: str) -> int:
+    lines = [line.strip() for line in str(answer_text or "").splitlines() if line.strip()]
+    count = sum(1 for line in lines if re.match(r"^\d+\.\s+", line) or re.match(r"^[-*]\s+", line))
+    if count > 0:
+        return count
+    numbered_inline = re.findall(r"(?:^|\s)(\d+\.\s+)", str(answer_text or ""))
+    return len(numbered_inline)
+
+
+def _strip_disclosure_sentence(answer_text: str) -> str:
+    text = str(answer_text or "")
+    pattern = rf"(?:^|\s){re.escape(FALLBACK_LIMIT_DISCLOSURE)}\.?(?:\s|$)"
+    cleaned = re.sub(pattern, " ", text).strip()
+    return re.sub(r"\s{2,}", " ", cleaned)
+
+
+def _answer_violates_constraints(
+    answer_text: str,
+    *,
+    max_sentences: int = MAX_RESPONSE_SENTENCES,
+    max_list_items: int | None = None,
+    require_disclosure: bool = False,
+) -> bool:
+    if not answer_text:
+        return True
+    if answer_text.strip() == INSUFFICIENT_CONTEXT_RESPONSE:
+        return False
+
+    if require_disclosure and FALLBACK_LIMIT_DISCLOSURE not in answer_text:
+        return True
+
+    check_text = _strip_disclosure_sentence(answer_text) if require_disclosure else answer_text
+    constraint_text = re.sub(r"(?m)(?:^|\s)\d+\.\s+", " ", check_text)
+    constraint_text = re.sub(r"(?m)(?:^|\s)[-*]\s+", " ", constraint_text)
+    constraint_text = re.sub(r"\s{2,}", " ", constraint_text).strip()
+    sentences = _split_answer_sentences(constraint_text)
+    if len(sentences) > max_sentences:
+        return True
+
+    if max_list_items is not None and _list_item_count(check_text) > max_list_items:
+        return True
+
+    # Each sentence in generated grounded output must carry at least one source tag.
+    return any(SOURCE_TAG_PATTERN.search(sentence) is None for sentence in sentences)
+
+
 def _build_refusal(
     *,
     question: str,
@@ -550,8 +534,14 @@ def _build_refusal(
     top_k: int,
     min_similarity: float,
     retrieval_scope: dict[str, Any] | None,
-    verifier_passed: bool,
 ) -> dict[str, Any]:
+    _trace_log(
+        "build_refusal",
+        reason=reason,
+        context_count=len(docs),
+        top_k=top_k,
+        min_similarity=min_similarity,
+    )
     nearest = docs[: min(3, len(docs))]
     citations = [_build_citation(index, doc, insufficient=True) for index, doc in enumerate(nearest, start=1)]
     if not citations:
@@ -571,10 +561,7 @@ def _build_refusal(
             }
         ]
 
-    answer = (
-        "I can't provide a grounded answer from the available published AIP sources. "
-        "Please refine the question or specify an exact scope."
-    )
+    answer = INSUFFICIENT_CONTEXT_RESPONSE
     return {
         "question": question,
         "answer": answer,
@@ -587,7 +574,6 @@ def _build_refusal(
             "top_k": top_k,
             "min_similarity": min_similarity,
             "context_count": len(docs),
-            "verifier_passed": verifier_passed,
             "scope_mode": (retrieval_scope or {}).get("mode", "global"),
             "scope_targets_count": len((retrieval_scope or {}).get("targets") or []),
         },
@@ -608,6 +594,13 @@ def _build_partial_evidence(
     min_similarity: float,
     retrieval_scope: dict[str, Any] | None,
 ) -> dict[str, Any]:
+    _trace_log(
+        "build_partial_evidence",
+        reason=reason,
+        context_count=len(docs),
+        top_k=top_k,
+        min_similarity=min_similarity,
+    )
     nearest = docs[: min(3, len(docs))]
     citations = [_build_citation(index, doc, insufficient=True) for index, doc in enumerate(nearest, start=1)]
     if not citations:
@@ -618,29 +611,11 @@ def _build_partial_evidence(
             top_k=top_k,
             min_similarity=min_similarity,
             retrieval_scope=retrieval_scope,
-            verifier_passed=False,
         )
-
-    bullet_lines: list[str] = []
-    for citation in citations:
-        source_id = str(citation.get("source_id") or "S0")
-        snippet = str(citation.get("snippet") or "").strip()
-        if snippet:
-            bullet_lines.append(f"- [{source_id}] {snippet}")
-
-    answer_lines = [
-        "I found related published AIP records, but the evidence is limited for a fully grounded answer.",
-    ]
-    if bullet_lines:
-        answer_lines.append("Closest records:")
-        answer_lines.extend(bullet_lines)
-    answer_lines.append(
-        "Please narrow the request (exact fiscal year, scope, or ref code) so I can provide a fully verified answer."
-    )
 
     return {
         "question": question,
-        "answer": "\n".join(answer_lines).strip(),
+        "answer": INSUFFICIENT_CONTEXT_RESPONSE,
         "refused": False,
         "citations": citations,
         "sources": [citation.get("metadata", {}) for citation in citations],
@@ -650,7 +625,6 @@ def _build_partial_evidence(
             "top_k": top_k,
             "min_similarity": min_similarity,
             "context_count": len(docs),
-            "verifier_passed": False,
             "scope_mode": (retrieval_scope or {}).get("mode", "global"),
             "scope_targets_count": len((retrieval_scope or {}).get("targets") or []),
         },
@@ -665,10 +639,6 @@ def _attach_selection_meta(
     selected_count: int,
     diversity_selection_enabled: bool,
     dense_candidate_count: int | None = None,
-    keyword_candidate_count: int | None = None,
-    fused_candidate_count: int | None = None,
-    dense_final_count: int | None = None,
-    keyword_final_count: int | None = None,
     evidence_gate_decision: str | None = None,
     evidence_gate_reason: str | None = None,
     evidence_gate_reason_code: str | None = None,
@@ -682,8 +652,6 @@ def _attach_selection_meta(
     stage_latency_ms: dict[str, float] | None = None,
     extra_meta: dict[str, Any] | None = None,
     response_mode_source: str | None = None,
-    borderline_detected: bool | None = None,
-    borderline_reason_code: str | None = None,
 ) -> dict[str, Any]:
     metadata = dict(result.get("retrieval_meta") or {})
     metadata.update(
@@ -696,16 +664,6 @@ def _attach_selection_meta(
     )
     if dense_candidate_count is not None:
         metadata["dense_candidate_count"] = dense_candidate_count
-    if keyword_candidate_count is not None:
-        metadata["keyword_candidate_count"] = keyword_candidate_count
-    if fused_candidate_count is not None:
-        metadata["fused_candidate_count"] = fused_candidate_count
-    if dense_final_count is not None:
-        metadata["dense_final_count"] = dense_final_count
-        metadata["dense_contributed_to_final"] = dense_final_count > 0
-    if keyword_final_count is not None:
-        metadata["keyword_final_count"] = keyword_final_count
-        metadata["keyword_contributed_to_final"] = keyword_final_count > 0
     if evidence_gate_decision is not None:
         metadata["evidence_gate_decision"] = evidence_gate_decision
     if evidence_gate_reason is not None:
@@ -730,10 +688,6 @@ def _attach_selection_meta(
         metadata["stage_latency_ms"] = stage_latency_ms
     if response_mode_source is not None:
         metadata["response_mode_source"] = response_mode_source
-    if borderline_detected is not None:
-        metadata["borderline_detected"] = borderline_detected
-    if borderline_reason_code is not None:
-        metadata["borderline_reason_code"] = borderline_reason_code
     if isinstance(extra_meta, dict):
         metadata.update(extra_meta)
     result["retrieval_meta"] = metadata
@@ -762,12 +716,11 @@ def evaluate_evidence_gate(
     final_count = len(selected_docs)
     requested_years = sorted({int(match) for match in YEAR_PATTERN.findall(question)})
     fiscal_years = [
-        int(value)
-        for value in [
-            (getattr(doc, "metadata", {}) or {}).get("fiscal_year")
-            for doc in selected_docs
-        ]
-        if isinstance(value, int)
+        year
+        for year in (
+            _coerce_year((getattr(doc, "metadata", {}) or {}).get("fiscal_year")) for doc in selected_docs
+        )
+        if year is not None
     ]
     year_match_count = (
         sum(1 for year in fiscal_years if year in requested_years) if requested_years else final_count
@@ -842,55 +795,6 @@ def evaluate_evidence_gate(
     }
 
 
-def evaluate_borderline_semantic_evidence(
-    *,
-    question: str,
-    selected_docs: list[Any],
-) -> dict[str, Any]:
-    # Hard guard: zero selected docs always resolve to refusal path, never borderline partial.
-    if not selected_docs:
-        return {
-            "is_borderline": False,
-            "reason_code": "no_selected_docs",
-            "metrics": {
-                "selected_doc_count": 0,
-                "top_overlap": 0.0,
-                "top_similarity": 0.0,
-            },
-        }
-
-    top_overlap = max(
-        (_text_overlap(question, str(getattr(doc, "page_content", "") or "")) for doc in selected_docs),
-        default=0.0,
-    )
-    top_similarity = max((_doc_similarity_score(doc) for doc in selected_docs), default=0.0)
-    explicit_match_min = _borderline_explicit_match_min()
-
-    is_related = top_overlap >= 0.02 and top_similarity >= 0.2
-    has_explicit_match = top_overlap >= explicit_match_min
-
-    if is_related and not has_explicit_match:
-        reason_code = "borderline_no_explicit_match"
-        borderline = True
-    elif not is_related:
-        reason_code = "not_related"
-        borderline = False
-    else:
-        reason_code = "explicit_match_detected"
-        borderline = False
-
-    return {
-        "is_borderline": borderline,
-        "reason_code": reason_code,
-        "metrics": {
-            "selected_doc_count": len(selected_docs),
-            "top_overlap": top_overlap,
-            "top_similarity": top_similarity,
-            "explicit_match_min": explicit_match_min,
-        },
-    }
-
-
 def answer_with_rag(
     *,
     supabase_url: str,
@@ -899,12 +803,14 @@ def answer_with_rag(
     embeddings_model: str,
     chat_model: str,
     question: str,
+    retrieval_query: str | None = None,
     retrieval_scope: dict[str, Any] | None = None,
     retrieval_mode: str = "qa",
     retrieval_filters: dict[str, Any] | None = None,
     top_k: int = 4,
     min_similarity: float = 0.3,
     metadata_filter: dict[str, Any] | None = None,
+    sql_fallback: bool = False,
 ) -> dict[str, Any]:
     from langchain_openai import ChatOpenAI
     from supabase.client import create_client
@@ -913,15 +819,18 @@ def answer_with_rag(
     stage_latency_ms: dict[str, float] = {}
     active_rag_flags = _active_rag_flags()
     rag_calibration = _rag_calibration_snapshot()
+    exhaustive_intent = detect_exhaustive_intent(question)
+    fallback_exhaustive = bool(sql_fallback and exhaustive_intent.get("exhaustive_intent"))
     resolved_scope = retrieval_scope or {"mode": "global", "targets": []}
     resolved_mode = _normalize_retrieval_mode(retrieval_mode)
     effective_top_k = _effective_top_k(top_k=top_k, retrieval_mode=resolved_mode)
+    retrieval_text = (retrieval_query or "").strip() or question
     supabase = create_client(supabase_url, supabase_service_key)
     retrieval_started_at = time.perf_counter()
-    retrieval_bundle = run_hybrid_retrieval(
+    retrieval_bundle = run_dense_retrieval(
         supabase=supabase,
         embeddings_model=embeddings_model,
-        question=question,
+        question=retrieval_text,
         retrieval_scope=resolved_scope,
         retrieval_mode=resolved_mode,
         retrieval_filters=retrieval_filters,
@@ -931,17 +840,32 @@ def answer_with_rag(
     stage_latency_ms["retrieval_ms"] = round((time.perf_counter() - retrieval_started_at) * 1000.0, 3)
 
     dense_docs = list(retrieval_bundle.get("dense_docs") or [])
-    keyword_docs = list(retrieval_bundle.get("keyword_docs") or [])
-    docs = list(retrieval_bundle.get("fused_docs") or [])
+    docs = list(retrieval_bundle.get("docs") or dense_docs)
     strong_docs = list(retrieval_bundle.get("strong_docs") or [])
     effective_top_k = int(retrieval_bundle.get("effective_top_k") or effective_top_k)
     resolved_mode = _normalize_retrieval_mode(str(retrieval_bundle.get("retrieval_mode") or resolved_mode))
     applied_filters = dict(retrieval_bundle.get("retrieval_filters") or retrieval_filters or {})
+    hard_filters_applied = dict(retrieval_bundle.get("hard_filters_applied") or {})
+    soft_preferences = dict(retrieval_bundle.get("soft_preferences") or {})
+    theme_boost_usage = dict(retrieval_bundle.get("theme_boost_usage") or {})
+    candidate_counts = dict(retrieval_bundle.get("candidate_counts") or {})
     diversity_enabled = _diversity_selection_enabled()
 
     dense_candidate_count = len(dense_docs)
-    keyword_candidate_count = len(keyword_docs)
-    fused_candidate_count = len(docs)
+    _trace_log(
+        "retrieval_completed",
+        question_preview=_preview(question),
+        retrieval_mode=resolved_mode,
+        top_k=effective_top_k,
+        min_similarity=min_similarity,
+        dense_candidate_count=dense_candidate_count,
+        strong_candidate_count=len(strong_docs),
+        candidate_counts=candidate_counts,
+        hard_filters_applied=hard_filters_applied,
+        soft_preferences=soft_preferences,
+        theme_boost_usage=theme_boost_usage,
+        applied_retrieval_filters=applied_filters,
+    )
 
     gate_decision = "allow"
     gate_reason = "gate_not_evaluated"
@@ -955,12 +879,24 @@ def answer_with_rag(
     selected_docs: list[Any] = []
     effective_strong_docs = list(strong_docs)
     effective_docs = list(docs)
-    borderline_detected = False
-    borderline_reason_code = "not_evaluated"
     response_mode_source = "pipeline_refusal"
     retrieval_context_meta = {
         "retrieval_mode": resolved_mode,
         "applied_retrieval_filters": applied_filters,
+        "hard_filters_applied": hard_filters_applied,
+        "soft_preferences": soft_preferences,
+        "theme_boost_usage": theme_boost_usage,
+        "candidate_counts": candidate_counts,
+        "retrieval_query_applied": retrieval_text != question,
+        "retrieval_query_preview": _preview(retrieval_text, limit=MAX_RETRIEVAL_QUERY_PREVIEW),
+        "limit_policy_applied": bool(sql_fallback),
+        "limit_items": FALLBACK_LIMIT_POLICY["max_list_items"] if sql_fallback else None,
+        "limit_sentences": FALLBACK_LIMIT_POLICY["max_sentences"] if sql_fallback else None,
+        "limit_disclosure_required": fallback_exhaustive,
+        "result_cap": None,
+        "total_matches": None,
+        "returned_count": None,
+        "truncated": False,
     }
 
     def attach(
@@ -971,15 +907,9 @@ def answer_with_rag(
         generation_skipped_override: bool | None = None,
         extra_meta: dict[str, Any] | None = None,
         response_mode_source_override: str | None = None,
-        borderline_detected_override: bool | None = None,
-        borderline_reason_code_override: str | None = None,
     ) -> dict[str, Any]:
         stage_latency_snapshot = dict(stage_latency_ms)
         stage_latency_snapshot["total_ms"] = round((time.perf_counter() - started_at) * 1000.0, 3)
-        dense_final_count = 0
-        keyword_final_count = 0
-        if selected_count > 0 and selected_docs:
-            dense_final_count, keyword_final_count = _count_channel_contribution(selected_docs)
         merged_extra_meta = dict(retrieval_context_meta)
         if isinstance(extra_meta, dict):
             merged_extra_meta.update(extra_meta)
@@ -990,10 +920,6 @@ def answer_with_rag(
             selected_count=selected_count,
             diversity_selection_enabled=diversity_enabled,
             dense_candidate_count=dense_candidate_count,
-            keyword_candidate_count=keyword_candidate_count,
-            fused_candidate_count=fused_candidate_count,
-            dense_final_count=dense_final_count,
-            keyword_final_count=keyword_final_count,
             evidence_gate_decision=gate_decision,
             evidence_gate_reason=gate_reason,
             evidence_gate_reason_code=gate_reason_code,
@@ -1015,23 +941,24 @@ def answer_with_rag(
                 if response_mode_source_override is not None
                 else response_mode_source
             ),
-            borderline_detected=(
-                borderline_detected_override
-                if borderline_detected_override is not None
-                else borderline_detected
-            ),
-            borderline_reason_code=(
-                borderline_reason_code_override
-                if borderline_reason_code_override is not None
-                else borderline_reason_code
-            ),
         )
 
     if not effective_strong_docs:
+        _trace_log(
+            "no_strong_docs",
+            candidate_count=len(docs),
+            partial_mode_enabled=_partial_mode_enabled(),
+        )
+        _trace_log(
+            "retrieval_refusal",
+            reason="insufficient_evidence",
+            hard_filters_applied=hard_filters_applied,
+            soft_preferences=soft_preferences,
+            theme_boost_usage=theme_boost_usage,
+            candidate_counts=candidate_counts,
+        )
         if docs and _partial_mode_enabled():
             response_mode_source = "pipeline_partial"
-            borderline_detected = False
-            borderline_reason_code = "partial_mode_initial_fallback"
             return attach(
                 _build_partial_evidence(
                     question=question,
@@ -1045,8 +972,6 @@ def answer_with_rag(
                 strong_count_override=0,
             )
         response_mode_source = "pipeline_refusal"
-        borderline_detected = False
-        borderline_reason_code = "no_strong_docs"
         return attach(
             _build_refusal(
                 question=question,
@@ -1055,7 +980,6 @@ def answer_with_rag(
                 top_k=effective_top_k,
                 min_similarity=min_similarity,
                 retrieval_scope=resolved_scope,
-                verifier_passed=False,
             ),
             selected_count=min(3, len(docs)),
             strong_count_override=0,
@@ -1082,6 +1006,13 @@ def answer_with_rag(
         gate_reason = str(gate.get("reason") or "gate_blocked")
         gate_reason_code = _evidence_gate_reason_code(gate_reason)
         gate_metrics = dict(gate.get("metrics") or {})
+        _trace_log(
+            "evidence_gate_evaluated",
+            decision=gate_decision,
+            reason=gate_reason,
+            reason_code=gate_reason_code,
+            metrics=gate_metrics,
+        )
         if gate_decision != "allow" and _selective_multi_query_enabled():
             should_retry, retry_reason = should_retry_multi_query(
                 gate_decision=gate_decision,
@@ -1100,7 +1031,7 @@ def answer_with_rag(
 
                     variant_docs: list[Any] = []
                     for variant in variants:
-                        variant_bundle = run_hybrid_retrieval(
+                        variant_bundle = run_dense_retrieval(
                             supabase=supabase,
                             embeddings_model=embeddings_model,
                             question=variant,
@@ -1136,17 +1067,29 @@ def answer_with_rag(
                         gate_reason = str(gate.get("reason") or "gate_blocked")
                         gate_reason_code = _evidence_gate_reason_code(gate_reason)
                         gate_metrics = dict(gate.get("metrics") or {})
+                        _trace_log(
+                            "evidence_gate_re_evaluated_after_multi_query",
+                            decision=gate_decision,
+                            reason=gate_reason,
+                            reason_code=gate_reason_code,
+                            metrics=gate_metrics,
+                            multi_query_variant_count=multi_query_variant_count,
+                        )
                 else:
                     multi_query_reason = "no_variants_generated"
                     multi_query_reason_code_value = multi_query_reason_code(multi_query_reason)
         stage_latency_ms["gate_ms"] = round((time.perf_counter() - gate_started_at) * 1000.0, 3)
 
         if gate_decision != "allow":
+            _trace_log(
+                "generation_skipped_by_gate",
+                decision=gate_decision,
+                reason=gate_reason,
+                reason_code=gate_reason_code,
+            )
             generation_skipped_by_gate = True
             if gate_decision == "clarify":
                 response_mode_source = "pipeline_partial"
-                borderline_detected = False
-                borderline_reason_code = "gate_clarify"
                 return attach(
                     _build_partial_evidence(
                         question=question,
@@ -1161,8 +1104,14 @@ def answer_with_rag(
                     extra_meta=gate_metrics,
                 )
             response_mode_source = "pipeline_refusal"
-            borderline_detected = False
-            borderline_reason_code = "gate_refuse"
+            _trace_log(
+                "retrieval_refusal",
+                reason="insufficient_evidence",
+                hard_filters_applied=hard_filters_applied,
+                soft_preferences=soft_preferences,
+                theme_boost_usage=theme_boost_usage,
+                candidate_counts=candidate_counts,
+            )
             return attach(
                 _build_refusal(
                     question=question,
@@ -1171,7 +1120,6 @@ def answer_with_rag(
                     top_k=effective_top_k,
                     min_similarity=min_similarity,
                     retrieval_scope=resolved_scope,
-                    verifier_passed=False,
                 ),
                 selected_count=len(selected_docs),
                 generation_skipped_override=True,
@@ -1186,8 +1134,13 @@ def answer_with_rag(
         "- answer must be plain text with inline source tags like [S1], [S2].\n"
         "- Every factual statement must include at least one valid source tag.\n"
         "- used_source_ids must list unique source IDs actually used in answer.\n"
-        "- If evidence is insufficient, return answer as an explicit refusal and still cite nearest sources."
+        f"- If evidence is insufficient, return answer exactly: {INSUFFICIENT_CONTEXT_RESPONSE}"
     )
+    if fallback_exhaustive:
+        generation_instruction += (
+            "\n- Keep the answer within 2 sentences and at most 2 listed items."
+            f"\n- End with this exact sentence: {FALLBACK_LIMIT_DISCLOSURE}"
+        )
     generation_user_prompt = (
         f"Question:\n{question}\n\n"
         f"Allowed Sources:\n{_format_source_list(selected_docs)}\n\n"
@@ -1204,6 +1157,7 @@ def answer_with_rag(
     stage_latency_ms["generation_ms"] = round((time.perf_counter() - generation_started_at) * 1000.0, 3)
     parsed_generation = _extract_json(str(getattr(generation_response, "content", "")) or "")
     if not parsed_generation:
+        _trace_log("generation_invalid_json")
         return attach(
             _build_refusal(
                 question=question,
@@ -1212,7 +1166,6 @@ def answer_with_rag(
                 top_k=effective_top_k,
                 min_similarity=min_similarity,
                 retrieval_scope=resolved_scope,
-                verifier_passed=False,
             ),
             selected_count=len(selected_docs),
             extra_meta=gate_metrics,
@@ -1220,6 +1173,7 @@ def answer_with_rag(
 
     answer_text = str(parsed_generation.get("answer") or "").strip()
     if not answer_text:
+        _trace_log("generation_empty_answer")
         return attach(
             _build_refusal(
                 question=question,
@@ -1228,7 +1182,44 @@ def answer_with_rag(
                 top_k=effective_top_k,
                 min_similarity=min_similarity,
                 retrieval_scope=resolved_scope,
-                verifier_passed=False,
+            ),
+            selected_count=len(selected_docs),
+            extra_meta=gate_metrics,
+        )
+
+    if not fallback_exhaustive and FALLBACK_LIMIT_DISCLOSURE in answer_text:
+        answer_text = _strip_disclosure_sentence(answer_text).strip()
+        _trace_log("fallback_disclosure_stripped_non_exhaustive")
+        if not answer_text:
+            _trace_log("generation_empty_answer_after_strip")
+            return attach(
+                _build_refusal(
+                    question=question,
+                    reason="validation_failed",
+                    docs=selected_docs,
+                    top_k=effective_top_k,
+                    min_similarity=min_similarity,
+                    retrieval_scope=resolved_scope,
+                ),
+                selected_count=len(selected_docs),
+                extra_meta=gate_metrics,
+            )
+
+    if _answer_violates_constraints(
+        answer_text,
+        max_sentences=FALLBACK_LIMIT_POLICY["max_sentences"] if sql_fallback else MAX_RESPONSE_SENTENCES,
+        max_list_items=FALLBACK_LIMIT_POLICY["max_list_items"] if sql_fallback else None,
+        require_disclosure=fallback_exhaustive,
+    ):
+        _trace_log("generation_constraint_violation", answer_preview=_preview(answer_text))
+        return attach(
+            _build_refusal(
+                question=question,
+                reason="validation_failed",
+                docs=selected_docs,
+                top_k=effective_top_k,
+                min_similarity=min_similarity,
+                retrieval_scope=resolved_scope,
             ),
             selected_count=len(selected_docs),
             extra_meta=gate_metrics,
@@ -1247,6 +1238,7 @@ def answer_with_rag(
         used_source_ids = _extract_source_ids(answer_text)
 
     if not used_source_ids:
+        _trace_log("generation_missing_source_ids")
         return attach(
             _build_refusal(
                 question=question,
@@ -1255,112 +1247,24 @@ def answer_with_rag(
                 top_k=effective_top_k,
                 min_similarity=min_similarity,
                 retrieval_scope=resolved_scope,
-                verifier_passed=False,
             ),
             selected_count=len(selected_docs),
             extra_meta=gate_metrics,
         )
 
     if any(source_id not in source_map for source_id in used_source_ids):
+        _trace_log("generation_invalid_source_ids", used_source_ids=used_source_ids)
         return attach(
             _build_refusal(
                 question=question,
-                reason="verifier_failed",
+                reason="validation_failed",
                 docs=selected_docs,
                 top_k=effective_top_k,
                 min_similarity=min_similarity,
                 retrieval_scope=resolved_scope,
-                verifier_passed=False,
             ),
             selected_count=len(selected_docs),
             extra_meta=gate_metrics,
-        )
-
-    verifier_prompt = (
-        "Validate the answer against the provided context and cited sources.\n"
-        "Return strict JSON with keys: supported (boolean), issues (array of strings).\n"
-        "Set supported=false if any claim is unsupported or if source tags are misused."
-    )
-    verifier_user_prompt = (
-        f"Question:\n{question}\n\n"
-        f"Answer:\n{answer_text}\n\n"
-        f"Cited Source IDs:\n{', '.join(used_source_ids)}\n\n"
-        f"Allowed Sources:\n{_format_source_list(selected_docs)}\n\n"
-        f"Context:\n{_format_context(selected_docs)}"
-    )
-    verifier_started_at = time.perf_counter()
-    verifier_response = llm.invoke(
-        [
-            {"role": "system", "content": verifier_prompt},
-            {"role": "user", "content": verifier_user_prompt},
-        ]
-    )
-    stage_latency_ms["verification_ms"] = round((time.perf_counter() - verifier_started_at) * 1000.0, 3)
-    parsed_verifier = _extract_json(str(getattr(verifier_response, "content", "")) or "")
-    verifier_passed = bool(parsed_verifier and parsed_verifier.get("supported") is True)
-    if not verifier_passed:
-        borderline_eval = evaluate_borderline_semantic_evidence(
-            question=question,
-            selected_docs=selected_docs,
-        )
-        borderline_detected = bool(borderline_eval.get("is_borderline") is True)
-        borderline_reason_code = str(borderline_eval.get("reason_code") or "not_borderline")
-        borderline_metrics = dict(borderline_eval.get("metrics") or {})
-
-        if _borderline_partial_enabled() and borderline_detected:
-            response_mode_source = "pipeline_partial"
-            return attach(
-                _build_partial_evidence(
-                    question=question,
-                    reason="partial_evidence",
-                    docs=selected_docs,
-                    top_k=effective_top_k,
-                    min_similarity=min_similarity,
-                    retrieval_scope=resolved_scope,
-                ),
-                selected_count=len(selected_docs),
-                extra_meta={
-                    **gate_metrics,
-                    **borderline_metrics,
-                },
-                borderline_detected_override=True,
-                borderline_reason_code_override=borderline_reason_code,
-                response_mode_source_override="pipeline_partial",
-            )
-
-        if _partial_mode_enabled():
-            response_mode_source = "pipeline_partial"
-            return attach(
-                _build_partial_evidence(
-                    question=question,
-                    reason="partial_evidence",
-                    docs=selected_docs,
-                    top_k=effective_top_k,
-                    min_similarity=min_similarity,
-                    retrieval_scope=resolved_scope,
-                ),
-                selected_count=len(selected_docs),
-                extra_meta={
-                    **gate_metrics,
-                    **borderline_metrics,
-                },
-            )
-        response_mode_source = "pipeline_refusal"
-        return attach(
-            _build_refusal(
-                question=question,
-                reason="verifier_failed",
-                docs=selected_docs,
-                top_k=effective_top_k,
-                min_similarity=min_similarity,
-                retrieval_scope=resolved_scope,
-                verifier_passed=False,
-            ),
-            selected_count=len(selected_docs),
-            extra_meta={
-                **gate_metrics,
-                **borderline_metrics,
-            },
         )
 
     citations: list[dict[str, Any]] = []
@@ -1369,6 +1273,7 @@ def answer_with_rag(
         citations.append(_build_citation(index, doc, insufficient=False))
 
     if not citations:
+        _trace_log("validation_failed_empty_citations")
         return attach(
             _build_refusal(
                 question=question,
@@ -1377,13 +1282,12 @@ def answer_with_rag(
                 top_k=effective_top_k,
                 min_similarity=min_similarity,
                 retrieval_scope=resolved_scope,
-                verifier_passed=False,
             ),
             selected_count=len(selected_docs),
             extra_meta=gate_metrics,
         )
 
-    return attach(
+    result = attach(
         {
             "question": question,
             "answer": answer_text,
@@ -1396,15 +1300,27 @@ def answer_with_rag(
                 "top_k": effective_top_k,
                 "min_similarity": min_similarity,
                 "context_count": len(selected_docs),
-                "verifier_passed": True,
                 "scope_mode": resolved_scope.get("mode", "global"),
                 "scope_targets_count": len(resolved_scope.get("targets") or []),
+                "limit_policy_applied": bool(sql_fallback),
+                "limit_items": FALLBACK_LIMIT_POLICY["max_list_items"] if sql_fallback else None,
+                "limit_sentences": FALLBACK_LIMIT_POLICY["max_sentences"] if sql_fallback else None,
+                "result_cap": None,
+                "total_matches": None,
+                "returned_count": None,
+                "truncated": False,
             },
             "legacy_metadata_filter": metadata_filter or {},
         },
         selected_count=len(selected_docs),
         extra_meta=gate_metrics,
         response_mode_source_override="pipeline_generated",
-        borderline_detected_override=False,
-        borderline_reason_code_override="explicit_match_detected",
     )
+    _trace_log(
+        "answer_generated",
+        refused=False,
+        citations_count=len(citations),
+        context_count=result.get("context_count"),
+        evidence_gate_decision=gate_decision,
+    )
+    return result

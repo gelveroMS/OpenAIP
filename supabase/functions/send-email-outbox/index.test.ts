@@ -353,10 +353,16 @@ Deno.test("renderTemplateText returns deterministic plain text fallback", () => 
 Deno.test("renderTemplateHtml supports event-specific headings", () => {
   const events: Array<{ key: string; expectedHeading: string; expectedSubtitle: string }> = [
     { key: "AIP_CLAIMED", expectedHeading: "AIP Claimed for Review", expectedSubtitle: "AIP Review Update" },
+    {
+      key: "AIP_FORCE_UNCLAIMED",
+      expectedHeading: "AIP Review Claim Removed",
+      expectedSubtitle: "Admin Workflow Intervention",
+    },
     { key: "AIP_REVISION_REQUESTED", expectedHeading: "Revision Requested", expectedSubtitle: "AIP Revision Request" },
     { key: "AIP_PUBLISHED", expectedHeading: "AIP Published", expectedSubtitle: "Publication Notice" },
     { key: "AIP_SUBMITTED", expectedHeading: "AIP Submitted for Review", expectedSubtitle: "City Review Queue" },
     { key: "AIP_RESUBMITTED", expectedHeading: "AIP Resubmitted", expectedSubtitle: "City Review Queue" },
+    { key: "AIP_REVIEW_REMINDER", expectedHeading: "Pending AIP Needs Review", expectedSubtitle: "City Review Queue" },
     {
       key: "aip_extraction_succeeded",
       expectedHeading: "AIP processing completed",

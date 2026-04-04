@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import type { UsageMetricsVM } from "@/lib/repos/admin-dashboard/types";
 import { formatNumber } from "@/lib/formatting";
-import { AlertTriangle, BarChart3, Sigma } from "lucide-react";
+import { BarChart3, Sigma } from "lucide-react";
 
 function MiniKpiItem({
   title,
@@ -47,12 +47,6 @@ export default function MiniKpiStack({ metrics }: { metrics: UsageMetricsVM }) {
         value={formatNumber(metrics.totalRequests)}
         delta={metrics.deltaLabels.totalRequests}
         icon={<BarChart3 className="h-4 w-4" />}
-      />
-      <MiniKpiItem
-        title="Error Rate"
-        value={`${(metrics.errorRate * 100).toFixed(2)}%`}
-        delta={metrics.deltaLabels.errorRate}
-        icon={<AlertTriangle className="h-4 w-4" />}
       />
     </div>
   );

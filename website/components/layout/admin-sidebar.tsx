@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { Shield } from "lucide-react";
 import { cn } from "@/lib/ui/utils";
 import { ADMIN_NAV } from "@/constants/lgu-nav";
@@ -27,9 +27,6 @@ function toAdminSidebarTestId(label: string): string {
 
 export default function AdminSidebar({ mode = "desktop", className, onNavigate }: Props) {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const from = searchParams.get("from");
-  const to = searchParams.get("to");
   const isMobile = mode === "mobile";
 
   return (
@@ -69,12 +66,6 @@ export default function AdminSidebar({ mode = "desktop", className, onNavigate }
           {ADMIN_NAV.map((item) => {
             const Icon = item.icon;
             const active = isActive(pathname, item.href);
-            const params = new URLSearchParams();
-            if (item.href === "/admin/usage-controls") {
-              if (from) params.set("from", from);
-              if (to) params.set("to", to);
-            }
-            const href = params.size > 0 ? `${item.href}?${params.toString()}` : item.href;
             const rowClassName = cn(
               "w-full flex h-10 items-center gap-3 rounded-xl px-3 text-sm transition-colors",
               "hover:bg-white/10",
@@ -84,7 +75,7 @@ export default function AdminSidebar({ mode = "desktop", className, onNavigate }
             return (
               <li key={item.href}>
                 <Link
-                  href={href}
+                  href={item.href}
                   onClick={onNavigate}
                   data-testid={toAdminSidebarTestId(item.label)}
                   className={rowClassName}

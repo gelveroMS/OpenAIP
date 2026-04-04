@@ -144,6 +144,16 @@ const EXTRA_ACTIVITY: ActivityLogRecord[] = [
 
 export const ADMIN_DASHBOARD_DATASET: AdminDashboardDataset = {
   cities: FEEDBACK_MODERATION_DATASET.cities.map((row) => ({ ...row })),
+  provinces: [
+    {
+      id: "province_001",
+      region_id: "region_001",
+      psgc_code: "0456",
+      name: "Sample Province",
+      is_active: true,
+      created_at: "2020-01-01T00:00:00.000Z",
+    },
+  ],
   municipalities: FEEDBACK_MODERATION_DATASET.municipalities.map((row) => ({ ...row })),
   barangays: FEEDBACK_MODERATION_DATASET.barangays.map((row) => ({ ...row })),
   profiles: FEEDBACK_MODERATION_DATASET.profiles.map((row) => ({ ...row })),

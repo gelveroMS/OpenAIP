@@ -2,7 +2,9 @@ import type { RoleType } from "@/lib/contracts/databasev2";
 
 export const NOTIFICATION_EVENT_TYPES = [
   "AIP_CLAIMED",
+  "AIP_FORCE_UNCLAIMED",
   "AIP_REVISION_REQUESTED",
+  "AIP_REVIEW_REMINDER",
   "AIP_PUBLISHED",
   "AIP_SUBMITTED",
   "AIP_RESUBMITTED",
@@ -42,6 +44,7 @@ export type NotifyInput = {
   reason?: string | null;
   actionUrl?: string | null;
   metadata?: Record<string, unknown>;
+  recipientUserIds?: string[];
   sendEmail?: boolean;
   dedupeBucket?: string | null;
 };

@@ -1,6 +1,7 @@
 'use client';
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { AipDetails } from '@/features/citizen/aips/types';
 import AipAccountabilityCard from '@/features/citizen/aips/components/aip-accountability-card';
@@ -25,22 +26,37 @@ function readSearchParam(
   return new URLSearchParams(rawQuery).get(key);
 }
 
+type AipTabValue = "overview" | "feedback" | "accountability";
+
+function toAipTabValue(value: string | null): AipTabValue {
+  if (value === "feedback" || value === "accountability") {
+    return value;
+  }
+  return "overview";
+}
+
 export default function AipDetailsTabs({ aip }: { aip: AipDetails }) {
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const tabParam = readSearchParam(searchParams, "tab");
-  const activeTab =
-    tabParam === "feedback" || tabParam === "accountability" ? tabParam : "overview";
+  const [activeTab, setActiveTab] = useState<AipTabValue>(
+    toAipTabValue(readSearchParam(searchParams, "tab"))
+  );
+
+  useEffect(() => {
+    setActiveTab(toAipTabValue(readSearchParam(searchParams, "tab")));
+  }, [searchParams]);
 
   return (
     <Tabs
       value={activeTab}
       onValueChange={(value) => {
+        const nextTab = toAipTabValue(value);
+        setActiveTab(nextTab);
+
         const params = new URLSearchParams(searchParams.toString());
-        if (value === "feedback") {
+        if (nextTab === "feedback") {
           params.set("tab", "feedback");
-        } else if (value === "accountability") {
+        } else if (nextTab === "accountability") {
           params.set("tab", "accountability");
           params.delete("thread");
           params.delete("comment");
@@ -51,7 +67,8 @@ export default function AipDetailsTabs({ aip }: { aip: AipDetails }) {
         }
 
         const query = params.toString();
-        router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+        const nextUrl = query ? `${pathname}?${query}` : pathname;
+        window.history.replaceState(window.history.state, "", nextUrl);
       }}
       className="space-y-4 md:space-y-6 overflow-x-hidden"
     >
