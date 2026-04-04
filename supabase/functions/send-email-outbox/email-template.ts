@@ -595,6 +595,30 @@ const TEMPLATE_REGISTRY: Record<string, EventTemplateSpec> = {
     advisoryBody:
       "This is an automated workflow notification. If you did not expect this action, contact your administrator.",
   },
+  AIP_FORCE_UNCLAIMED: {
+    subtitle: "Admin Workflow Intervention",
+    heading: "AIP Review Claim Removed",
+    ctaLabel: "Open AIP",
+    detailsLabel: "DETAILS",
+    intro: (context) => {
+      const fy = fyLabel(context.details.fiscalYear);
+      if (fy) {
+        return `An administrator removed the active review claim for the AIP ${fy} and returned it to pending review.`;
+      }
+      return "An administrator removed the active review claim for this AIP and returned it to pending review.";
+    },
+    details: (context) =>
+      buildDetailsRows([
+        { label: "LGU", value: context.details.lguName },
+        { label: "Actioned by", value: context.details.actorName },
+        { label: "Role", value: context.details.actorRole },
+        { label: "Admin message", value: context.details.revisionNotes ?? context.details.revisionReason },
+        { label: "Updated at", value: context.details.occurredAt },
+      ]),
+    advisoryTitle: "Workflow Note",
+    advisoryBody:
+      "Review ownership can be reassigned by admins to keep the review queue moving and to resolve stale assignments.",
+  },
   AIP_REVISION_REQUESTED: {
     subtitle: "AIP Revision Request",
     heading: "Revision Requested",
@@ -683,6 +707,29 @@ const TEMPLATE_REGISTRY: Record<string, EventTemplateSpec> = {
         { label: "Resubmitted at", value: context.details.occurredAt },
         { label: "Revision reason", value: context.details.revisionReason ?? context.details.revisionNotes },
       ]),
+  },
+  AIP_REVIEW_REMINDER: {
+    subtitle: "City Review Queue",
+    heading: "Pending AIP Needs Review",
+    ctaLabel: "Open Review Queue",
+    detailsLabel: "DETAILS",
+    intro: (context) => {
+      const fy = fyLabel(context.details.fiscalYear);
+      if (fy) {
+        return `This is a reminder that a barangay AIP for ${fy} is still pending city review.`;
+      }
+      return "This is a reminder that a barangay AIP is still pending city review.";
+    },
+    details: (context) =>
+      buildDetailsRows([
+        { label: "LGU", value: context.details.lguName },
+        { label: "Reminder sent by", value: context.details.actorName },
+        { label: "Role", value: context.details.actorRole },
+        { label: "Reminder date", value: context.details.occurredAt },
+      ]),
+    advisoryTitle: "Review SLA",
+    advisoryBody:
+      "This reminder can be sent once per day per AIP (Asia/Manila) to reduce missed submissions and backlog delays.",
   },
   feedback_posted: {
     subtitle: "Citizen Engagement",

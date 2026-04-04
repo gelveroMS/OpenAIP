@@ -290,6 +290,48 @@ describe("notify()", () => {
     });
   });
 
+  it("honors explicit recipientUserIds overrides for force-unclaim notifications", async () => {
+    mockGetRecipientByUserId.mockImplementation(async (_admin: unknown, userId: string) => {
+      if (userId === "claimant-1") {
+        return {
+          userId: "claimant-1",
+          role: "city_official",
+          email: "claimant@example.com",
+          scopeType: "city",
+        };
+      }
+      if (userId === "uploader-1") {
+        return {
+          userId: "uploader-1",
+          role: "barangay_official",
+          email: "uploader@example.com",
+          scopeType: "barangay",
+        };
+      }
+      return null;
+    });
+
+    const result = await notify({
+      eventType: "AIP_FORCE_UNCLAIMED",
+      scopeType: "barangay",
+      entityType: "aip",
+      entityId: "aip-1",
+      aipId: "aip-1",
+      recipientUserIds: ["claimant-1", "uploader-1"],
+      note: "Assignment was stale for 5 days.",
+    });
+
+    expect(result.recipientCount).toBe(2);
+    expect(notificationUpserts).toHaveLength(1);
+    const byUserId = new Map(
+      notificationUpserts[0].rows.map((row) => [String(row.recipient_user_id), row])
+    );
+    expect(byUserId.get("claimant-1")?.action_url).toBe("/city/submissions/aip/aip-1");
+    expect(byUserId.get("uploader-1")?.action_url).toBe("/barangay/aips/aip-1");
+    expect(emailUpserts).toHaveLength(1);
+    expect(emailUpserts[0].rows).toHaveLength(2);
+  });
+
   it("notifies root citizen on reply while excluding official replier", async () => {
     mockResolveFeedbackContext.mockResolvedValueOnce({
       feedbackId: "fb-reply-1",

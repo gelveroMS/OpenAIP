@@ -1,24 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import AipMonitoringTabs, { AipMonitoringTab } from "../components/AipMonitoringTabs";
+import { useRouter, useSearchParams } from "next/navigation";
 import AipFiltersRow from "../components/AipFiltersRow";
 import AipsTable from "../components/AipsTable";
-import CasesTable from "../components/CasesTable";
-import AipDetailsModal from "../components/AipDetailsModal";
-import WorkflowActionModal, {
-  WorkflowActionType,
-} from "../components/WorkflowActionModal";
 import { getAipMonitoringRepo } from "@/lib/repos/aip-monitoring";
-import type { AipMonitoringRow, CaseRow } from "../types/monitoring.types";
-import {
-  mapActivityToCaseRows,
-  mapAipRowsToMonitoringRows,
-} from "@/lib/mappers/aip-monitoring";
+import type { AipMonitoringRow } from "../types/monitoring.types";
+import { mapAipRowsToMonitoringRows } from "@/lib/mappers/aip-monitoring";
 import type { AipStatus } from "@/lib/contracts/databasev2/enums";
-
-type WorkflowState = { actionType: WorkflowActionType; rowId: string } | null;
 
 const AIP_STATUS_OPTIONS: Array<{ value: AipStatus; label: string }> = [
   { value: "draft", label: "Draft" },
@@ -28,8 +17,6 @@ const AIP_STATUS_OPTIONS: Array<{ value: AipStatus; label: string }> = [
   { value: "published", label: "Approved" },
 ];
 
-const todayStamp = () => new Date().toISOString().slice(0, 10);
-
 function parseAipStatusParam(value: string | null): AipStatus | null {
   if (!value) return null;
   return AIP_STATUS_OPTIONS.some((option) => option.value === value)
@@ -38,42 +25,26 @@ function parseAipStatusParam(value: string | null): AipStatus | null {
 }
 
 export default function AipMonitoringView() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const repo = useMemo(() => getAipMonitoringRepo(), []);
   const initialQueryAppliedRef = useRef(false);
 
-  const [activeTab, setActiveTab] = useState<AipMonitoringTab>("aips");
   const [query, setQuery] = useState("");
   const [yearFilter, setYearFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<"all" | AipStatus>("all");
-  const [caseTypeFilter, setCaseTypeFilter] = useState("all");
   const [lguFilter, setLguFilter] = useState("all");
 
   const [aipRows, setAipRows] = useState<AipMonitoringRow[]>([]);
-  const [caseRows, setCaseRows] = useState<CaseRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [selectedAipId, setSelectedAipId] = useState<string | null>(null);
-  const [workflowState, setWorkflowState] = useState<WorkflowState>(null);
-
   useEffect(() => {
     if (initialQueryAppliedRef.current) return;
-
     const statusParam = parseAipStatusParam(searchParams.get("status"));
-    const tabParam = searchParams.get("tab");
-
     if (statusParam) {
       setStatusFilter(statusParam);
-      setActiveTab("aips");
-      initialQueryAppliedRef.current = true;
-      return;
     }
-
-    if (tabParam === "cases" || tabParam === "aips") {
-      setActiveTab(tabParam);
-    }
-
     initialQueryAppliedRef.current = true;
   }, [searchParams]);
 
@@ -87,7 +58,6 @@ export default function AipMonitoringView() {
       try {
         const seedData = await repo.getSeedData();
         if (!isActive) return;
-
         setAipRows(
           mapAipRowsToMonitoringRows({
             aips: seedData.aips,
@@ -97,13 +67,6 @@ export default function AipMonitoringView() {
             budgetTotalByAipId: seedData.budgetTotalByAipId,
             lguNameByAipId: seedData.lguNameByAipId,
             reviewerDirectory: seedData.reviewerDirectory,
-          })
-        );
-        setCaseRows(
-          mapActivityToCaseRows({
-            activity: seedData.activity,
-            aips: seedData.aips,
-            lguNameByAipId: seedData.lguNameByAipId,
           })
         );
       } catch (loadError) {
@@ -125,25 +88,15 @@ export default function AipMonitoringView() {
     };
   }, [repo]);
 
-  const selectedAip = useMemo(
-    () => aipRows.find((row) => row.id === selectedAipId) ?? null,
-    [aipRows, selectedAipId]
+  const yearOptions = useMemo(
+    () => Array.from(new Set(aipRows.map((row) => row.year))).sort((a, b) => b - a),
+    [aipRows]
   );
 
-  const yearOptions = useMemo(() => {
-    const rows = activeTab === "aips" ? aipRows : caseRows;
-    return Array.from(new Set(rows.map((row) => row.year))).sort((a, b) => b - a);
-  }, [activeTab, aipRows, caseRows]);
-
-  const caseTypeOptions = useMemo(
-    () => Array.from(new Set(caseRows.map((row) => row.caseType))),
-    [caseRows]
+  const lguOptions = useMemo(
+    () => Array.from(new Set(aipRows.map((row) => row.lguName))),
+    [aipRows]
   );
-
-  const lguOptions = useMemo(() => {
-    const rows = activeTab === "aips" ? aipRows : caseRows;
-    return Array.from(new Set(rows.map((row) => row.lguName)));
-  }, [activeTab, aipRows, caseRows]);
 
   const filteredAipRows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -158,72 +111,6 @@ export default function AipMonitoringView() {
     });
   }, [aipRows, query, yearFilter, statusFilter, lguFilter]);
 
-  const filteredCaseRows = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return caseRows.filter((row) => {
-      if (yearFilter !== "all" && row.year !== Number(yearFilter)) return false;
-      if (caseTypeFilter !== "all" && row.caseType !== caseTypeFilter) return false;
-      if (lguFilter !== "all" && row.lguName !== lguFilter) return false;
-      if (!q) return true;
-
-      const haystack = `${row.lguName} ${row.claimedBy ?? ""}`.toLowerCase();
-      return haystack.includes(q);
-    });
-  }, [caseRows, query, yearFilter, caseTypeFilter, lguFilter]);
-
-  const openWorkflow = (actionType: WorkflowActionType, rowId: string) => {
-    setWorkflowState({ actionType, rowId });
-  };
-
-  const handleWorkflowConfirm = (reason: string) => {
-    if (!workflowState) return;
-    const { actionType, rowId } = workflowState;
-    const now = todayStamp();
-
-    setCaseRows((prev) =>
-      prev.map((row) => {
-        if (row.id !== rowId) return row;
-
-        if (actionType === "forceUnclaim") {
-          return { ...row, claimedBy: null, lastUpdated: now };
-        }
-        if (actionType === "cancel") {
-          return { ...row, lastUpdated: now };
-        }
-        if (actionType === "archive") {
-          return {
-            ...row,
-            isArchived: true,
-            previousCaseType:
-              row.caseType === "Archived" ? row.previousCaseType : row.caseType,
-            caseType: "Archived",
-            lastUpdated: now,
-          };
-        }
-        if (actionType === "unarchive") {
-          return {
-            ...row,
-            isArchived: false,
-            caseType: row.previousCaseType ?? "Locked",
-            lastUpdated: now,
-          };
-        }
-
-        return row;
-      })
-    );
-
-    setWorkflowState(null);
-    void reason;
-  };
-
-  const selectedCase = workflowState
-    ? caseRows.find((row) => row.id === workflowState.rowId) ?? null
-    : null;
-  const workflowTargetLabel = selectedCase
-    ? `${selectedCase.lguName} - ${selectedCase.year}`
-    : "";
-
   return (
     <div className="space-y-6 text-[13.5px] text-slate-700">
       <div className="space-y-2">
@@ -235,30 +122,20 @@ export default function AipMonitoringView() {
 
       <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-[13.5px] text-slate-700">
         <span className="font-semibold text-slate-900">Admin Role Restrictions:</span>{" "}
-        You can review submissions and manage workflow actions, but cannot edit AIP content.
+        You can review submissions and apply workflow interventions from each AIP detail page.
       </div>
 
-      <AipMonitoringTabs
-        value={activeTab}
-        onChange={setActiveTab}
-        casesCount={caseRows.length}
-      />
-
       <AipFiltersRow
-        tab={activeTab}
         query={query}
         onQueryChange={setQuery}
         yearFilter={yearFilter}
         onYearChange={setYearFilter}
         statusFilter={statusFilter}
         onStatusChange={(value) => setStatusFilter(value as "all" | AipStatus)}
-        caseTypeFilter={caseTypeFilter}
-        onCaseTypeChange={setCaseTypeFilter}
         lguFilter={lguFilter}
         onLguChange={setLguFilter}
         yearOptions={yearOptions}
         statusOptions={AIP_STATUS_OPTIONS}
-        caseTypeOptions={caseTypeOptions}
         lguOptions={lguOptions}
       />
 
@@ -266,35 +143,14 @@ export default function AipMonitoringView() {
         <div className="text-sm text-slate-500">Loading monitoring data...</div>
       ) : error ? (
         <div className="text-sm text-rose-600">{error}</div>
-      ) : activeTab === "aips" ? (
-        <AipsTable rows={filteredAipRows} onViewDetails={(id) => setSelectedAipId(id)} />
       ) : (
-        <CasesTable
-          rows={filteredCaseRows}
-          onForceUnclaim={(id) => openWorkflow("forceUnclaim", id)}
-          onCancelSubmission={(id) => openWorkflow("cancel", id)}
-          onArchiveSubmission={(id) => openWorkflow("archive", id)}
-          onUnarchiveSubmission={(id) => openWorkflow("unarchive", id)}
+        <AipsTable
+          rows={filteredAipRows}
+          onOpenDetails={(id) => {
+            router.push(`/admin/aip-monitoring/${encodeURIComponent(id)}`);
+          }}
         />
       )}
-
-      <AipDetailsModal
-        open={selectedAipId !== null}
-        onOpenChange={(open) => {
-          if (!open) setSelectedAipId(null);
-        }}
-        aip={selectedAip}
-      />
-
-      <WorkflowActionModal
-        open={workflowState !== null}
-        onOpenChange={(open) => {
-          if (!open) setWorkflowState(null);
-        }}
-        actionType={workflowState?.actionType ?? "forceUnclaim"}
-        targetLabel={workflowTargetLabel}
-        onConfirm={handleWorkflowConfirm}
-      />
     </div>
   );
 }

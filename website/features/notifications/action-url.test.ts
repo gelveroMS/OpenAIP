@@ -23,7 +23,34 @@ describe("buildNotificationActionUrl()", () => {
 
     expect(
       buildNotificationActionUrl({
+        eventType: "AIP_FORCE_UNCLAIMED",
+        recipientScopeType: "city",
+        entityType: "aip",
+        aipId: "aip-1",
+      })
+    ).toBe("/city/submissions/aip/aip-1");
+
+    expect(
+      buildNotificationActionUrl({
+        eventType: "AIP_FORCE_UNCLAIMED",
+        recipientScopeType: "barangay",
+        entityType: "aip",
+        aipId: "aip-1",
+      })
+    ).toBe("/barangay/aips/aip-1");
+
+    expect(
+      buildNotificationActionUrl({
         eventType: "AIP_SUBMITTED",
+        recipientScopeType: "city",
+        entityType: "aip",
+        aipId: "aip-1",
+      })
+    ).toBe("/city/submissions/aip/aip-1");
+
+    expect(
+      buildNotificationActionUrl({
+        eventType: "AIP_REVIEW_REMINDER",
         recipientScopeType: "city",
         entityType: "aip",
         aipId: "aip-1",

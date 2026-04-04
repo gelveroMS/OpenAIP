@@ -61,6 +61,17 @@ export type ClaimReviewParams = {
   actor: ActorContext | null;
 };
 
+export type ForceUnclaimReviewParams = {
+  aipId: string;
+  note: string;
+  actor: ActorContext | null;
+};
+
+export type ForceUnclaimReviewResult = {
+  status: AipStatus;
+  previousReviewerId: UUID;
+};
+
 export type RequestRevisionParams = {
   aipId: string;
   note: string;
