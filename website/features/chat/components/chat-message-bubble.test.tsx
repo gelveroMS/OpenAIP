@@ -1,8 +1,12 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import ChatMessageBubble from "./ChatMessageBubble";
 
 describe("ChatMessageBubble", () => {
+  function expandEvidence() {
+    fireEvent.click(screen.getByTestId("chat-evidence-summary"));
+  }
+
   it("shows DIST or MATCH labels and never shows SIM", () => {
     render(
       <ChatMessageBubble
@@ -43,10 +47,38 @@ describe("ChatMessageBubble", () => {
       />
     );
 
+    expandEvidence();
     expect(screen.getByText("DIST 0.235")).toBeInTheDocument();
     expect(screen.getByText("MATCH 75%")).toBeInTheDocument();
     expect(screen.getByText("MATCH 64%")).toBeInTheDocument();
     expect(screen.queryByText(/sim/i)).not.toBeInTheDocument();
+  });
+
+  it("renders assistant evidence in a collapsed details container by default", () => {
+    render(
+      <ChatMessageBubble
+        message={{
+          id: "msg-evidence-collapsed",
+          role: "assistant",
+          content: "Sample response",
+          timeLabel: "10:00 AM",
+          deliveryStatus: "sent",
+          retrievalMeta: null,
+          citations: [
+            {
+              sourceId: "L1",
+              scopeName: "Barangay Mamatid - FY 2026 - Honoraria",
+              scopeType: "barangay",
+              fiscalYear: 2026,
+              snippet: "Snippet A",
+            },
+          ],
+        }}
+      />
+    );
+
+    expect(screen.getByTestId("chat-evidence-summary")).toHaveTextContent("Evidence (1)");
+    expect(screen.getByTestId("chat-evidence-details")).not.toHaveAttribute("open");
   });
 
   it("shows clarification badge without grounded refusal text", () => {
@@ -195,6 +227,7 @@ describe("ChatMessageBubble", () => {
       />
     );
 
+    expandEvidence();
     const link = screen.getByRole("link", { name: "Mamatid FY 2025 Health Station Upgrade" });
     expect(link).toHaveAttribute("href", "/barangay/aips/aip-1/project-1");
     expect(screen.queryByText("Fallback snippet")).not.toBeInTheDocument();
@@ -229,6 +262,7 @@ describe("ChatMessageBubble", () => {
       />
     );
 
+    expandEvidence();
     const link = screen.getByRole("link", { name: "Cabuyao City FY 2024 Flood Control Rehabilitation" });
     expect(link).toHaveAttribute("href", "/city/aips/aip-city/project-city");
   });
@@ -262,6 +296,7 @@ describe("ChatMessageBubble", () => {
       />
     );
 
+    expandEvidence();
     const link = screen.getByRole("link", { name: "Mamatid FY 2025 AIP" });
     expect(link).toHaveAttribute("href", "/barangay/aips/aip-2025-1");
   });
@@ -296,6 +331,7 @@ describe("ChatMessageBubble", () => {
       />
     );
 
+    expandEvidence();
     const link = screen.getByRole("link", { name: "Cabuyao City FY 2025 AIP" });
     expect(link).toHaveAttribute("href", "/city/aips/aip-city-2025");
   });
@@ -331,6 +367,7 @@ describe("ChatMessageBubble", () => {
       />
     );
 
+    expandEvidence();
     const link = screen.getByRole("link", { name: "Mamatid FY 2026 Road Concreting" });
     expect(link).toHaveAttribute("href", "/barangay/aips/aip-precedence/project-precedence");
     expect(screen.queryByRole("link", { name: "Mamatid FY 2026 AIP" })).not.toBeInTheDocument();
@@ -363,6 +400,7 @@ describe("ChatMessageBubble", () => {
       />
     );
 
+    expandEvidence();
     expect(screen.getByText("Pipeline request failed.")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /FY/i })).not.toBeInTheDocument();
   });
@@ -394,7 +432,27 @@ describe("ChatMessageBubble", () => {
       />
     );
 
+    expandEvidence();
     expect(screen.getByText("Totals evidence snippet.")).toBeInTheDocument();
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("does not render evidence container when there are no citations", () => {
+    render(
+      <ChatMessageBubble
+        message={{
+          id: "msg-no-evidence",
+          role: "assistant",
+          content: "No evidence for this response.",
+          timeLabel: "10:10 AM",
+          deliveryStatus: "sent",
+          retrievalMeta: null,
+          citations: [],
+        }}
+      />
+    );
+
+    expect(screen.queryByTestId("chat-evidence-details")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("chat-evidence-summary")).not.toBeInTheDocument();
   });
 });

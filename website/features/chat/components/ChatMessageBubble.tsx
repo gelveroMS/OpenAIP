@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { formatMatchMetric } from "@/lib/chat/match-metric";
 import { cn } from "@/lib/ui/utils";
@@ -121,66 +122,79 @@ export default function ChatMessageBubble({
           )}
 
         {!isUser && message.citations.length > 0 && (
-          <div className="mt-3 space-y-2 border-t pt-2">
-            {message.citations.map((citation) => {
-              const metric = formatMatchMetric({
-                distance: citation.distance,
-                matchScore: citation.matchScore,
-                similarity: citation.similarity,
-              });
-              const citationProjectHref = buildCitationProjectHref(citation, routeScope);
-              const citationProjectLabel = buildCitationProjectLabel(citation);
-              const citationTotalsHref = buildCitationAipTotalsHref(citation, routeScope);
-              const citationTotalsLabel = buildCitationAipTotalsLabel(citation);
-              const shouldRenderProjectLink =
-                typeof citationProjectHref === "string" &&
-                citationProjectHref.length > 0 &&
-                typeof citationProjectLabel === "string" &&
-                citationProjectLabel.length > 0;
-              const shouldRenderTotalsLink =
-                !shouldRenderProjectLink &&
-                isAipTotalsCitation(citation) &&
-                typeof citationTotalsHref === "string" &&
-                citationTotalsHref.length > 0 &&
-                typeof citationTotalsLabel === "string" &&
-                citationTotalsLabel.length > 0;
-              const citationHref = shouldRenderProjectLink
-                ? citationProjectHref
-                : shouldRenderTotalsLink
-                  ? citationTotalsHref
-                  : null;
-              const citationLabel = shouldRenderProjectLink
-                ? citationProjectLabel
-                : shouldRenderTotalsLink
-                  ? citationTotalsLabel
-                  : null;
+          <details data-testid="chat-evidence-details" className="group mt-3 rounded-md border bg-background px-2 py-2">
+            <summary
+              data-testid="chat-evidence-summary"
+              className="flex cursor-pointer list-none items-center justify-between text-[11px] font-semibold text-muted-foreground"
+            >
+              <span>Evidence ({message.citations.length})</span>
+              <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+            </summary>
 
-              return (
-                <div key={`${message.id}:${citation.sourceId}:${citation.chunkId ?? "chunk"}`} className="rounded-md border bg-background px-2 py-1.5">
-                <div className="flex min-w-0 flex-wrap items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground [overflow-wrap:anywhere]">
-                  <span className="break-words">{citation.sourceId}</span>
-                  <span className="break-words">{citation.scopeName ?? "Unknown scope"}</span>
-                  <span>{citation.scopeType ?? "unknown"}</span>
-                  {typeof citation.fiscalYear === "number" && <span>FY {citation.fiscalYear}</span>}
-                  {metric.label && metric.value ? <span>{metric.label} {metric.value}</span> : null}
-                </div>
-                <div className="mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[12px] leading-snug">
-                  {citationHref && citationLabel ? (
-                    <Link
-                      href={citationHref}
-                      className="text-[#0247A1] underline decoration-[#0247A1]/60 underline-offset-2 hover:decoration-[#0247A1]"
-                    >
-                      {citationLabel}
-                    </Link>
-                  ) : (
-                    citation.snippet
-                  )}
-                </div>
-              </div>
-              );
-            })}
-          </div>
-          )}
+            <div className="mt-2 space-y-2 border-t pt-2">
+              {message.citations.map((citation) => {
+                const metric = formatMatchMetric({
+                  distance: citation.distance,
+                  matchScore: citation.matchScore,
+                  similarity: citation.similarity,
+                });
+                const citationProjectHref = buildCitationProjectHref(citation, routeScope);
+                const citationProjectLabel = buildCitationProjectLabel(citation);
+                const citationTotalsHref = buildCitationAipTotalsHref(citation, routeScope);
+                const citationTotalsLabel = buildCitationAipTotalsLabel(citation);
+                const shouldRenderProjectLink =
+                  typeof citationProjectHref === "string" &&
+                  citationProjectHref.length > 0 &&
+                  typeof citationProjectLabel === "string" &&
+                  citationProjectLabel.length > 0;
+                const shouldRenderTotalsLink =
+                  !shouldRenderProjectLink &&
+                  isAipTotalsCitation(citation) &&
+                  typeof citationTotalsHref === "string" &&
+                  citationTotalsHref.length > 0 &&
+                  typeof citationTotalsLabel === "string" &&
+                  citationTotalsLabel.length > 0;
+                const citationHref = shouldRenderProjectLink
+                  ? citationProjectHref
+                  : shouldRenderTotalsLink
+                    ? citationTotalsHref
+                    : null;
+                const citationLabel = shouldRenderProjectLink
+                  ? citationProjectLabel
+                  : shouldRenderTotalsLink
+                    ? citationTotalsLabel
+                    : null;
+
+                return (
+                  <div
+                    key={`${message.id}:${citation.sourceId}:${citation.chunkId ?? "chunk"}`}
+                    className="rounded-md border bg-background px-2 py-1.5"
+                  >
+                    <div className="flex min-w-0 flex-wrap items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground [overflow-wrap:anywhere]">
+                      <span className="break-words">{citation.sourceId}</span>
+                      <span className="break-words">{citation.scopeName ?? "Unknown scope"}</span>
+                      <span>{citation.scopeType ?? "unknown"}</span>
+                      {typeof citation.fiscalYear === "number" && <span>FY {citation.fiscalYear}</span>}
+                      {metric.label && metric.value ? <span>{metric.label} {metric.value}</span> : null}
+                    </div>
+                    <div className="mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[12px] leading-snug">
+                      {citationHref && citationLabel ? (
+                        <Link
+                          href={citationHref}
+                          className="text-[#0247A1] underline decoration-[#0247A1]/60 underline-offset-2 hover:decoration-[#0247A1]"
+                        >
+                          {citationLabel}
+                        </Link>
+                      ) : (
+                        citation.snippet
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </details>
+        )}
 
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px]">
           <div className={cn(isUser ? "text-primary-foreground/70" : "text-muted-foreground")}>
