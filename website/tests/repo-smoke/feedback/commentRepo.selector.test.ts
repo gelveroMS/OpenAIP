@@ -11,11 +11,11 @@ export async function runCommentRepoSelectorTests() {
   const oldUseMocks = process.env.NEXT_PUBLIC_USE_MOCKS;
 
   try {
-    process.env.NEXT_PUBLIC_APP_ENV = "dev";
+    process.env.NEXT_PUBLIC_APP_ENV = "local";
     process.env.NEXT_PUBLIC_USE_MOCKS = "true";
-    const devRepo = getCommentRepo();
-    const threads = await devRepo.listThreadsForInbox({ lguId: "lgu_001" });
-    assert(Array.isArray(threads), "Expected mock repo to return threads in dev");
+    const localRepo = getCommentRepo();
+    const threads = await localRepo.listThreadsForInbox({ lguId: "lgu_001" });
+    assert(Array.isArray(threads), "Expected mock repo to return threads in local mode");
 
     process.env.NEXT_PUBLIC_APP_ENV = "staging";
     process.env.NEXT_PUBLIC_USE_MOCKS = "false";

@@ -37,6 +37,13 @@ function registerTypeScriptExtension(ext) {
 registerTypeScriptExtension(".ts");
 registerTypeScriptExtension(".tsx");
 
+if (!process.env.NEXT_PUBLIC_APP_ENV) {
+  process.env.NEXT_PUBLIC_APP_ENV = "local";
+}
+if (!process.env.NEXT_PUBLIC_USE_MOCKS) {
+  process.env.NEXT_PUBLIC_USE_MOCKS = "true";
+}
+
 const { createMockFeedbackRepo } = require("@/lib/repos/feedback/repo.mock");
 const { createMockChatRepo } = require("@/lib/repos/chat/repo.mock");
 const { projectService } = require("@/lib/repos/projects/queries");
@@ -165,7 +172,7 @@ const tests = [
     name: "ProjectsRepo.listByAip returns array",
     async run() {
       const oldEnv = process.env.NEXT_PUBLIC_APP_ENV;
-      process.env.NEXT_PUBLIC_APP_ENV = "dev";
+      process.env.NEXT_PUBLIC_APP_ENV = "local";
       try {
         const repo = getProjectsRepo();
         const result = await repo.listByAip("unknown");
@@ -179,7 +186,7 @@ const tests = [
     name: "ProjectsRepo.getById unknown returns null",
     async run() {
       const oldEnv = process.env.NEXT_PUBLIC_APP_ENV;
-      process.env.NEXT_PUBLIC_APP_ENV = "dev";
+      process.env.NEXT_PUBLIC_APP_ENV = "local";
       try {
         const repo = getProjectsRepo();
         const result = await repo.getById("unknown");
@@ -261,13 +268,13 @@ const tests = [
     },
   },
   {
-    name: "getProjectsRepo dev defaults to mock",
+    name: "getProjectsRepo local defaults to mock",
     async run() {
       const oldEnv = process.env.NEXT_PUBLIC_APP_ENV;
-      process.env.NEXT_PUBLIC_APP_ENV = "dev";
+      process.env.NEXT_PUBLIC_APP_ENV = "local";
       try {
         const repo = getProjectsRepo();
-        assert(!!repo, "Expected repo instance in dev");
+        assert(!!repo, "Expected repo instance in local mode");
       } finally {
         process.env.NEXT_PUBLIC_APP_ENV = oldEnv;
       }
@@ -627,10 +634,10 @@ const tests = [
     },
   },
   {
-    name: "auditService dev fallback shows scoped logs",
+    name: "auditService local fallback shows scoped logs",
     async run() {
       const oldEnv = process.env.NEXT_PUBLIC_APP_ENV;
-      process.env.NEXT_PUBLIC_APP_ENV = "dev";
+      process.env.NEXT_PUBLIC_APP_ENV = "local";
       try {
         const actor = {
           userId: "uuid-not-in-mock",
@@ -646,7 +653,7 @@ const tests = [
         ).length;
         assert(
           result.length === expected,
-          "Expected dev fallback to return city-scoped activity logs"
+          "Expected local fallback to return city-scoped activity logs"
         );
       } finally {
         process.env.NEXT_PUBLIC_APP_ENV = oldEnv;
@@ -681,7 +688,7 @@ const tests = [
     name: "submissionsService null actor unauthorized",
     async run() {
       const oldEnv = process.env.NEXT_PUBLIC_APP_ENV;
-      process.env.NEXT_PUBLIC_APP_ENV = "dev";
+      process.env.NEXT_PUBLIC_APP_ENV = "local";
       try {
         let threwUnauthorized = false;
         try {

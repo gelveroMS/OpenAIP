@@ -65,7 +65,8 @@ Important constraints:
 
 ## E. Current Implementation Status
 - Mock and Supabase adapters are both implemented for `AipRepo` and `AipProjectRepo`.
-- In dev mode, mock data is used by default.
+- `NEXT_PUBLIC_APP_ENV` must be `local`, `staging`, or `prod` (missing/invalid values throw).
+- In local mode, mock data can be forced with `NEXT_PUBLIC_USE_MOCKS=true`.
 - In non-mock mode, pages use Supabase-backed repositories.
 - Upload and extraction monitoring paths are active in current code.
 

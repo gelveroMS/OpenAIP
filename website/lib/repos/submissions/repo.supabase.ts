@@ -430,23 +430,18 @@ export function createSupabaseAipSubmissionsReviewRepo(): AipSubmissionsReviewRe
       assertClaimOwnership(latestReview, actor);
 
       const client = await supabaseServer();
-      const { error: reviewError } = await client.from("aip_reviews").insert({
-        aip_id: aipId,
-        action: "request_revision",
-        note: trimmed,
-        reviewer_id: actor.userId,
+      const { data, error } = await client.rpc("request_aip_revision", {
+        p_aip_id: aipId,
+        p_note: trimmed,
       });
-      if (reviewError) throw new Error(reviewError.message);
-
-      const { data, error } = await client
-        .from("aips")
-        .update({ status: "for_revision" })
-        .eq("id", aipId)
-        .eq("status", "under_review")
-        .select("status")
-        .single();
       if (error) throw new Error(error.message);
-      return (data as { status: AipStatus }).status;
+
+      const row = Array.isArray(data) ? data[0] : data;
+      const status = row && typeof row.status === "string" ? row.status : null;
+      if (status !== "for_revision") {
+        throw new Error("Unexpected status returned by request_aip_revision.");
+      }
+      return status;
     },
 
     async publishAip({ aipId, note, actor }): Promise<AipStatus> {
@@ -462,23 +457,18 @@ export function createSupabaseAipSubmissionsReviewRepo(): AipSubmissionsReviewRe
       assertClaimOwnership(latestReview, actor);
 
       const client = await supabaseServer();
-      const { error: reviewError } = await client.from("aip_reviews").insert({
-        aip_id: aipId,
-        action: "approve",
-        note: trimmed ? trimmed : null,
-        reviewer_id: actor.userId,
+      const { data, error } = await client.rpc("publish_aip_review", {
+        p_aip_id: aipId,
+        p_note: trimmed ? trimmed : null,
       });
-      if (reviewError) throw new Error(reviewError.message);
-
-      const { data, error } = await client
-        .from("aips")
-        .update({ status: "published" })
-        .eq("id", aipId)
-        .eq("status", "under_review")
-        .select("status")
-        .single();
       if (error) throw new Error(error.message);
-      return (data as { status: AipStatus }).status;
+
+      const row = Array.isArray(data) ? data[0] : data;
+      const status = row && typeof row.status === "string" ? row.status : null;
+      if (status !== "published") {
+        throw new Error("Unexpected status returned by publish_aip_review.");
+      }
+      return status;
     },
 
     async getLatestReview({ aipId }): Promise<LatestReview> {

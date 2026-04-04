@@ -33,12 +33,17 @@ class FakeRouter:
         )
 
 
+def _authorized_headers() -> dict[str, str]:
+    return {"x-pipeline-token": "test-pipeline-token"}
+
+
 def test_intent_classify_happy_path(monkeypatch) -> None:
     fake_router = FakeRouter()
     monkeypatch.setattr(intent_route_module, "_INTENT_ROUTER", fake_router)
+    monkeypatch.setenv("PIPELINE_INTERNAL_TOKEN", "test-pipeline-token")
     client = TestClient(create_app())
 
-    response = client.post("/intent/classify", json={"text": "hello"})
+    response = client.post("/intent/classify", json={"text": "hello"}, headers=_authorized_headers())
 
     assert response.status_code == 200
     payload = response.json()
@@ -56,9 +61,10 @@ def test_intent_classify_happy_path(monkeypatch) -> None:
 def test_intent_classify_empty_text_returns_unknown(monkeypatch) -> None:
     fake_router = FakeRouter()
     monkeypatch.setattr(intent_route_module, "_INTENT_ROUTER", fake_router)
+    monkeypatch.setenv("PIPELINE_INTERNAL_TOKEN", "test-pipeline-token")
     client = TestClient(create_app())
 
-    response = client.post("/intent/classify", json={"text": ""})
+    response = client.post("/intent/classify", json={"text": ""}, headers=_authorized_headers())
 
     assert response.status_code == 200
     assert response.json() == {
@@ -75,10 +81,11 @@ def test_intent_classify_empty_text_returns_unknown(monkeypatch) -> None:
 def test_intent_classify_truncates_very_long_input(monkeypatch) -> None:
     fake_router = FakeRouter()
     monkeypatch.setattr(intent_route_module, "_INTENT_ROUTER", fake_router)
+    monkeypatch.setenv("PIPELINE_INTERNAL_TOKEN", "test-pipeline-token")
     client = TestClient(create_app())
     long_text = "a" * 2500
 
-    response = client.post("/intent/classify", json={"text": long_text})
+    response = client.post("/intent/classify", json={"text": long_text}, headers=_authorized_headers())
 
     assert response.status_code == 200
     assert len(fake_router.calls) == 1
@@ -88,9 +95,38 @@ def test_intent_classify_truncates_very_long_input(monkeypatch) -> None:
 def test_intent_classify_missing_text_returns_422(monkeypatch) -> None:
     fake_router = FakeRouter()
     monkeypatch.setattr(intent_route_module, "_INTENT_ROUTER", fake_router)
+    monkeypatch.setenv("PIPELINE_INTERNAL_TOKEN", "test-pipeline-token")
     client = TestClient(create_app())
 
-    response = client.post("/intent/classify", json={})
+    response = client.post("/intent/classify", json={}, headers=_authorized_headers())
 
     assert response.status_code == 422
+    assert fake_router.calls == []
+
+
+def test_intent_classify_missing_token_returns_401(monkeypatch) -> None:
+    fake_router = FakeRouter()
+    monkeypatch.setattr(intent_route_module, "_INTENT_ROUTER", fake_router)
+    monkeypatch.setenv("PIPELINE_INTERNAL_TOKEN", "test-pipeline-token")
+    client = TestClient(create_app())
+
+    response = client.post("/intent/classify", json={"text": "hello"})
+
+    assert response.status_code == 401
+    assert fake_router.calls == []
+
+
+def test_intent_classify_invalid_token_returns_401(monkeypatch) -> None:
+    fake_router = FakeRouter()
+    monkeypatch.setattr(intent_route_module, "_INTENT_ROUTER", fake_router)
+    monkeypatch.setenv("PIPELINE_INTERNAL_TOKEN", "test-pipeline-token")
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/intent/classify",
+        json={"text": "hello"},
+        headers={"x-pipeline-token": "invalid-token"},
+    )
+
+    assert response.status_code == 401
     assert fake_router.calls == []

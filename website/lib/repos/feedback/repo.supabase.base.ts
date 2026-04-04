@@ -91,9 +91,9 @@ type ProfileSelectRow = {
   id: string;
   role: RoleType | null;
   full_name: string | null;
-  barangay_id: string | null;
-  city_id: string | null;
-  municipality_id: string | null;
+  barangay_id?: string | null;
+  city_id?: string | null;
+  municipality_id?: string | null;
   barangay_name?: string | null;
   city_name?: string | null;
   municipality_name?: string | null;
@@ -785,13 +785,19 @@ function toThread(
   const authorName = rootProfile?.full_name?.trim() || roleLabel;
   const authorLguLabel = buildFeedbackLguLabel({
     role: rootProfile?.role,
-    barangayName: rootProfile?.barangay_id
-      ? scopeNameMaps.barangayNameById.get(rootProfile.barangay_id)
-      : null,
-    cityName: rootProfile?.city_id ? scopeNameMaps.cityNameById.get(rootProfile.city_id) : null,
-    municipalityName: rootProfile?.municipality_id
-      ? scopeNameMaps.municipalityNameById.get(rootProfile.municipality_id)
-      : null,
+    barangayName:
+      rootProfile?.barangay_name ??
+      (rootProfile?.barangay_id
+        ? scopeNameMaps.barangayNameById.get(rootProfile.barangay_id)
+        : null),
+    cityName:
+      rootProfile?.city_name ??
+      (rootProfile?.city_id ? scopeNameMaps.cityNameById.get(rootProfile.city_id) : null),
+    municipalityName:
+      rootProfile?.municipality_name ??
+      (rootProfile?.municipality_id
+        ? scopeNameMaps.municipalityNameById.get(rootProfile.municipality_id)
+        : null),
   });
   const latestRow = replies[replies.length - 1] ?? root;
   return {

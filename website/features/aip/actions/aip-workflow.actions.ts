@@ -1,6 +1,7 @@
 "use server";
 
-import { getAppEnv, isMockEnabled } from "@/lib/config/appEnv";
+import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass";
+import { isMockEnabled } from "@/lib/config/appEnv";
 import type { ActorContext } from "@/lib/domain/actor-context";
 import { getActorContext } from "@/lib/domain/get-actor-context";
 import { writeActivityLog, writeWorkflowActivityLog } from "@/lib/audit/activity-log";
@@ -35,7 +36,7 @@ function failure(
 }
 
 function isDevFallbackAllowed() {
-  return getAppEnv() === "dev";
+  return isDevAuthBypassEnabled();
 }
 
 type ActorValidationResult = {

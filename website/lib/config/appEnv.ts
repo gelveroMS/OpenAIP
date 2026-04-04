@@ -1,16 +1,21 @@
-export type AppEnv = "dev" | "staging" | "prod";
+export type AppEnv = "local" | "staging" | "prod";
 
-/**
- * Client-safe env flag. Defaults to "dev" so behavior stays mock unless enabled.
- */
+const APP_ENV_VALUES = ["local", "staging", "prod"] as const;
+
 export function getAppEnv(): AppEnv {
-  const raw = process.env.NEXT_PUBLIC_APP_ENV?.toLowerCase();
-  if (raw === "staging" || raw === "prod" || raw === "dev") return raw;
-  return "dev";
+  const raw = process.env.NEXT_PUBLIC_APP_ENV?.trim().toLowerCase();
+  if (raw === "local" || raw === "staging" || raw === "prod") {
+    return raw;
+  }
+
+  const allowed = APP_ENV_VALUES.join("|");
+  throw new Error(
+    `Invalid NEXT_PUBLIC_APP_ENV value "${raw ?? "<missing>"}". Expected one of: ${allowed}.`
+  );
 }
 
 export function isMockEnabled(): boolean {
-  const forced = process.env.NEXT_PUBLIC_USE_MOCKS;
-  if (forced === "true") return true;
-  return getAppEnv() === "dev";
+  // Always validate NEXT_PUBLIC_APP_ENV before selecting runtime mode.
+  getAppEnv();
+  return process.env.NEXT_PUBLIC_USE_MOCKS === "true";
 }

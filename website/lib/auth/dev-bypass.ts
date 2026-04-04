@@ -1,13 +1,34 @@
-export function isTempAdminBypassEnabled(): boolean {
-  if (process.env.NODE_ENV === "production") return false;
-  return process.env.NEXT_PUBLIC_TEMP_ADMIN_BYPASS === "true";
+import "server-only";
+
+import { getAppEnv } from "@/lib/config/appEnv";
+
+type DevBypassServerFlag =
+  | "DEV_BYPASS_ENABLED"
+  | "DEV_AUTH_BYPASS"
+  | "TEMP_ADMIN_BYPASS_ENABLED"
+  | "USE_MOCKS_LOCAL";
+
+function readServerFlag(name: DevBypassServerFlag): boolean {
+  return process.env[name] === "true";
 }
 
-// NEW FUNCTION - Added for mock mode bypass (to revert, remove this entire function)
-// ORIGINAL CODE:
-// (file previously ended here)
+function isLocalBypassContext(): boolean {
+  return process.env.NODE_ENV === "development" && getAppEnv() === "local";
+}
+
+function isBypassGateEnabled(): boolean {
+  return isLocalBypassContext() && readServerFlag("DEV_BYPASS_ENABLED");
+}
+
+export function isDevAuthBypassEnabled(): boolean {
+  return isBypassGateEnabled() && readServerFlag("DEV_AUTH_BYPASS");
+}
+
+export function isTempAdminBypassEnabled(): boolean {
+  return isBypassGateEnabled() && readServerFlag("TEMP_ADMIN_BYPASS_ENABLED");
+}
+
 export function isMockModeEnabled(): boolean {
-  if (process.env.NODE_ENV === "production") return false;
-  return process.env.NEXT_PUBLIC_USE_MOCKS === "true";
+  return isBypassGateEnabled() && readServerFlag("USE_MOCKS_LOCAL");
 }
 

@@ -13,6 +13,7 @@ import {
   isSettingsStoreUnavailableError,
   setTypedAppSetting,
 } from "@/lib/settings/app-settings";
+import { enforceCsrfProtection } from "@/lib/security/csrf";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 type ActionPayload =
@@ -133,6 +134,11 @@ function resolveMeta(meta?: SystemAdministrationUpdateMeta) {
 }
 
 export async function POST(request: Request) {
+  const csrf = enforceCsrfProtection(request);
+  if (!csrf.ok) {
+    return csrf.response;
+  }
+
   const actor = await getActorContext();
   if (!actor || actor.role !== "admin") return unauthorized();
 

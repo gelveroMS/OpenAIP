@@ -206,7 +206,7 @@ export async function getAuditFeedForActor(
   const repo = getAuditRepo();
 
   if (!actor) {
-    if (getAppEnv() === "dev") {
+    if (getAppEnv() === "local") {
       return repo.listAllActivity();
     }
     return [];
@@ -226,7 +226,7 @@ export async function getAuditFeedForActor(
       return applyCrudDuplicateSuppression(scoped);
     }
 
-    if (getAppEnv() === "dev") {
+    if (getAppEnv() === "local") {
       const all = await repo.listAllActivity();
       return applyCrudDuplicateSuppression(
         all.filter(
@@ -251,7 +251,7 @@ export async function getAuditFeedForActor(
       return applyCrudDuplicateSuppression(scoped);
     }
 
-    if (getAppEnv() === "dev") {
+    if (getAppEnv() === "local") {
       const all = await repo.listAllActivity();
       return applyCrudDuplicateSuppression(
         all.filter(
@@ -272,9 +272,9 @@ export async function getAuditFeedForActor(
       return mine;
     }
 
-    // Dev UX: if we're authenticated but have no matching mock actorId,
+    // Local UX: if we're authenticated but have no matching mock actorId,
     // fall back to showing logs within the actor scope so the Audit tab is usable.
-    if (getAppEnv() === "dev") {
+    if (getAppEnv() === "local") {
       const all = await repo.listAllActivity();
       return filterByScopeKind(all, actor.scope.kind);
     }

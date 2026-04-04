@@ -15,6 +15,7 @@ import {
   uploadProjectMediaObject,
 } from "@/lib/supabase/privileged-ops";
 import { supabaseServer } from "@/lib/supabase/server";
+import { enforceCsrfProtection } from "@/lib/security/csrf";
 import {
   getCurrentProgressBaseline,
   isStrictlyIncreasingProgress,
@@ -403,6 +404,11 @@ export async function handleAddInformationRequest(input: {
   projectIdOrRef: string;
 }): Promise<Response> {
   try {
+    const csrf = enforceCsrfProtection(input.request);
+    if (!csrf.ok) {
+      return csrf.response;
+    }
+
     const actor = await getActorContext();
     assertScopedActor(actor, input.scope);
 
@@ -642,6 +648,11 @@ export async function handlePostUpdateRequest(input: {
   projectIdOrRef: string;
 }): Promise<Response> {
   try {
+    const csrf = enforceCsrfProtection(input.request);
+    if (!csrf.ok) {
+      return csrf.response;
+    }
+
     const actor = await getActorContext();
     assertScopedActor(actor, input.scope);
 

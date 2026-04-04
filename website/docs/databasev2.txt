@@ -6883,3 +6883,24 @@ grant execute on function public.get_profile_delete_blockers(uuid) to service_ro
 
 commit;
 
+-- =============================================================================
+-- Phase 30 - A05 Default Function Privileges Fail Closed (2026-04-03)
+-- Source migration: supabase/migrations/20260403_a05_default_function_execute_fail_closed.sql
+-- =============================================================================
+
+begin;
+
+alter default privileges for role postgres in schema public
+  revoke execute on functions from public;
+
+alter default privileges for role postgres in schema public
+  revoke execute on functions from anon;
+
+alter default privileges for role postgres in schema public
+  revoke execute on functions from authenticated;
+
+alter default privileges for role postgres in schema public
+  revoke execute on functions from service_role;
+
+commit;
+

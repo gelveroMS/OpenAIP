@@ -18,7 +18,8 @@ Set these in `.env.local`:
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `BASE_URL`
-- `NEXT_PUBLIC_APP_ENV=staging` (or `prod`) and `NEXT_PUBLIC_USE_MOCKS=false` to use Supabase adapters
+- `NEXT_PUBLIC_APP_ENV=local|staging|prod` (required; missing/invalid values throw)
+- `NEXT_PUBLIC_USE_MOCKS=false` to use Supabase adapters
 
 ## DB migration
 
