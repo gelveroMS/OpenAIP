@@ -1,8 +1,12 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import ChatMessageBubble from "./ChatMessageBubble";
 
 describe("ChatMessageBubble", () => {
+  function expandEvidence() {
+    fireEvent.click(screen.getByTestId("chat-evidence-summary"));
+  }
+
   it("shows DIST or MATCH labels and never shows SIM", () => {
     render(
       <ChatMessageBubble
@@ -43,10 +47,38 @@ describe("ChatMessageBubble", () => {
       />
     );
 
+    expandEvidence();
     expect(screen.getByText("DIST 0.235")).toBeInTheDocument();
     expect(screen.getByText("MATCH 75%")).toBeInTheDocument();
     expect(screen.getByText("MATCH 64%")).toBeInTheDocument();
     expect(screen.queryByText(/sim/i)).not.toBeInTheDocument();
+  });
+
+  it("renders assistant evidence in a collapsed details container by default", () => {
+    render(
+      <ChatMessageBubble
+        message={{
+          id: "msg-evidence-collapsed",
+          role: "assistant",
+          content: "Sample response",
+          timeLabel: "10:00 AM",
+          deliveryStatus: "sent",
+          retrievalMeta: null,
+          citations: [
+            {
+              sourceId: "L1",
+              scopeName: "Barangay Mamatid - FY 2026 - Honoraria",
+              scopeType: "barangay",
+              fiscalYear: 2026,
+              snippet: "Snippet A",
+            },
+          ],
+        }}
+      />
+    );
+
+    expect(screen.getByTestId("chat-evidence-summary")).toHaveTextContent("Evidence (1)");
+    expect(screen.getByTestId("chat-evidence-details")).not.toHaveAttribute("open");
   });
 
   it("shows clarification badge without grounded refusal text", () => {
@@ -164,5 +196,263 @@ describe("ChatMessageBubble", () => {
     expect(screen.getByText("Failed to send.")).toBeInTheDocument();
     screen.getByRole("button", { name: "Retry" }).click();
     expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders barangay project evidence as scoped project detail link", () => {
+    render(
+      <ChatMessageBubble
+        routeScope="barangay"
+        message={{
+          id: "msg-brgy-link",
+          role: "assistant",
+          content: "Here is the supporting project.",
+          timeLabel: "10:05 AM",
+          deliveryStatus: "sent",
+          retrievalMeta: null,
+          citations: [
+            {
+              sourceId: "S4",
+              scopeName: "Mamatid",
+              scopeType: "barangay",
+              fiscalYear: 2025,
+              snippet: "Fallback snippet",
+              aipId: "aip-1",
+              projectId: "project-1",
+              lguName: "Mamatid",
+              resolvedFiscalYear: 2025,
+              projectTitle: "Health Station Upgrade",
+            },
+          ],
+        }}
+      />
+    );
+
+    expandEvidence();
+    const link = screen.getByRole("link", { name: "Mamatid FY 2025 Health Station Upgrade" });
+    expect(link).toHaveAttribute("href", "/barangay/aips/aip-1/project-1");
+    expect(screen.queryByText("Fallback snippet")).not.toBeInTheDocument();
+  });
+
+  it("renders city project evidence as scoped project detail link", () => {
+    render(
+      <ChatMessageBubble
+        routeScope="city"
+        message={{
+          id: "msg-city-link",
+          role: "assistant",
+          content: "City project citation.",
+          timeLabel: "10:06 AM",
+          deliveryStatus: "sent",
+          retrievalMeta: null,
+          citations: [
+            {
+              sourceId: "S5",
+              scopeName: "Cabuyao City",
+              scopeType: "city",
+              fiscalYear: 2024,
+              snippet: "Fallback city snippet",
+              aipId: "aip-city",
+              projectId: "project-city",
+              lguName: "Cabuyao City",
+              resolvedFiscalYear: 2024,
+              projectTitle: "Flood Control Rehabilitation",
+            },
+          ],
+        }}
+      />
+    );
+
+    expandEvidence();
+    const link = screen.getByRole("link", { name: "Cabuyao City FY 2024 Flood Control Rehabilitation" });
+    expect(link).toHaveAttribute("href", "/city/aips/aip-city/project-city");
+  });
+
+  it("renders barangay totals evidence as scoped AIP detail link", () => {
+    render(
+      <ChatMessageBubble
+        routeScope="barangay"
+        message={{
+          id: "msg-brgy-totals-link",
+          role: "assistant",
+          content: "Totals citation.",
+          timeLabel: "10:06 AM",
+          deliveryStatus: "sent",
+          retrievalMeta: null,
+          citations: [
+            {
+              sourceId: "S6",
+              scopeName: "Published AIP totals",
+              scopeType: "system",
+              snippet: "Total investment program value from structured totals table.",
+              aipId: "aip-2025-1",
+              lguName: "Mamatid",
+              resolvedFiscalYear: 2025,
+              metadata: {
+                type: "aip_totals",
+              },
+            },
+          ],
+        }}
+      />
+    );
+
+    expandEvidence();
+    const link = screen.getByRole("link", { name: "Mamatid FY 2025 AIP" });
+    expect(link).toHaveAttribute("href", "/barangay/aips/aip-2025-1");
+  });
+
+  it("renders city totals evidence as scoped AIP detail link", () => {
+    render(
+      <ChatMessageBubble
+        routeScope="city"
+        message={{
+          id: "msg-city-totals-link",
+          role: "assistant",
+          content: "Totals citation.",
+          timeLabel: "10:07 AM",
+          deliveryStatus: "sent",
+          retrievalMeta: null,
+          citations: [
+            {
+              sourceId: "S7",
+              scopeName: "Published AIP line items",
+              scopeType: "system",
+              snippet: "Computed from published AIP line-item totals.",
+              aipId: "aip-city-2025",
+              lguName: "Cabuyao City",
+              resolvedFiscalYear: 2025,
+              metadata: {
+                type: "aip_line_items",
+                aggregate_type: "total_investment_program",
+              },
+            },
+          ],
+        }}
+      />
+    );
+
+    expandEvidence();
+    const link = screen.getByRole("link", { name: "Cabuyao City FY 2025 AIP" });
+    expect(link).toHaveAttribute("href", "/city/aips/aip-city-2025");
+  });
+
+  it("prefers project detail link over totals link when both metadata paths are present", () => {
+    render(
+      <ChatMessageBubble
+        routeScope="barangay"
+        message={{
+          id: "msg-project-precedence",
+          role: "assistant",
+          content: "Link precedence.",
+          timeLabel: "10:08 AM",
+          deliveryStatus: "sent",
+          retrievalMeta: null,
+          citations: [
+            {
+              sourceId: "S8",
+              scopeName: "Mamatid",
+              scopeType: "barangay",
+              snippet: "Project citation snippet.",
+              aipId: "aip-precedence",
+              projectId: "project-precedence",
+              lguName: "Mamatid",
+              resolvedFiscalYear: 2026,
+              projectTitle: "Road Concreting",
+              metadata: {
+                type: "aip_totals",
+              },
+            },
+          ],
+        }}
+      />
+    );
+
+    expandEvidence();
+    const link = screen.getByRole("link", { name: "Mamatid FY 2026 Road Concreting" });
+    expect(link).toHaveAttribute("href", "/barangay/aips/aip-precedence/project-precedence");
+    expect(screen.queryByRole("link", { name: "Mamatid FY 2026 AIP" })).not.toBeInTheDocument();
+  });
+
+  it("keeps non-project system citations as plain text evidence", () => {
+    render(
+      <ChatMessageBubble
+        routeScope="barangay"
+        message={{
+          id: "msg-system-citation",
+          role: "assistant",
+          content: "Unable to retrieve a project citation.",
+          timeLabel: "10:07 AM",
+          deliveryStatus: "sent",
+          retrievalMeta: {
+            refused: true,
+            reason: "insufficient_evidence",
+            status: "refusal",
+          },
+          citations: [
+            {
+              sourceId: "S0",
+              scopeName: "System",
+              scopeType: "system",
+              snippet: "Pipeline request failed.",
+            },
+          ],
+        }}
+      />
+    );
+
+    expandEvidence();
+    expect(screen.getByText("Pipeline request failed.")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /FY/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps totals citations plain text when required AIP-link fields are incomplete", () => {
+    render(
+      <ChatMessageBubble
+        routeScope="barangay"
+        message={{
+          id: "msg-incomplete-totals",
+          role: "assistant",
+          content: "Incomplete totals evidence.",
+          timeLabel: "10:09 AM",
+          deliveryStatus: "sent",
+          retrievalMeta: null,
+          citations: [
+            {
+              sourceId: "S9",
+              scopeName: "Published AIP totals",
+              scopeType: "system",
+              snippet: "Totals evidence snippet.",
+              aipId: "aip-incomplete",
+              metadata: {
+                type: "aip_totals",
+              },
+            },
+          ],
+        }}
+      />
+    );
+
+    expandEvidence();
+    expect(screen.getByText("Totals evidence snippet.")).toBeInTheDocument();
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("does not render evidence container when there are no citations", () => {
+    render(
+      <ChatMessageBubble
+        message={{
+          id: "msg-no-evidence",
+          role: "assistant",
+          content: "No evidence for this response.",
+          timeLabel: "10:10 AM",
+          deliveryStatus: "sent",
+          retrievalMeta: null,
+          citations: [],
+        }}
+      />
+    );
+
+    expect(screen.queryByTestId("chat-evidence-details")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("chat-evidence-summary")).not.toBeInTheDocument();
   });
 });

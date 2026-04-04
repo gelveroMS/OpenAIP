@@ -91,7 +91,8 @@ export const deriveSummary = (
       ? dataset.municipalities.filter((municipality) => municipality.is_active).length
       : filters.lguScope === "barangay"
       ? dataset.barangays.filter((barangay) => barangay.is_active).length
-      : dataset.cities.filter((city) => city.is_active).length +
+      : dataset.provinces.filter((province) => province.is_active).length +
+        dataset.cities.filter((city) => city.is_active).length +
         dataset.municipalities.filter((municipality) => municipality.is_active).length +
         dataset.barangays.filter((barangay) => barangay.is_active).length;
 
@@ -181,11 +182,11 @@ export const deriveReviewBacklog = (
   };
 };
 
-const buildDateSeries = (filters: AdminDashboardFilters, periodDays: number) => {
-  const end = filters.dateTo ? new Date(filters.dateTo) : new Date();
-  end.setHours(0, 0, 0, 0);
-  const start = new Date(end);
-  start.setDate(start.getDate() - (periodDays - 1));
+const buildDateSeries = (start: Date, end: Date) => {
+  const periodDays = Math.max(
+    1,
+    Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1
+  );
   return Array.from({ length: periodDays }).map((_, idx) => {
     const date = new Date(start);
     date.setDate(start.getDate() + idx);
@@ -193,21 +194,61 @@ const buildDateSeries = (filters: AdminDashboardFilters, periodDays: number) => 
   });
 };
 
+const getDateKey = (isoOrKey: string) => isoOrKey.slice(0, 10);
+
 export const deriveUsageMetrics = (
   dataset: AdminDashboardDataset,
-  filters: AdminDashboardFilters
+  filters: AdminDashboardFilters,
+  input?: { usageFrom?: string | null; usageTo?: string | null }
 ): UsageMetricsVM => {
-  const periodDays = filters.dateFrom && filters.dateTo
+  const usageFilters: AdminDashboardFilters = {
+    ...filters,
+    dateFrom: input?.usageFrom ?? filters.dateFrom,
+    dateTo: input?.usageTo ?? filters.dateTo,
+  };
+
+  const messages = filterChatMessages(dataset.chatMessages, usageFilters);
+
+  const explicitPeriodDays = usageFilters.dateFrom && usageFilters.dateTo
     ? Math.max(
         1,
         Math.round(
-          (toDate(filters.dateTo).getTime() - toDate(filters.dateFrom).getTime()) /
+          (toDate(usageFilters.dateTo).getTime() - toDate(usageFilters.dateFrom).getTime()) /
             (1000 * 60 * 60 * 24)
         ) + 1
       )
-    : 14;
+    : null;
 
-  const messages = filterChatMessages(dataset.chatMessages, filters);
+  const sortedDateKeys = Array.from(
+    new Set(messages.map((message) => getDateKey(message.created_at)))
+  ).sort();
+
+  const inferredStart =
+    explicitPeriodDays === null && sortedDateKeys.length > 0
+      ? new Date(sortedDateKeys[0])
+      : null;
+  const inferredEnd =
+    explicitPeriodDays === null && sortedDateKeys.length > 0
+      ? new Date(sortedDateKeys[sortedDateKeys.length - 1])
+      : null;
+
+  const seriesStart = usageFilters.dateFrom
+    ? new Date(usageFilters.dateFrom)
+    : inferredStart;
+  const seriesEnd = usageFilters.dateTo ? new Date(usageFilters.dateTo) : inferredEnd;
+
+  if (seriesStart) seriesStart.setHours(0, 0, 0, 0);
+  if (seriesEnd) seriesEnd.setHours(0, 0, 0, 0);
+
+  const periodDays =
+    explicitPeriodDays ??
+    (seriesStart && seriesEnd
+      ? Math.max(
+          1,
+          Math.round((seriesEnd.getTime() - seriesStart.getTime()) / (1000 * 60 * 60 * 24)) + 1
+        )
+      : 1);
+
   const totalRequests = messages.length;
   const errorRequests = messages.filter(
     (message) => (message.retrieval_meta as { is_error?: boolean } | null)?.is_error
@@ -215,7 +256,8 @@ export const deriveUsageMetrics = (
   const errorRate = totalRequests ? errorRequests / totalRequests : 0;
   const avgDailyRequests = totalRequests / periodDays;
 
-  const seriesDates = buildDateSeries(filters, periodDays);
+  const seriesDates =
+    seriesStart && seriesEnd ? buildDateSeries(seriesStart, seriesEnd) : [];
   const countsByDay = new Map<string, { total: number; errors: number }>();
 
   seriesDates.forEach((date) => {
@@ -223,7 +265,7 @@ export const deriveUsageMetrics = (
   });
 
   messages.forEach((message) => {
-    const key = message.created_at.slice(0, 10);
+    const key = getDateKey(message.created_at);
     const entry = countsByDay.get(key);
     if (!entry) return;
     entry.total += 1;
@@ -239,6 +281,7 @@ export const deriveUsageMetrics = (
     return {
       label: date.toLocaleDateString("en-PH", { month: "short", day: "numeric" }),
       value: Number(dailyRate.toFixed(2)),
+      dateKey: key,
     };
   });
 
@@ -248,6 +291,7 @@ export const deriveUsageMetrics = (
     return {
       label: date.toLocaleDateString("en-PH", { month: "short", day: "numeric" }),
       value: entry.total,
+      dateKey: key,
     };
   });
 

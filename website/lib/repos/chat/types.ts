@@ -1,5 +1,4 @@
 import type { ChatMessageRole } from "@/lib/contracts/databasev2";
-import type { PipelineIntentClassification } from "@/lib/chat/types";
 
 export type { ChatMessageRole };
 
@@ -87,6 +86,11 @@ export type ChatCitation = {
   sourceId: string;
   chunkId?: string | null;
   aipId?: string | null;
+  projectId?: string | null;
+  projectRefCode?: string | null;
+  projectTitle?: string | null;
+  lguName?: string | null;
+  resolvedFiscalYear?: number | null;
   fiscalYear?: number | null;
   scopeType?: ChatCitationScopeType;
   scopeId?: string | null;
@@ -128,16 +132,25 @@ export type ChatRetrievalMeta = {
     | "insufficient_evidence"
     | "partial_evidence"
     | "clarification_needed"
-    | "verifier_failed"
     | "ambiguous_scope"
     | "pipeline_error"
     | "validation_failed"
     | "conversational_shortcut"
     | "unknown";
+  intent?: string;
+  classifierConfidence?: number;
+  classifierMethod?: "rule" | "llm" | "error";
+  needsRetrieval?: boolean;
+  entities?: Record<string, unknown>;
+  routeHint?: string | null;
+  classifier_confidence?: number;
+  classifier_method?: "rule" | "llm" | "error";
+  needs_retrieval?: boolean;
+  route_hint?: string | null;
+  refusal_reason?: RefusalReason | "unsupported_request";
   topK?: number;
   minSimilarity?: number;
   contextCount?: number;
-  verifierPassed?: boolean;
   scopeResolution?: ChatScopeResolution;
   latencyMs?: number;
   status?: ChatResponseStatus;
@@ -161,9 +174,6 @@ export type ChatRetrievalMeta = {
     coverageBarangays: string[];
     aggregationSource: string;
   };
-  intentClassification?: PipelineIntentClassification;
-  verifierMode?: "structured" | "retrieval" | "mixed";
-  verifierPolicyPassed?: boolean;
   denseCandidateCount?: number;
   keywordCandidateCount?: number;
   fusedCandidateCount?: number;
@@ -203,13 +213,10 @@ export type ChatRetrievalMeta = {
   rewriteReasonCode?: string;
   plannerReasonCode?: string;
   responseModeReasonCode?: string;
-  verifierPolicyReasonCode?: string;
   responseModeSource?: "pipeline_generated" | "pipeline_partial" | "pipeline_refusal" | "website_repeat_cache";
   semanticStabilityKey?: string;
   responseStabilizedFromCache?: boolean;
   semanticRepeatCacheHit?: boolean;
-  borderlineDetected?: boolean;
-  borderlineReasonCode?: string;
   clarificationEmitted?: boolean;
   refusalEmitted?: boolean;
   activeChatFlags?: Record<string, boolean>;

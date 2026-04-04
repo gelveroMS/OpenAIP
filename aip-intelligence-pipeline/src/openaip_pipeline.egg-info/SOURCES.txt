@@ -102,11 +102,11 @@ tests/test_line_item_embedding_text.py
 tests/test_rag_chunk_diversity.py
 tests/test_rag_evidence_gate.py
 tests/test_rag_helpers.py
-tests/test_rag_hybrid_retrieval.py
 tests/test_rag_mixed_execution.py
 tests/test_rag_multi_query.py
 tests/test_rag_partial_evidence.py
 tests/test_rag_reason_codes.py
+tests/test_rag_soft_theme_ranking.py
 tests/test_resource_loading.py
 tests/test_rules_engine.py
 tests/test_semantic_classifier_basic.py

@@ -9,43 +9,32 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { AipMonitoringTab } from "./AipMonitoringTabs";
 
 export default function AipFiltersRow({
-  tab,
   query,
   onQueryChange,
   yearFilter,
   onYearChange,
   statusFilter,
   onStatusChange,
-  caseTypeFilter,
-  onCaseTypeChange,
   lguFilter,
   onLguChange,
   yearOptions,
   statusOptions,
-  caseTypeOptions,
   lguOptions,
 }: {
-  tab: AipMonitoringTab;
   query: string;
   onQueryChange: (value: string) => void;
   yearFilter: string;
   onYearChange: (value: string) => void;
   statusFilter: string;
   onStatusChange: (value: string) => void;
-  caseTypeFilter: string;
-  onCaseTypeChange: (value: string) => void;
   lguFilter: string;
   onLguChange: (value: string) => void;
   yearOptions: number[];
-  statusOptions: string[];
-  caseTypeOptions: string[];
+  statusOptions: Array<{ value: string; label: string }>;
   lguOptions: string[];
 }) {
-  const thirdLabel = tab === "aips" ? "All Statuses" : "All Case Type";
-
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_180px_220px]">
@@ -74,35 +63,19 @@ export default function AipFiltersRow({
           </SelectContent>
         </Select>
 
-        {tab === "aips" ? (
-          <Select value={statusFilter} onValueChange={onStatusChange}>
-            <SelectTrigger className="h-11 w-full border-slate-200 bg-slate-50 text-[13.5px]">
-              <SelectValue placeholder={thirdLabel} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Statuses</SelectItem>
-              {statusOptions.map((status) => (
-                <SelectItem key={status} value={status}>
-                  {status}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : (
-          <Select value={caseTypeFilter} onValueChange={onCaseTypeChange}>
-            <SelectTrigger className="h-11 w-full border-slate-200 bg-slate-50 text-[13.5px]">
-              <SelectValue placeholder={thirdLabel} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Case Type</SelectItem>
-              {caseTypeOptions.map((caseType) => (
-                <SelectItem key={caseType} value={caseType}>
-                  {caseType}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+        <Select value={statusFilter} onValueChange={onStatusChange}>
+          <SelectTrigger className="h-11 w-full border-slate-200 bg-slate-50 text-[13.5px]">
+            <SelectValue placeholder="All Statuses" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Statuses</SelectItem>
+            {statusOptions.map((status) => (
+              <SelectItem key={status.value} value={status.value}>
+                {status.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         <Select value={lguFilter} onValueChange={onLguChange}>
           <SelectTrigger className="h-11 w-full border-slate-200 bg-slate-50 text-[13.5px]">

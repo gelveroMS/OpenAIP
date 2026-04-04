@@ -217,6 +217,44 @@ describe("notification display templates", () => {
     expect(failed.context).toContain("Barangay Uno");
   });
 
+  it("renders admin force-unclaim and review reminder notifications", () => {
+    const forceUnclaim = buildDisplay(
+      {
+        event_type: "AIP_FORCE_UNCLAIMED",
+        recipient_role: "city_official",
+        metadata: {
+          entity_type: "aip",
+          fiscal_year: 2026,
+          lgu_name: "Barangay Uno",
+          note: "Assignment was stale for 5 days. Re-queueing.",
+        },
+      },
+      "dropdown"
+    );
+
+    const reminder = buildDisplay(
+      {
+        event_type: "AIP_REVIEW_REMINDER",
+        metadata: {
+          entity_type: "aip",
+          fiscal_year: 2026,
+          lgu_name: "Barangay Uno",
+          actor_name: "Admin User",
+        },
+      },
+      "page"
+    );
+
+    expect(forceUnclaim.title).toBe("Your AIP review claim was removed by an admin.");
+    expect(forceUnclaim.pill).toBe("Admin");
+    expect(forceUnclaim.iconKey).toBe("shield");
+
+    expect(reminder.title).toBe("AIP review reminder");
+    expect(reminder.pill).toBe("Reminder");
+    expect(reminder.iconKey).toBe("refresh-cw");
+    expect(reminder.excerpt).toContain("Admin User");
+  });
+
   it("renders embed success and failure notifications for published AIP indexing flows", () => {
     const success = buildDisplay(
       {

@@ -34,6 +34,10 @@ type MapAdminDashboardVMInput = {
   lguOptions: LguOptionVM[];
 };
 
+function withQuery(path: string, query: string): string {
+  return query.length > 0 ? `${path}?${query}` : path;
+}
+
 export function mapAdminDashboardToVM({
   filters,
   summary,
@@ -67,7 +71,7 @@ export function mapAdminDashboardToVM({
         deltaLabel: safeSummary.deltaLabels.totalLgus,
         iconClassName: "bg-blue-50 text-blue-600",
         ctaLabel: "View LGUs",
-        path: `/admin/lgu-management?${baseQuery}`,
+        path: withQuery("/admin/lgu-management", baseQuery),
       },
       {
         title: "Active Users",
@@ -75,7 +79,7 @@ export function mapAdminDashboardToVM({
         deltaLabel: safeSummary.deltaLabels.activeUsers,
         iconClassName: "bg-emerald-50 text-emerald-600",
         ctaLabel: "View Accounts",
-        path: `/admin/account-administration?${baseQuery}`,
+        path: withQuery("/admin/account-administration", baseQuery),
       },
       {
         title: "Flagged Feedback",
@@ -83,7 +87,7 @@ export function mapAdminDashboardToVM({
         deltaLabel: safeSummary.deltaLabels.flaggedComments,
         iconClassName: "bg-amber-50 text-amber-600",
         ctaLabel: "View Content",
-        path: `/admin/feedback-moderation?${baseQuery}`,
+        path: withQuery("/admin/feedback-moderation", baseQuery),
         tagLabel: safeSummary.elevatedFlags.flaggedComments ? "Elevated" : undefined,
       },
       {
@@ -92,7 +96,7 @@ export function mapAdminDashboardToVM({
         deltaLabel: safeSummary.deltaLabels.reviewBacklog,
         iconClassName: "bg-rose-50 text-rose-600",
         ctaLabel: "View AIPs",
-        path: `/admin/aip-monitoring?${baseQuery}`,
+        path: withQuery("/admin/aip-monitoring", baseQuery),
         tagLabel: safeSummary.elevatedFlags.reviewBacklog ? "Elevated" : undefined,
       },
     ],

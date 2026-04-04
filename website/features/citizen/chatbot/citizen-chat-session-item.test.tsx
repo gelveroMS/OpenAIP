@@ -19,6 +19,7 @@ describe("CitizenChatSessionItem", () => {
         onDelete={vi.fn()}
       />
     );
+    expect(screen.queryByText("10:40 AM")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /rename old title/i }));
     const input = screen.getByDisplayValue("Old Title");

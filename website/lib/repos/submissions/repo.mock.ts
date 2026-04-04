@@ -587,6 +587,47 @@ export function createMockAipSubmissionsReviewRepo(): AipSubmissionsReviewRepo {
       return "under_review";
     },
 
+    async forceUnclaimReview({ aipId, note, actor }) {
+      const trimmed = note.trim();
+      if (!trimmed) throw new Error("Admin message is required.");
+      if (!actor || actor.role !== "admin") throw new Error("Unauthorized.");
+
+      const aip = AIPS_TABLE.find((row) => row.id === aipId) ?? null;
+      if (!aip) throw new Error("AIP not found.");
+      if (aip.scope !== "barangay") {
+        throw new Error("AIP is not a barangay submission.");
+      }
+      if (aip.status !== "under_review") {
+        throw new Error("Force unclaim is only allowed when the AIP is under review.");
+      }
+
+      const activeClaim = activeClaimForAip(aipId);
+      if (!activeClaim) {
+        throw new Error("AIP has no active review claim.");
+      }
+
+      reviewStore = [
+        ...reviewStore,
+        {
+          id: nextReviewId(),
+          aipId,
+          reviewerId: actor.userId || MOCK_REVIEWER_ID,
+          reviewerName: toReviewerName(actor),
+          action: "force_unclaim",
+          note: trimmed,
+          createdAt: nowIso(),
+        },
+      ];
+
+      const index = AIPS_TABLE.findIndex((row) => row.id === aipId);
+      AIPS_TABLE[index] = { ...aip, status: "pending_review" };
+
+      return {
+        status: "pending_review" as const,
+        previousReviewerId: activeClaim.reviewerId,
+      };
+    },
+
     async startReviewIfNeeded({ aipId, actor }): Promise<AipStatus> {
       // Legacy entrypoint kept for compatibility. Claims the review owner explicitly.
       const aip = AIPS_TABLE.find((row) => row.id === aipId) ?? null;

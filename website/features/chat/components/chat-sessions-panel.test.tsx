@@ -12,7 +12,7 @@ describe("ChatSessionsPanel", () => {
     },
   ];
 
-  it("renders conversation title and time", () => {
+  it("renders conversation title without session time", () => {
     render(
       <ChatSessionsPanel
         sessions={baseSessions}
@@ -26,7 +26,7 @@ describe("ChatSessionsPanel", () => {
     );
 
     expect(screen.getByText("Budget Review")).toBeInTheDocument();
-    expect(screen.getByText("10:00 AM")).toBeInTheDocument();
+    expect(screen.queryByText("10:00 AM")).not.toBeInTheDocument();
     expect(screen.queryByText("No messages yet.")).not.toBeInTheDocument();
   });
 

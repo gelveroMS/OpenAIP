@@ -9,14 +9,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { EllipsisVertical, Eye } from "lucide-react";
 import type { AipMonitoringRow, AipMonitoringStatus } from "../types/monitoring.types";
 import { cn } from "@/lib/ui/utils";
 
@@ -44,10 +36,10 @@ function durationClass(days: number) {
 
 export default function AipsTable({
   rows,
-  onViewDetails,
+  onOpenDetails,
 }: {
   rows: AipMonitoringRow[];
-  onViewDetails: (id: string) => void;
+  onOpenDetails: (id: string) => void;
 }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
@@ -79,15 +71,25 @@ export default function AipsTable({
               <TableHead className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">
                 Last Updated
               </TableHead>
-              <TableHead className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold text-right">
-                Actions
-              </TableHead>
             </TableRow>
           </TableHeader>
 
           <TableBody>
             {rows.map((row) => (
-              <TableRow key={row.id} className="hover:bg-slate-50">
+              <TableRow
+                key={row.id}
+                className="cursor-pointer hover:bg-slate-50"
+                tabIndex={0}
+                role="button"
+                aria-label={`Open AIP details for ${row.lguName} ${row.year}`}
+                onClick={() => onOpenDetails(row.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onOpenDetails(row.id);
+                  }
+                }}
+              >
                 <TableCell className="text-[13.5px] text-slate-900 font-medium">
                   {row.year}
                 </TableCell>
@@ -113,37 +115,17 @@ export default function AipsTable({
                   {row.durationDays}
                 </TableCell>
                 <TableCell className="text-[13.5px] text-slate-700">
-                  {row.claimedBy ?? "—"}
+                  {row.claimedBy ?? "-"}
                 </TableCell>
                 <TableCell className="text-[13.5px] text-slate-700">
                   {row.lastUpdated}
-                </TableCell>
-                <TableCell className="text-right">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon-sm" aria-label="Actions">
-                        <EllipsisVertical className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-48">
-                      <DropdownMenuItem
-                        onSelect={(e) => {
-                          e.preventDefault();
-                          onViewDetails(row.id);
-                        }}
-                      >
-                        <Eye className="h-4 w-4" />
-                        View Details
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
                 </TableCell>
               </TableRow>
             ))}
 
             {rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="py-12 text-center text-sm text-slate-500">
+                <TableCell colSpan={8} className="py-12 text-center text-sm text-slate-500">
                   No AIP records found.
                 </TableCell>
               </TableRow>
@@ -154,3 +136,4 @@ export default function AipsTable({
     </div>
   );
 }
+

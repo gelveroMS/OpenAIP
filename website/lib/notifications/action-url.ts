@@ -192,8 +192,20 @@ export function buildNotificationActionUrl(input: BuildNotificationActionUrlInpu
     case "AIP_CLAIMED":
     case "AIP_REVISION_REQUESTED":
       return input.aipId ? `/barangay/aips/${input.aipId}` : "/barangay/aips";
+    case "AIP_FORCE_UNCLAIMED":
+      if (input.recipientScopeType === "city") {
+        return input.aipId ? `/city/submissions/aip/${input.aipId}` : "/city/submissions";
+      }
+      if (input.recipientScopeType === "barangay") {
+        return input.aipId ? `/barangay/aips/${input.aipId}` : "/barangay/aips";
+      }
+      if (input.recipientScopeType === "admin") {
+        return input.aipId ? `/admin/aip-monitoring/${input.aipId}` : "/admin/aip-monitoring";
+      }
+      return input.aipId ? `/aips/${input.aipId}` : "/aips";
     case "AIP_SUBMITTED":
     case "AIP_RESUBMITTED":
+    case "AIP_REVIEW_REMINDER":
       return input.aipId ? `/city/submissions/aip/${input.aipId}` : "/city/submissions";
     case "AIP_EXTRACTION_SUCCEEDED":
     case "AIP_EXTRACTION_FAILED":

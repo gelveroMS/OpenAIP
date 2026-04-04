@@ -24,6 +24,15 @@ export type CityRecord = {
   created_at: string;
 };
 
+export type ProvinceRecord = {
+  id: string;
+  region_id: string;
+  psgc_code: string;
+  name: string;
+  is_active: boolean;
+  created_at: string;
+};
+
 export type MunicipalityRecord = {
   id: string;
   province_id: string;
@@ -83,8 +92,8 @@ export type ReviewBacklogVM = {
 };
 
 export type UsageMetricsVM = {
-  errorRateTrend: { label: string; value: number }[];
-  chatbotUsageTrend: { label: string; value: number }[];
+  errorRateTrend: { label: string; value: number; dateKey: string }[];
+  chatbotUsageTrend: { label: string; value: number; dateKey: string }[];
   avgDailyRequests: number;
   totalRequests: number;
   errorRate: number;
@@ -115,6 +124,7 @@ export type LguOptionVM = {
 
 export type AdminDashboardDataset = {
   cities: CityRecord[];
+  provinces: ProvinceRecord[];
   municipalities: MunicipalityRecord[];
   barangays: BarangayRecord[];
   profiles: ProfileRecord[];
@@ -130,7 +140,10 @@ export type AdminDashboardRepo = {
     filters: AdminDashboardFilters
   ) => Promise<AipStatusDistributionVM[]>;
   getReviewBacklog: (filters: AdminDashboardFilters) => Promise<ReviewBacklogVM>;
-  getUsageMetrics: (filters: AdminDashboardFilters) => Promise<UsageMetricsVM>;
+  getUsageMetrics: (
+    filters: AdminDashboardFilters,
+    input?: { usageFrom?: string | null; usageTo?: string | null }
+  ) => Promise<UsageMetricsVM>;
   getRecentActivity: (filters: AdminDashboardFilters) => Promise<RecentActivityItemVM[]>;
   listLguOptions: () => Promise<LguOptionVM[]>;
 };

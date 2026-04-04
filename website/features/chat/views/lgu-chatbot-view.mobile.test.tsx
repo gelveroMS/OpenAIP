@@ -27,6 +27,7 @@ describe("LguChatbotView mobile layout", () => {
       isSessionsLoading: false,
       isMessagesLoading: false,
       isSending: false,
+      isAwaitingAssistant: false,
       error: null,
       sessionListItems: [
         {

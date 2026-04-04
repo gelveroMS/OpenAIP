@@ -193,6 +193,18 @@ function toPipelineErrorExcerpt(value: string | null | undefined): string | null
   return sanitizeTemplateText(firstLine, MAX_DISPLAY_EXCERPT_LENGTH);
 }
 
+function normalizeRecipientUserIds(value: string[] | undefined): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const normalized = Array.from(
+    new Set(
+      value
+        .map((item) => (typeof item === "string" ? item.trim() : ""))
+        .filter((item) => item.length > 0)
+    )
+  );
+  return normalized;
+}
+
 async function loadPreferencesByUserId(
   admin: SupabaseAdminClient,
   userIds: string[],
@@ -313,6 +325,28 @@ async function resolveRecipientsForEvent(
     resolvedProjectUpdateContext = await resolveProjectUpdateContext(admin, resolvedProjectUpdateId);
   }
 
+  const explicitRecipientUserIds = normalizeRecipientUserIds(input.recipientUserIds);
+  if (explicitRecipientUserIds !== null) {
+    const explicitRecipients: NotificationRecipient[] = [];
+    for (const userId of explicitRecipientUserIds) {
+      const recipient = await getRecipientByUserId(admin, userId);
+      if (recipient) explicitRecipients.push(recipient);
+    }
+
+    return {
+      recipients: mergeRecipients(explicitRecipients),
+      resolvedAipId,
+      resolvedProjectId,
+      resolvedFeedbackId,
+      resolvedProjectUpdateId,
+      resolvedBarangayId,
+      resolvedCityId,
+      resolvedFeedbackContext,
+      resolvedProjectScope,
+      resolvedProjectUpdateContext,
+    };
+  }
+
   const recipients: NotificationRecipient[] = [];
 
   switch (input.eventType) {
@@ -335,6 +369,7 @@ async function resolveRecipientsForEvent(
       break;
     case "AIP_SUBMITTED":
     case "AIP_RESUBMITTED":
+    case "AIP_REVIEW_REMINDER":
       if (resolvedCityId) {
         recipients.push(...(await getCityOfficialRecipients(admin, resolvedCityId)));
       }
@@ -583,7 +618,9 @@ export async function notify(input: NotifyInput): Promise<NotifyResult> {
 
   const eventTemplateData = compactRecord(
     input.eventType === "AIP_CLAIMED" ||
+      input.eventType === "AIP_FORCE_UNCLAIMED" ||
       input.eventType === "AIP_REVISION_REQUESTED" ||
+      input.eventType === "AIP_REVIEW_REMINDER" ||
       input.eventType === "AIP_PUBLISHED" ||
       input.eventType === "AIP_SUBMITTED" ||
       input.eventType === "AIP_RESUBMITTED"

@@ -8,6 +8,8 @@ export type {
   AipSubmissionRow,
   ClaimReviewParams,
   CityReviewFilters,
+  ForceUnclaimReviewParams,
+  ForceUnclaimReviewResult,
   GetLatestReviewParams,
   GetSubmissionAipDetailParams,
   LatestReview,
@@ -22,6 +24,8 @@ import type {
   AipHeader,
   AipStatus,
   ClaimReviewParams,
+  ForceUnclaimReviewParams,
+  ForceUnclaimReviewResult,
   GetLatestReviewParams,
   GetSubmissionAipDetailParams,
   LatestReview,
@@ -44,6 +48,7 @@ export type AipSubmissionsReviewRepo = {
     params: GetSubmissionAipDetailParams
   ) => Promise<{ aip: AipHeader; latestReview: LatestReview } | null>;
   claimReview: (params: ClaimReviewParams) => Promise<AipStatus>;
+  forceUnclaimReview: (params: ForceUnclaimReviewParams) => Promise<ForceUnclaimReviewResult>;
   startReviewIfNeeded: (params: StartReviewIfNeededParams) => Promise<AipStatus>;
   requestRevision: (params: RequestRevisionParams) => Promise<AipStatus>;
   publishAip: (params: PublishAipParams) => Promise<AipStatus>;
