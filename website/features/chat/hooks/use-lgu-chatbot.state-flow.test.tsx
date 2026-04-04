@@ -25,6 +25,12 @@ function jsonResponse(payload: unknown, status = 200): Response {
   });
 }
 
+function getRequestUrl(input: RequestInfo | URL): string {
+  if (typeof input === "string") return input;
+  if (input instanceof URL) return input.href;
+  return input.url;
+}
+
 describe("useLguChatbot sending state flow", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -35,7 +41,7 @@ describe("useLguChatbot sending state flow", () => {
     const sendDeferred = createDeferred<Response>();
 
     const fetchMock = vi.fn<typeof fetch>((input, init) => {
-      const url = typeof input === "string" ? input : input.url;
+      const url = getRequestUrl(input);
       const method = (init?.method ?? "GET").toUpperCase();
 
       if (url.endsWith("/api/barangay/chat/sessions") && method === "GET") {
@@ -128,7 +134,7 @@ describe("useLguChatbot sending state flow", () => {
     const sendDeferred = createDeferred<Response>();
 
     const fetchMock = vi.fn<typeof fetch>((input, init) => {
-      const url = typeof input === "string" ? input : input.url;
+      const url = getRequestUrl(input);
       const method = (init?.method ?? "GET").toUpperCase();
 
       if (url.endsWith("/api/barangay/chat/sessions") && method === "GET") {
