@@ -8,9 +8,11 @@ import {
 import { dbRoleToRouteRole } from "@/lib/auth/route-roles";
 import {
   clearLoginAttemptState,
+  getPasswordLoginSourceThrottleStatus,
   getRequestFingerprint,
   getLoginAttemptStatus,
   recordLoginFailure,
+  recordPasswordLoginSourceFailure,
 } from "@/lib/security/login-attempts.server";
 import { applySessionPolicyCookies } from "@/lib/security/session-cookies.server";
 import { getSecuritySettings } from "@/lib/security/security-settings.server";
@@ -31,10 +33,11 @@ function isStaffRole(value: unknown): value is "admin" | "city" | "barangay" {
 async function safeRecordFailure(input: {
   email: string;
   settings: Awaited<ReturnType<typeof getSecuritySettings>>;
+  request: Request;
   requestFingerprint: string | null;
 }) {
   try {
-    return await recordLoginFailure({
+    const accountStatus = await recordLoginFailure({
       email: input.email,
       settings: input.settings,
       monitoring: {
@@ -42,6 +45,13 @@ async function safeRecordFailure(input: {
         requestFingerprint: input.requestFingerprint,
       },
     });
+    const sourceStatus = await recordPasswordLoginSourceFailure({
+      request: input.request,
+      settings: input.settings,
+    });
+    return {
+      isLocked: accountStatus.isLocked || sourceStatus.isThrottled,
+    };
   } catch {
     return null;
   }
@@ -68,6 +78,13 @@ export async function POST(request: Request) {
     if (status.isLocked) {
       return fail(LOCKOUT_ERROR_MESSAGE, 429);
     }
+    const sourceStatus = await getPasswordLoginSourceThrottleStatus({
+      request,
+      settings,
+    }).catch(() => ({ isThrottled: false }));
+    if (sourceStatus.isThrottled) {
+      return fail(LOCKOUT_ERROR_MESSAGE, 429);
+    }
 
     const client = await supabaseServer();
     const { data, error } = await client.auth.signInWithPassword({ email, password });
@@ -75,6 +92,7 @@ export async function POST(request: Request) {
       const nextStatus = await safeRecordFailure({
         email,
         settings,
+        request,
         requestFingerprint,
       });
       return fail(nextStatus?.isLocked ? LOCKOUT_ERROR_MESSAGE : INVALID_CREDENTIALS_MESSAGE, nextStatus?.isLocked ? 429 : 401);
@@ -84,6 +102,7 @@ export async function POST(request: Request) {
       await safeRecordFailure({
         email,
         settings,
+        request,
         requestFingerprint,
       });
       return fail(INVALID_CREDENTIALS_MESSAGE, 401);
@@ -101,6 +120,7 @@ export async function POST(request: Request) {
       const nextStatus = await safeRecordFailure({
         email,
         settings,
+        request,
         requestFingerprint,
       });
       return fail(nextStatus?.isLocked ? LOCKOUT_ERROR_MESSAGE : INVALID_CREDENTIALS_MESSAGE, nextStatus?.isLocked ? 429 : 401);
@@ -110,6 +130,7 @@ export async function POST(request: Request) {
       const nextStatus = await safeRecordFailure({
         email,
         settings,
+        request,
         requestFingerprint,
       });
       return fail(nextStatus?.isLocked ? LOCKOUT_ERROR_MESSAGE : INVALID_CREDENTIALS_MESSAGE, nextStatus?.isLocked ? 429 : 401);

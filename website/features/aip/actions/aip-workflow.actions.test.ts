@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockGetAppEnv = vi.fn<() => "dev" | "staging" | "prod">(() => "dev");
+const mockGetAppEnv = vi.fn<() => "local" | "staging" | "prod">(() => "local");
 const mockIsMockEnabled = vi.fn(() => false);
 const mockGetActorContext = vi.fn();
+const mockIsDevAuthBypassEnabled = vi.fn(() => true);
 const mockGetAipDetail = vi.fn();
 const mockGetAipProjectRows = vi.fn();
 const mockUpdateAipStatus = vi.fn();
@@ -44,6 +45,10 @@ vi.mock("@/lib/config/appEnv", () => ({
 
 vi.mock("@/lib/domain/get-actor-context", () => ({
   getActorContext: () => mockGetActorContext(),
+}));
+
+vi.mock("@/lib/auth/dev-bypass", () => ({
+  isDevAuthBypassEnabled: () => mockIsDevAuthBypassEnabled(),
 }));
 
 vi.mock("@/lib/audit/activity-log", () => ({
@@ -207,8 +212,9 @@ describe("deleteAipDraftAction strict storage-first deletion", () => {
       error: dbDeleteErrorMessage ? { message: dbDeleteErrorMessage } : null,
     }));
 
-    mockGetAppEnv.mockReturnValue("dev");
+    mockGetAppEnv.mockReturnValue("local");
     mockIsMockEnabled.mockReturnValue(false);
+    mockIsDevAuthBypassEnabled.mockReturnValue(true);
     mockGetActorContext.mockResolvedValue(null);
     mockWriteActivityLog.mockReset();
     mockWriteActivityLog.mockResolvedValue("log-001");
@@ -331,6 +337,7 @@ describe("deleteAipDraftAction strict storage-first deletion", () => {
 
   it("keeps authorization guard behavior unchanged and avoids storage work when unauthorized", async () => {
     mockGetAppEnv.mockReturnValue("prod");
+    mockIsDevAuthBypassEnabled.mockReturnValue(false);
     mockGetActorContext.mockResolvedValue(null);
 
     const result = await deleteAipDraftAction({ aipId: "aip-001" });

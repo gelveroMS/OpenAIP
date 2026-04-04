@@ -76,7 +76,8 @@ Core data flow:
 - Dashboard backend is implemented with server-repo adapters in `website/lib/repos/dashboard/*` (`repo.ts`, `repo.server.ts`, `repo.mock.ts`, `repo.supabase.ts`, `types.ts`).
 - Reads are scope-filtered and aggregated from existing tables (`aips`, `projects`, `feedback`, `extraction_runs`, `aip_reviews`, `uploaded_files`, `profiles`).
 - Barangay write flows are hardened: draft creation is FY-validated and idempotent; feedback replies enforce citizen-root constraints through feedback threads repo.
-- Mock behavior follows global selector flags only (`NEXT_PUBLIC_APP_ENV`, `NEXT_PUBLIC_USE_MOCKS`).
+- Mock behavior follows global selector flags (`NEXT_PUBLIC_APP_ENV`, `NEXT_PUBLIC_USE_MOCKS`).
+- Security-sensitive bypasses are gated only by server-side flags in local development.
 
 ## Project Structure
 | Path | Responsibility |
@@ -84,7 +85,9 @@ Core data flow:
 | `website/app` | Next.js routes (citizen/LGU/admin) and API route handlers |
 | `website/features` | Feature modules (AIP, projects, submissions, audit, feedback, chat, notifications, account, admin) |
 | `website/lib` | Repo layer, Supabase clients, domain logic, typed DB contracts |
-| `website/docs/sql` | Database schema baseline + incremental SQL patches |
+| `supabase/migrations` | Operational runtime schema migrations (staging/prod source of truth) |
+| `supabase/schemas/prod.sql` | Bootstrap snapshot/reference schema |
+| `website/docs/sql` | Secondary SQL reference/probe artifacts (not runtime migration source) |
 | `website/docs/SUPABASE_MIGRATION.md` | Supabase migration guidance and adapter strategy |
 | `website/tests` | Repo-smoke and typecheck tests |
 | `aip-intelligence-pipeline/src/openaip_pipeline/api` | FastAPI app and run endpoints |
@@ -155,11 +158,14 @@ AIP_UPLOAD_FAILURE_WINDOW_MINUTES=60
 AIP_UPLOAD_FAILURE_COOLDOWN_MINUTES=15
 
 BASE_URL=http://localhost:3000
-NEXT_PUBLIC_APP_ENV=dev
-NEXT_PUBLIC_USE_MOCKS=true
+NEXT_PUBLIC_APP_ENV=local
+NEXT_PUBLIC_USE_MOCKS=false
 NEXT_PUBLIC_FEEDBACK_DEBUG=0
-NEXT_PUBLIC_TEMP_ADMIN_BYPASS=false
 NEXT_PUBLIC_API_BASE_URL=
+DEV_BYPASS_ENABLED=false
+DEV_AUTH_BYPASS=false
+TEMP_ADMIN_BYPASS_ENABLED=false
+USE_MOCKS_LOCAL=false
 PIPELINE_API_BASE_URL=http://localhost:8000
 PIPELINE_HMAC_SECRET=<shared-hmac-secret>
 # Legacy/unused for chat s2s auth.
@@ -239,10 +245,13 @@ Website env reference:
 | `AIP_UPLOAD_FAILURE_WINDOW_MINUTES` | No | Server-only | Lookback window for failed runs used by upload throttle (default `60`) |
 | `AIP_UPLOAD_FAILURE_COOLDOWN_MINUTES` | No | Server-only | Cooldown duration after repeated failed runs (default `15`) |
 | `BASE_URL` | Yes | Server-only | Absolute app origin for auth page helpers |
-| `NEXT_PUBLIC_APP_ENV` | No | Client-exposed | `dev`/`staging`/`prod`; controls mock selection |
+| `NEXT_PUBLIC_APP_ENV` | Yes | Client-exposed | Runtime env selector. Must be one of `local`/`staging`/`prod`. Missing/invalid values fail closed with a config error |
 | `NEXT_PUBLIC_USE_MOCKS` | No | Client-exposed | Force mock repos when `true` |
 | `NEXT_PUBLIC_FEEDBACK_DEBUG` | No | Client-exposed | Feedback debug toggle (`1` enables) |
-| `NEXT_PUBLIC_TEMP_ADMIN_BYPASS` | No | Client-exposed | Dev-only bypass toggle |
+| `DEV_BYPASS_ENABLED` | No | Server-only | Global local-only bypass gate. Must be `true` before any bypass helper can activate |
+| `DEV_AUTH_BYPASS` | No | Server-only | Enables local dev auth bypass only when `DEV_BYPASS_ENABLED=true` |
+| `TEMP_ADMIN_BYPASS_ENABLED` | No | Server-only | Enables local admin-shell bypass only when `DEV_BYPASS_ENABLED=true` |
+| `USE_MOCKS_LOCAL` | No | Server-only | Enables local citizen auth/mock bypass only when `DEV_BYPASS_ENABLED=true` |
 | `NEXT_PUBLIC_API_BASE_URL` | No | Client-exposed | Optional API base override |
 | `PIPELINE_API_BASE_URL` | Yes (chatbot) | Server-only | Internal base URL for pipeline chat endpoint |
 | `PIPELINE_HMAC_SECRET` | Yes (chatbot) | Server-only | Shared secret used to sign `x-pipeline-*` chat request headers (`aud|ts|nonce|rawBody`) |
@@ -305,7 +314,7 @@ Pipeline env reference:
 | `LOG_LEVEL` | No | Server-only | API logging level |
 
 ### Run Locally (Dev)
-1. Apply DB SQL and create storage buckets (see [Database & Migrations](#database--migrations)).
+1. Bootstrap DB schema and apply pending runtime migrations (see [Database & Migrations](#database--migrations)), then create storage buckets.
 2. Start website:
 ```bash
 cd website
@@ -364,56 +373,27 @@ pyright
 ```
 
 ## Database & Migrations
-This repo stores SQL migrations in `website/docs/sql` (no Supabase CLI migration directory is committed).
+Operational runtime source of truth:
+- `supabase/migrations` (apply in ascending timestamp order)
 
-Canonical schema source:
+Bootstrap snapshot/reference:
+- `supabase/schemas/prod.sql`
+
+Secondary/reference-only SQL artifacts:
 - `website/docs/sql/database-v2.sql`
-
-Mirrored compatibility copy:
-- `website/docs/databasev2.txt` (kept synchronized with `database-v2.sql`)
+- `website/docs/databasev2.txt`
+- `website/docs/sql/*.sql` dated probes/legacy patch history
 
 Recommended workflow:
-1. Fresh project: run `website/docs/sql/database-v2.sql` in Supabase SQL Editor.
-2. Existing project: apply dated patches in ascending order only if your DB predates them:
-   - `website/docs/sql/2026-02-13_account_admin_hardening.sql`
-   - `website/docs/sql/2026-02-15-projects-financial-expenses.sql`
-   - `website/docs/sql/2026-02-19_extraction_run_progress.sql`
-   - `website/docs/sql/2026-02-20_submissions_claim_review.sql`
-   - `website/docs/sql/2026-02-21_city_aip_project_column_and_publish.sql`
-   - `website/docs/sql/2026-02-21_extraction_runs_realtime.sql`
-   - `website/docs/sql/2026-02-22_aip_publish_embed_categorize_logging_status.sql`
-   - `website/docs/sql/2026-02-22_aip_publish_embed_categorize_logging_status_v2.sql`
-   - `website/docs/sql/2026-02-22_aip_publish_embed_categorize_trigger.sql`
-   - `website/docs/sql/2026-02-22_aip_publish_embed_categorize_trigger_v2.sql`
-   - `website/docs/sql/2026-02-22_aip_storage_cascade_cleanup.sql`
-   - `website/docs/sql/2026-02-22_aip_storage_cascade_cleanup_hosted_supabase_fix.sql`
-   - `website/docs/sql/2026-02-22_set_config_app_embed.sql`
-   - `website/docs/sql/2026-02-22_set_config_app_embed_call.sql`
-   - `website/docs/sql/2026-02-24_chatbot_rag_global_scope.sql`
-   - `website/docs/sql/2026-02-24_create_aip_totals.sql`
-   - `website/docs/sql/2026-02-26_add_information_published_rls_fix.sql`
-   - `website/docs/sql/2026-02-26_app_settings_schema_and_grants.sql`
-   - `website/docs/sql/2026-02-26_projects_updates_and_media.sql`
-   - `website/docs/sql/2026-02-26_projects_status_proposed_rename.sql`
-   - `website/docs/sql/2026-02-27_barangay_audit_crud_workflow.sql`
-   - `website/docs/sql/2026-02-28_citizen_profile_scope_self_update.sql`
-   - `website/docs/sql/2026-02-28_city_audit_crud_workflow.sql`
-   - `website/docs/sql/2026-03-01_admin_usage_controls_chat_quota_and_policy_cleanup.sql`
-   - `website/docs/sql/2026-03-01_barangay_aip_uploader_workflow_lock.sql`
-   - `website/docs/sql/2026-03-01_citizen_about_us_content_settings.sql`
-   - `website/docs/sql/2026-03-01_citizen_dashboard_content_settings.sql`
-   - `website/docs/sql/2026-03-01_feedback_activity_log_include_citizen.sql`
-   - `website/docs/sql/2026-03-01_project_updates_hide_unhide_and_feedback_author_visibility.sql`
-   - `website/docs/sql/2026-03-03_embed_categorize_signed_dispatch.sql`
-   - `website/docs/sql/2026-03-03_notifications_outbox_tables_rls.sql`
-   - `website/docs/sql/2026-03-03_notifications_admin_pipeline_outbox_alerts.sql`
-   - `website/docs/sql/2026-03-06_aip_upload_validation_gating.sql`
-   - `website/docs/sql/2026-03-10_notifications_aip_embed_terminal_status.sql`
-   - `website/docs/sql/2026-03-10_notifications_aip_embed_action_url_scoped.sql`
-   - `website/docs/sql/2026-03-10_realtime_publication_extraction_notifications.sql`
-   - `website/docs/sql/2026-03-20_account_delete_preflight_blockers.sql`
-   - Note: `2026-02-26_projects_status_proposed_rename.sql` renames existing `projects.status` values from `planning` to `proposed`.
-3. Create Supabase storage buckets manually:
+1. Fresh project: bootstrap from `supabase/schemas/prod.sql`, then apply any newer files from `supabase/migrations` in ascending order.
+2. Existing project: apply pending files from `supabase/migrations` in ascending order.
+3. Verify required security migrations are applied:
+   - `supabase/migrations/20260318_fix_citizen_rollup_security_invoker.sql`
+   - `supabase/migrations/20260319_citizen_rollup_invoker_with_file_totals_fn.sql`
+   - `supabase/migrations/20260402_bac_a01_access_control_hardening.sql`
+   - `supabase/migrations/20260402_bac_a01_rpc_status_ambiguity_fix.sql`
+   - `supabase/migrations/20260403_a05_default_function_execute_fail_closed.sql`
+4. Create Supabase storage buckets manually:
    - `aip-pdfs` (uploaded source PDFs)
    - `aip-artifacts` (pipeline artifacts when payload exceeds inline threshold)
    - `project-media` (private project cover/update images served via API proxy)
@@ -460,11 +440,13 @@ Sample FAIL output:
 When an AIP transitions to `published`, DB trigger `trg_aip_published_embed_categorize` asynchronously calls the Edge Function `embed_categorize_artifact` via `pg_net`.
 
 Files added for this flow:
-- SQL patch: `website/docs/sql/2026-02-22_aip_publish_embed_categorize_trigger.sql`
-- SQL patch: `website/docs/sql/2026-02-22_aip_publish_embed_categorize_trigger_v2.sql`
-- SQL patch (logging/status + retry RPC): `website/docs/sql/2026-02-22_aip_publish_embed_categorize_logging_status.sql`
-- SQL patch (logging/status + retry RPC): `website/docs/sql/2026-02-22_aip_publish_embed_categorize_logging_status_v2.sql`
-- SQL patch (signed dispatch headers + request_id payload): `website/docs/sql/2026-03-03_embed_categorize_signed_dispatch.sql`
+- Runtime migration source: `supabase/migrations` (timestamped files for trigger/retry/signed-dispatch schema updates)
+- Secondary reference patch history:
+  - `website/docs/sql/2026-02-22_aip_publish_embed_categorize_trigger.sql`
+  - `website/docs/sql/2026-02-22_aip_publish_embed_categorize_trigger_v2.sql`
+  - `website/docs/sql/2026-02-22_aip_publish_embed_categorize_logging_status.sql`
+  - `website/docs/sql/2026-02-22_aip_publish_embed_categorize_logging_status_v2.sql`
+  - `website/docs/sql/2026-03-03_embed_categorize_signed_dispatch.sql`
 - Edge Function: `supabase/functions/embed_categorize_artifact/index.ts`
 
 Required configuration:
@@ -496,7 +478,7 @@ alter database postgres set app.embed_categorize_audience = 'embed-categorize-di
 
 Local/hosted test flow:
 1. Deploy or serve the Edge Function with JWT verification disabled for trigger-origin calls.
-2. Apply SQL migration `website/docs/sql/2026-03-03_embed_categorize_signed_dispatch.sql`.
+2. Apply pending runtime migrations from `supabase/migrations` for your target environment.
 3. Ensure `app.embed_categorize_url`, secret config, and optional audience config are set.
 4. Publish an AIP (`under_review` -> `published`).
 5. Verify output rows in:
@@ -544,7 +526,8 @@ deno test --allow-env supabase/functions/embed_categorize_artifact/index.test.ts
 
 Related docs:
 - `website/docs/SUPABASE_MIGRATION.md`
-- `website/docs/sql/database-v2.sql`
+- `supabase/schemas/prod.sql`
+- `website/docs/sql/database-v2.sql` (reference snapshot mirror)
 - `aip-intelligence-pipeline/src/openaip_pipeline/resources/manifests/pipeline_versions.yaml`
 
 ## Notifications & Outbox
@@ -568,7 +551,8 @@ Tracked-open behavior:
 
 Outbox processor:
 - Edge Function: `supabase/functions/send-email-outbox/index.ts`
-- Authorization: requires bearer JWT with `role=service_role`.
+- Authorization: requires `Authorization: Bearer <token>` where token matches `SUPABASE_SERVICE_ROLE_KEY` via in-code constant-time comparison.
+- Unsigned/forged JWT payload claims are not trusted for authorization.
 - Reads queued rows from `public.email_outbox`, sends via Resend, updates status/attempt counters.
 - Emits hourly deduped admin notifications when failure threshold is exceeded (`OUTBOX_FAILURE_THRESHOLD_REACHED`).
 
@@ -592,7 +576,7 @@ Outbox function optional tuning env:
   - `website/app/api/barangay/aips/**`
   - `website/app/api/city/aips/**`
 - Authorization checks include role/scope checks and Supabase RPCs (`can_upload_aip_pdf`, `can_edit_aip`).
-- Row-level security policies are defined in `website/docs/sql/database-v2.sql` for major tables (`aips`, `projects`, `feedback`, `aip_reviews`, `chat_*`, `activity_log`, `extraction_*`).
+- Row-level security policies are enforced by runtime schema from `supabase/migrations` and reflected in `supabase/schemas/prod.sql` (reference mirrors remain in `website/docs/sql/database-v2.sql`).
 
 ## Storage / File Handling
 - Upload route handlers accept PDF only and enforce:
@@ -630,6 +614,58 @@ Current test coverage in repo includes:
 - UI/component and hook tests under `website/features/**/*.test.ts(x)`
 - Repo smoke checks under `website/tests/repo-smoke/**`
 - Pipeline smoke/resource/rules/worker-sanitization tests under `aip-intelligence-pipeline/tests/**`
+
+### Dependency Auditing (CI + Local)
+
+PR CI now includes two independent dependency audit jobs in `.github/workflows/pr-quality-gate.yml`:
+- `Dependency Audit (Node runtime)`:
+  - runs in `website/`
+  - command: `npm audit --omit=dev --audit-level=high`
+  - fails on high/critical runtime vulnerabilities
+- `Dependency Audit (Python runtime)`:
+  - builds an isolated runtime install of `aip-intelligence-pipeline`
+  - command: `pip-audit` against that runtime environment
+  - fails when vulnerabilities are detected
+
+Automated dependency update monitoring is configured in:
+- `.github/dependabot.yml`
+- ecosystems enabled:
+  - `npm` for `/website`
+  - `pip` for `/aip-intelligence-pipeline`
+
+#### Run audits locally
+
+Node (website runtime deps):
+```bash
+cd website
+npm ci
+npm audit --omit=dev --audit-level=high
+```
+
+Python (pipeline runtime deps):
+```bash
+python -m pip install --upgrade pip pip-audit
+python -m venv .venv-runtime-audit
+. .venv-runtime-audit/bin/activate
+python -m pip install --upgrade pip
+python -m pip install ./aip-intelligence-pipeline
+deactivate
+SITE_PACKAGES=$(./.venv-runtime-audit/bin/python -c "import site; print(site.getsitepackages()[0])")
+python -m pip_audit --path "$SITE_PACKAGES" --progress-spinner off
+```
+
+#### If dependency audit CI fails
+
+- Reproduce locally using the same command.
+- Identify the vulnerable package and dependency path.
+- Prefer upgrading the direct dependency first; otherwise update the transitive chain.
+- Re-run audit and tests before pushing.
+- If no upstream fix exists yet, track as a documented security exception with owner and expiry.
+
+#### Current Python lockfile limitation
+
+`aip-intelligence-pipeline` currently does not commit a lockfile, so transitive dependency resolution may change over time.
+As a result, Python audit findings can vary between runs even when repository files are unchanged.
 
 ## Deployment Guide
 - For the full UI-first production + preview deployment runbook (Vercel website + Render pipeline + Supabase), see [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md).
@@ -692,7 +728,7 @@ Common hosting options for this codebase:
   - `progress_message`
   - `progress_updated_at`
 - UI realtime subscription for run updates is implemented in `website/features/aip/hooks/use-extraction-runs-realtime.ts`.
-- Realtime publication setup is handled by `website/docs/sql/2026-02-21_extraction_runs_realtime.sql`.
+- Realtime publication setup is carried by runtime migrations in `supabase/migrations` and reflected in `supabase/schemas/prod.sql`.
 
 ## Troubleshooting
 | Issue | Likely Cause | Fix |
@@ -700,15 +736,15 @@ Common hosting options for this codebase:
 | `Missing NEXT_PUBLIC_SUPABASE_URL...` at runtime | Supabase public env vars not set in `website/.env.local` | Set `NEXT_PUBLIC_SUPABASE_URL` and one of `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`/`NEXT_PUBLIC_SUPABASE_ANON_KEY`, then restart `npm run dev` |
 | `BASE_URL environment variable is not configured` on auth pages | `BASE_URL` missing | Set `BASE_URL=http://localhost:3000` for local dev |
 | Hydration warning points to `app/layout.tsx` `<body>` (with unexpected extra attrs) | Browser extension mutated `html/body` before React hydration (for example grammar/spell-check extensions on editable pages) | Re-test in incognito or a clean browser profile with extensions disabled. Do not add global `suppressHydrationWarning`; keep warnings visible for real mismatches. |
-| Upload endpoint returns `Unauthorized` or `You cannot upload for this AIP right now.` | Role/scope mismatch or DB function/policies not applied | Ensure user profile role/scope is correct and SQL from `website/docs/sql/database-v2.sql` is applied |
-| `/city/aips` or `/api/city/aips/upload` shows generic HTML `500` | Production schema drift (missing table/function/column used by city AIP queries) | Run `cd website && npm run diagnose:city-aips-500`, run `website/docs/sql/2026-03-10_city_aips_500_schema_probe.sql`, then apply the recommended patch files listed by the script |
+| Upload endpoint returns `Unauthorized` or `You cannot upload for this AIP right now.` | Role/scope mismatch or DB function/policies not applied | Ensure user profile role/scope is correct and required runtime migrations in `supabase/migrations` are applied |
+| `/city/aips` or `/api/city/aips/upload` shows generic HTML `500` | Production schema drift (missing table/function/column used by city AIP queries) | Run `cd website && npm run diagnose:city-aips-500`, run `website/docs/sql/2026-03-10_city_aips_500_schema_probe.sql` (reference probe), then apply pending runtime migrations from `supabase/migrations` |
 | Upload fails with `Invalid PDF file header. Expected %PDF- magic bytes.` | Uploaded file is not a real PDF payload | Re-export/upload a valid PDF file; do not rely on extension only |
 | Upload fails with `File too large...` | File exceeded `AIP_UPLOAD_MAX_BYTES` | Increase `AIP_UPLOAD_MAX_BYTES` carefully or upload a smaller PDF |
 | Upload fails with HTTP `429` and `upload_throttled` | Uploader hit repeated failed-run cooldown window | Wait for `Retry-After` or adjust `AIP_UPLOAD_FAILURE_*` thresholds |
 | Upload fails with storage error (`bucket not found` / permissions) | Missing `aip-pdfs` bucket or storage misconfiguration | Create `aip-pdfs` bucket in Supabase Storage; verify service role key is valid |
 | Draft delete fails with `Failed to delete one or more AIP files from storage. Draft was not deleted.` | Strict delete gate blocked DB delete because one or more storage objects could not be removed | Verify `aip-pdfs`/artifact bucket objects still exist, service role key has storage delete permission, and `SUPABASE_STORAGE_ARTIFACT_BUCKET` matches your artifact bucket |
-| Worker exits/fails with progress-column error | DB missing run progress columns | Apply `website/docs/sql/2026-02-19_extraction_run_progress.sql` (or full `database-v2.sql`) |
-| UI does not receive live progress updates | Realtime publication not configured | Apply `website/docs/sql/2026-02-21_extraction_runs_realtime.sql` |
+| Worker exits/fails with progress-column error | DB missing run progress columns | Apply pending runtime migrations from `supabase/migrations` and re-check schema state |
+| UI does not receive live progress updates | Realtime publication not configured | Apply pending runtime migrations from `supabase/migrations` and verify realtime objects exist |
 | Runs stay `queued` forever | Worker not running or cannot claim runs | Start `openaip-worker`; verify pipeline `SUPABASE_URL` + `SUPABASE_SERVICE_KEY` |
 | Worker fails with `OPENAI_API_KEY not found` | Missing OpenAI secret in pipeline env | Set `OPENAI_API_KEY` in `aip-intelligence-pipeline/.env` |
 | Run fails with `error_code=PDF_PAGE_LIMIT_EXCEEDED` | PDF page count exceeded `PIPELINE_EXTRACT_MAX_PAGES` | Increase cap if acceptable or upload smaller PDFs |
@@ -718,10 +754,10 @@ Common hosting options for this codebase:
 | `POST /v1/runs/dev/local` returns 403 | Dev routes disabled | Set `PIPELINE_DEV_ROUTES=true` in pipeline env |
 | `POST /v1/runs/*` returns 401 | Missing/invalid `aud`/`ts`/`nonce`/`sig`, stale `ts`, replayed nonce, or audience not allowlisted | Set `PIPELINE_RUNS_HMAC_SECRET` and `PIPELINE_RUNS_ALLOWED_AUDIENCES`; sign request body/path/method correctly and keep clock skew within ±60s |
 | `POST /v1/chat/*` returns 401 | Missing/invalid `x-pipeline-aud`/`x-pipeline-ts`/`x-pipeline-nonce`/`x-pipeline-sig`, stale `ts`, invalid `aud`, bad signature, or replayed `(aud,nonce,ts,body)` | Set matching `PIPELINE_HMAC_SECRET` on website + pipeline; sign `aud|ts|nonce|rawBody`, keep clock skew within ±60s, and send unique nonce per request |
-| `Invalid schema: app` from chatbot/admin settings APIs | Supabase Data API does not expose `app` schema, or `app.settings` is missing/inaccessible | Expose `app` in Supabase Data API schemas and run `website/docs/sql/2026-02-26_app_settings_schema_and_grants.sql` |
-| Notifications inbox is empty for events that should notify | Notifications tables/triggers or realtime publication membership are missing from DB baseline | Apply `website/docs/sql/2026-03-03_notifications_outbox_tables_rls.sql`, `website/docs/sql/2026-03-03_notifications_admin_pipeline_outbox_alerts.sql`, `website/docs/sql/2026-03-10_notifications_aip_embed_terminal_status.sql`, `website/docs/sql/2026-03-10_notifications_aip_embed_action_url_scoped.sql`, and `website/docs/sql/2026-03-10_realtime_publication_extraction_notifications.sql` (or full `database-v2.sql`) |
+| `Invalid schema: app` from chatbot/admin settings APIs | Supabase Data API does not expose `app` schema, or `app.settings` is missing/inaccessible | Expose `app` in Supabase Data API schemas and apply pending runtime migrations from `supabase/migrations` |
+| Notifications inbox is empty for events that should notify | Notifications tables/triggers or realtime publication membership are missing from DB baseline | Apply pending runtime migrations from `supabase/migrations` and verify notification/outbox objects from current runtime schema |
 | Clicking "Open related page" does not mark rows as read | `GET /api/notifications/open` route not reached (or unsafe `next` path) | Ensure links are built via tracked-open helper and `next` is an internal path beginning with `/` |
-| `send-email-outbox` returns 401/500 | Missing service-role bearer auth or missing outbox env values | Invoke with service-role JWT and set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, `FROM_EMAIL`, `APP_BASE_URL` |
+| `send-email-outbox` returns 401/500 | Missing/invalid bearer token or missing outbox env values | Invoke with `Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY>` and set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, `FROM_EMAIL`, `APP_BASE_URL` |
 | Citizen about-us/dashboard content does not load seeded values | `app.settings` seeds not applied or `about-us-docs` bucket missing | Apply March 1 content seed SQL files and create/verify `about-us-docs` bucket objects |
 | `pytest`/`ruff`/`pyright` command not found | Dev extras not installed | Reinstall with `python -m pip install -e ".[dev]"` |
 | `Fatal error in launcher` when running `pip` inside pipeline venv | Venv launchers still point to old folder path after rename | Recreate `.venv`, then use `python -m pip install --upgrade pip` and `python -m pip install -e ".[dev]"` |
@@ -738,7 +774,7 @@ PR checklist:
 - [ ] `website`: `npm run lint`, `npm run test:ui`, and `npx tsc --noEmit` pass
 - [ ] `aip-intelligence-pipeline`: `pytest -q` (and `ruff`/`pyright` when applicable) pass
 - [ ] No secrets or real credentials are committed
-- [ ] SQL/schema changes are documented in `website/docs/sql`
+- [ ] SQL/schema runtime changes are added to `supabase/migrations` (and reference snapshots/docs are updated as needed)
 - [ ] README/docs are updated for behavior, env, or workflow changes
 - [ ] UI/API changes include at least one validation path for reviewers
 

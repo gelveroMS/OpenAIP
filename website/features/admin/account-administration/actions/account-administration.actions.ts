@@ -1,6 +1,6 @@
 "use server";
 
-import { getAppEnv } from "@/lib/config/appEnv";
+import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass";
 import { getActorContext } from "@/lib/domain/get-actor-context";
 import { getAccountsRepo } from "@/lib/repos/accounts/repo.server";
 import type {
@@ -14,7 +14,7 @@ import type {
 
 async function requireAdminOrDev() {
   const actor = await getActorContext();
-  if (!actor && getAppEnv() === "dev") return;
+  if (!actor && isDevAuthBypassEnabled()) return;
   if (!actor || actor.role !== "admin") {
     throw new Error("Unauthorized.");
   }

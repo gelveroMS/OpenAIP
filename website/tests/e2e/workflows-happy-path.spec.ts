@@ -99,9 +99,10 @@ async function expectAuditEvent(page: Page, input: AuditEventAssertion): Promise
   }
 
   await page.goto(`/admin/audit-logs?${params.toString()}`, { waitUntil: "domcontentloaded" });
-  await expect(page.getByTestId("admin-audit-table")).toBeVisible();
+  const auditTable = page.locator('[data-testid="admin-audit-table"]:visible').first();
+  await expect(auditTable).toBeVisible();
 
-  const firstRow = page.getByTestId("admin-audit-row").first();
+  const firstRow = auditTable.locator('[data-testid="admin-audit-row"]').first();
   await expect(firstRow).toBeVisible({ timeout: 30_000 });
   if (input.rowPattern) {
     await expect(firstRow).toContainText(input.rowPattern);
@@ -284,7 +285,11 @@ test.describe.serial("Canonical AIP happy path workflow", () => {
 
       await page.goto("/budget-allocation", { waitUntil: "domcontentloaded" });
       await expect(page).toHaveURL(/\/budget-allocation(?:$|[/?#])/);
-      await expect(page.getByTestId("citizen-budget-allocation-overview-header")).toBeVisible();
+      const budgetOverviewHeader = page
+        .getByRole("main")
+        .locator('[data-testid="citizen-budget-allocation-overview-header"]:visible');
+      await expect(budgetOverviewHeader).toHaveCount(1);
+      await expect(budgetOverviewHeader).toBeVisible();
     });
   });
 
@@ -346,7 +351,24 @@ test.describe.serial("Canonical AIP happy path workflow", () => {
         `admin-chatbot-time-window-option-${scenarioData.admin.usageControls.chatbotTimeWindow}`
       );
 
+      const saveRequest = page.waitForResponse((response) => {
+        if (!response.url().includes("/api/admin/usage-controls")) return false;
+        if (response.request().method() !== "POST") return false;
+        const postData = response.request().postData() ?? "";
+        return postData.includes('"action":"update_chatbot_rate_limit"');
+      });
       await page.getByTestId("admin-save-chatbot-rate-limits").click();
+      const saveResponse = await saveRequest;
+      expect(saveResponse.ok()).toBeTruthy();
+      const savePayload = (await saveResponse.json()) as {
+        chatbotRateLimitPolicy?: { maxRequests?: number; timeWindow?: "per_hour" | "per_day" };
+      };
+      expect(savePayload.chatbotRateLimitPolicy?.maxRequests).toBe(
+        scenarioData.admin.usageControls.chatbotMaxRequests
+      );
+      expect(savePayload.chatbotRateLimitPolicy?.timeWindow).toBe(
+        scenarioData.admin.usageControls.chatbotTimeWindow
+      );
 
       await expect(page.getByTestId("admin-chatbot-current-limit")).toContainText(
         String(scenarioData.admin.usageControls.chatbotMaxRequests)

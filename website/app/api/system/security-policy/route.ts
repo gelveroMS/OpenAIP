@@ -48,7 +48,14 @@ export async function GET(request?: Request) {
     if (isInvariantError(error)) {
       return NextResponse.json({ message: error.message }, { status: error.status });
     }
-    const message = error instanceof Error ? error.message : "Failed to load security policy.";
-    return NextResponse.json({ message }, { status: 500 });
+    const errorName = error instanceof Error ? error.name : "UnknownError";
+    const messagePreview =
+      error instanceof Error ? error.message.slice(0, 160) : String(error).slice(0, 160);
+    console.error("[SYSTEM_SECURITY_POLICY][READ_FAILED]", {
+      route: "/api/system/security-policy",
+      errorName,
+      messagePreview,
+    });
+    return NextResponse.json({ message: "Unable to load security policy." }, { status: 500 });
   }
 }

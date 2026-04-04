@@ -4,6 +4,8 @@ const mockSupabaseServer = vi.fn();
 const mockGetSecuritySettings = vi.fn();
 const mockGetLoginAttemptStatus = vi.fn();
 const mockRecordLoginFailure = vi.fn();
+const mockGetPasswordLoginSourceThrottleStatus = vi.fn();
+const mockRecordPasswordLoginSourceFailure = vi.fn();
 const mockClearLoginAttemptState = vi.fn();
 const mockGetRequestFingerprint = vi.fn();
 const mockApplySessionPolicyCookies = vi.fn();
@@ -21,6 +23,10 @@ vi.mock("@/lib/security/security-settings.server", () => ({
 vi.mock("@/lib/security/login-attempts.server", () => ({
   getLoginAttemptStatus: (...args: unknown[]) => mockGetLoginAttemptStatus(...args),
   recordLoginFailure: (...args: unknown[]) => mockRecordLoginFailure(...args),
+  getPasswordLoginSourceThrottleStatus: (...args: unknown[]) =>
+    mockGetPasswordLoginSourceThrottleStatus(...args),
+  recordPasswordLoginSourceFailure: (...args: unknown[]) =>
+    mockRecordPasswordLoginSourceFailure(...args),
   clearLoginAttemptState: (...args: unknown[]) => mockClearLoginAttemptState(...args),
   getRequestFingerprint: (...args: unknown[]) => mockGetRequestFingerprint(...args),
 }));
@@ -69,6 +75,12 @@ describe("auth hardening routes", () => {
       isLocked: false,
       failedCount: 1,
       lockedUntil: null,
+    });
+    mockGetPasswordLoginSourceThrottleStatus.mockResolvedValue({
+      isThrottled: false,
+    });
+    mockRecordPasswordLoginSourceFailure.mockResolvedValue({
+      isThrottled: false,
     });
     mockClearLoginAttemptState.mockResolvedValue(undefined);
     mockGetRequestFingerprint.mockReturnValue("203.0.113.50");
@@ -140,6 +152,32 @@ describe("auth hardening routes", () => {
     expect(mockSupabaseServer).not.toHaveBeenCalled();
   });
 
+  it("POST /auth/sign-in returns 429 when source is throttled", async () => {
+    mockGetPasswordLoginSourceThrottleStatus.mockResolvedValueOnce({
+      isThrottled: true,
+    });
+
+    const { POST } = await import("@/app/auth/sign-in/route");
+    const request = new Request("http://localhost/auth/sign-in", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        email: "citizen@example.com",
+        password: "Password123!",
+      }),
+    });
+
+    const response = await POST(request);
+    const body = await response.json();
+
+    expect(response.status).toBe(429);
+    expect(body.ok).toBe(false);
+    expect(body.error?.message).toBe("Too many failed login attempts. Please try again later.");
+    expect(mockSupabaseServer).not.toHaveBeenCalled();
+  });
+
   it("POST /auth/staff-sign-in treats role mismatch as failed attempt", async () => {
     const signOut = vi.fn().mockResolvedValue({ error: null });
     const client = {
@@ -180,6 +218,7 @@ describe("auth hardening routes", () => {
     expect(body.error?.message).not.toContain("Try again in");
     expect(signOut).toHaveBeenCalledTimes(1);
     expect(mockRecordLoginFailure).toHaveBeenCalledTimes(1);
+    expect(mockRecordPasswordLoginSourceFailure).toHaveBeenCalledTimes(1);
   });
 
   it("POST /auth/update-password enforces password policy server-side", async () => {

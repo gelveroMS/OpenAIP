@@ -6,6 +6,25 @@ import { SignUpForm } from "@/components/sign-up-form";
 const mockPush = vi.fn();
 const mockSignUp = vi.fn();
 const mockVerifyOfficialInviteEligibilityAction = vi.fn();
+const PASSWORD_POLICY_RESPONSE = {
+  ok: true,
+  passwordPolicy: {
+    minLength: 12,
+    requireUppercase: true,
+    requireLowercase: true,
+    requireNumbers: true,
+    requireSpecialCharacters: true,
+  },
+};
+
+function stubPasswordPolicyFetch() {
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => PASSWORD_POLICY_RESPONSE,
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -52,20 +71,7 @@ describe("SignUpForm", () => {
   });
 
   it("enforces realtime password policy and matching confirmation before submit", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        ok: true,
-        passwordPolicy: {
-          minLength: 12,
-          requireUppercase: true,
-          requireLowercase: true,
-          requireNumbers: true,
-          requireSpecialCharacters: true,
-        },
-      }),
-    });
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = stubPasswordPolicyFetch();
 
     render(<SignUpForm role="admin" baseURL="http://localhost:3000" />);
 
@@ -126,5 +132,54 @@ describe("SignUpForm", () => {
       );
     });
     expect(mockPush).toHaveBeenCalledWith("http://localhost:3000/admin/sign-up-success");
+  });
+
+  it("keeps existing-account outcomes indistinguishable by redirecting to success", async () => {
+    stubPasswordPolicyFetch();
+    mockSignUp.mockResolvedValueOnce({
+      data: { user: null },
+      error: { message: "User already registered" },
+    });
+
+    render(<SignUpForm role="city" baseURL="http://localhost:3000" />);
+
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "official@example.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "ValidPassword123!" } });
+    fireEvent.change(screen.getByLabelText("Repeat Password"), {
+      target: { value: "ValidPassword123!" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith("http://localhost:3000/city/sign-up-success");
+    });
+    expect(screen.queryByText(/account already exists/i)).not.toBeInTheDocument();
+  });
+
+  it("shows generic non-diagnostic error for operational failures", async () => {
+    stubPasswordPolicyFetch();
+    mockSignUp.mockResolvedValueOnce({
+      data: { user: null },
+      error: { message: "database unavailable" },
+    });
+
+    render(<SignUpForm role="admin" baseURL="http://localhost:3000" />);
+
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "admin@example.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "ValidPassword123!" } });
+    fireEvent.change(screen.getByLabelText("Repeat Password"), {
+      target: { value: "ValidPassword123!" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Unable to process sign-up right now. Please try again later.")
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/database unavailable/i)).not.toBeInTheDocument();
+    expect(mockPush).not.toHaveBeenCalled();
   });
 });

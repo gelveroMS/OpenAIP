@@ -95,6 +95,7 @@ describe("admin routes settings-store unavailable behavior", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
+        origin: "http://localhost",
       },
       body: JSON.stringify({
         action: "update_chatbot_rate_limit",
@@ -145,6 +146,7 @@ describe("admin routes settings-store unavailable behavior", () => {
         method: "POST",
         headers: {
           "content-type": "application/json",
+          origin: "http://localhost",
         },
         body: JSON.stringify({
           action: "update_security_settings",

@@ -16,6 +16,25 @@ type NameRow = {
   name: string;
 };
 
+type BarangayParentRow = {
+  id: string;
+  city_id: string | null;
+  municipality_id: string | null;
+};
+
+type AccessContext =
+  | { kind: "admin" }
+  | { kind: "city"; cityId: string; barangayIds: Set<string> }
+  | { kind: "municipality"; municipalityId: string; barangayIds: Set<string> }
+  | { kind: "barangay"; barangayId: string; parentCityId: string | null; parentMunicipalityId: string | null };
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isUuid(value: string): boolean {
+  return UUID_RE.test(value);
+}
+
 function parseIds(url: URL): string[] {
   const raw = url.searchParams.get("ids")?.trim();
   if (!raw) return [];
@@ -24,9 +43,52 @@ function parseIds(url: URL): string[] {
       raw
         .split(",")
         .map((value) => value.trim())
-        .filter((value) => value.length > 0)
+        .filter((value) => value.length > 0 && isUuid(value))
     )
   ).slice(0, 200);
+}
+
+function mergeProfiles(chunks: ProfileRow[][]): ProfileRow[] {
+  const profileById = new Map<string, ProfileRow>();
+  for (const chunk of chunks) {
+    for (const profile of chunk) {
+      profileById.set(profile.id, profile);
+    }
+  }
+  return Array.from(profileById.values());
+}
+
+function canAccessProfile(profile: ProfileRow, access: AccessContext): boolean {
+  if (access.kind === "admin") return true;
+
+  if (access.kind === "city") {
+    if (profile.city_id && profile.city_id === access.cityId) return true;
+    return !!profile.barangay_id && access.barangayIds.has(profile.barangay_id);
+  }
+
+  if (access.kind === "municipality") {
+    if (profile.municipality_id && profile.municipality_id === access.municipalityId) return true;
+    return !!profile.barangay_id && access.barangayIds.has(profile.barangay_id);
+  }
+
+  if (profile.barangay_id && profile.barangay_id === access.barangayId) {
+    return true;
+  }
+  if (
+    access.parentCityId &&
+    profile.role === "city_official" &&
+    profile.city_id === access.parentCityId
+  ) {
+    return true;
+  }
+  if (
+    access.parentMunicipalityId &&
+    profile.role === "municipal_official" &&
+    profile.municipality_id === access.parentMunicipalityId
+  ) {
+    return true;
+  }
+  return false;
 }
 
 export async function GET(request: Request) {
@@ -52,16 +114,177 @@ export async function GET(request: Request) {
     }
 
     const admin = supabaseAdmin();
-    const { data: profileData, error: profileError } = await admin
-      .from("profiles")
-      .select("id,role,full_name,barangay_id,city_id,municipality_id")
-      .in("id", ids);
+    let access: AccessContext;
+    let candidateProfiles: ProfileRow[] = [];
 
-    if (profileError) {
-      return NextResponse.json({ error: profileError.message }, { status: 500 });
+    if (actor.role === "admin") {
+      access = { kind: "admin" };
+      const { data, error } = await admin
+        .from("profiles")
+        .select("id,role,full_name,barangay_id,city_id,municipality_id")
+        .in("id", ids);
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+      candidateProfiles = (data ?? []) as ProfileRow[];
+    } else if (actor.role === "city_official") {
+      if (actor.scope.kind !== "city" || !actor.scope.id) {
+        return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+      }
+
+      const cityId = actor.scope.id;
+      const { data: barangayRows, error: barangaysError } = await admin
+        .from("barangays")
+        .select("id")
+        .eq("city_id", cityId);
+      if (barangaysError) {
+        return NextResponse.json({ error: barangaysError.message }, { status: 500 });
+      }
+
+      const barangayIds = ((barangayRows ?? []) as Array<{ id: string }>)
+        .map((row) => row.id)
+        .filter((value) => typeof value === "string" && value.length > 0);
+      const barangayIdSet = new Set(barangayIds);
+
+      const directQuery = await admin
+        .from("profiles")
+        .select("id,role,full_name,barangay_id,city_id,municipality_id")
+        .in("id", ids)
+        .eq("city_id", cityId);
+      if (directQuery.error) {
+        return NextResponse.json({ error: directQuery.error.message }, { status: 500 });
+      }
+
+      const viaBarangayQuery =
+        barangayIds.length > 0
+          ? await admin
+              .from("profiles")
+              .select("id,role,full_name,barangay_id,city_id,municipality_id")
+              .in("id", ids)
+              .in("barangay_id", barangayIds)
+          : { data: [], error: null };
+      if (viaBarangayQuery.error) {
+        return NextResponse.json({ error: viaBarangayQuery.error.message }, { status: 500 });
+      }
+
+      access = { kind: "city", cityId, barangayIds: barangayIdSet };
+      candidateProfiles = mergeProfiles([
+        (directQuery.data ?? []) as ProfileRow[],
+        (viaBarangayQuery.data ?? []) as ProfileRow[],
+      ]);
+    } else if (actor.role === "municipal_official") {
+      if (actor.scope.kind !== "municipality" || !actor.scope.id) {
+        return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+      }
+
+      const municipalityId = actor.scope.id;
+      const { data: barangayRows, error: barangaysError } = await admin
+        .from("barangays")
+        .select("id")
+        .eq("municipality_id", municipalityId);
+      if (barangaysError) {
+        return NextResponse.json({ error: barangaysError.message }, { status: 500 });
+      }
+
+      const barangayIds = ((barangayRows ?? []) as Array<{ id: string }>)
+        .map((row) => row.id)
+        .filter((value) => typeof value === "string" && value.length > 0);
+      const barangayIdSet = new Set(barangayIds);
+
+      const directQuery = await admin
+        .from("profiles")
+        .select("id,role,full_name,barangay_id,city_id,municipality_id")
+        .in("id", ids)
+        .eq("municipality_id", municipalityId);
+      if (directQuery.error) {
+        return NextResponse.json({ error: directQuery.error.message }, { status: 500 });
+      }
+
+      const viaBarangayQuery =
+        barangayIds.length > 0
+          ? await admin
+              .from("profiles")
+              .select("id,role,full_name,barangay_id,city_id,municipality_id")
+              .in("id", ids)
+              .in("barangay_id", barangayIds)
+          : { data: [], error: null };
+      if (viaBarangayQuery.error) {
+        return NextResponse.json({ error: viaBarangayQuery.error.message }, { status: 500 });
+      }
+
+      access = { kind: "municipality", municipalityId, barangayIds: barangayIdSet };
+      candidateProfiles = mergeProfiles([
+        (directQuery.data ?? []) as ProfileRow[],
+        (viaBarangayQuery.data ?? []) as ProfileRow[],
+      ]);
+    } else {
+      if (actor.scope.kind !== "barangay" || !actor.scope.id) {
+        return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+      }
+
+      const barangayId = actor.scope.id;
+      const { data: parentData, error: parentError } = await admin
+        .from("barangays")
+        .select("id,city_id,municipality_id")
+        .eq("id", barangayId)
+        .maybeSingle();
+      if (parentError) {
+        return NextResponse.json({ error: parentError.message }, { status: 500 });
+      }
+      const parent = (parentData ?? null) as BarangayParentRow | null;
+
+      const sameBarangayQuery = await admin
+        .from("profiles")
+        .select("id,role,full_name,barangay_id,city_id,municipality_id")
+        .in("id", ids)
+        .eq("barangay_id", barangayId);
+      if (sameBarangayQuery.error) {
+        return NextResponse.json({ error: sameBarangayQuery.error.message }, { status: 500 });
+      }
+
+      const parentCityOfficialsQuery =
+        parent?.city_id
+          ? await admin
+              .from("profiles")
+              .select("id,role,full_name,barangay_id,city_id,municipality_id")
+              .in("id", ids)
+              .eq("role", "city_official")
+              .eq("city_id", parent.city_id)
+          : { data: [], error: null };
+      if (parentCityOfficialsQuery.error) {
+        return NextResponse.json({ error: parentCityOfficialsQuery.error.message }, { status: 500 });
+      }
+
+      const parentMunicipalOfficialsQuery =
+        parent?.municipality_id
+          ? await admin
+              .from("profiles")
+              .select("id,role,full_name,barangay_id,city_id,municipality_id")
+              .in("id", ids)
+              .eq("role", "municipal_official")
+              .eq("municipality_id", parent.municipality_id)
+          : { data: [], error: null };
+      if (parentMunicipalOfficialsQuery.error) {
+        return NextResponse.json(
+          { error: parentMunicipalOfficialsQuery.error.message },
+          { status: 500 }
+        );
+      }
+
+      access = {
+        kind: "barangay",
+        barangayId,
+        parentCityId: parent?.city_id ?? null,
+        parentMunicipalityId: parent?.municipality_id ?? null,
+      };
+      candidateProfiles = mergeProfiles([
+        (sameBarangayQuery.data ?? []) as ProfileRow[],
+        (parentCityOfficialsQuery.data ?? []) as ProfileRow[],
+        (parentMunicipalOfficialsQuery.data ?? []) as ProfileRow[],
+      ]);
     }
 
-    const profiles = (profileData ?? []) as ProfileRow[];
+    const profiles = candidateProfiles.filter((profile) => canAccessProfile(profile, access));
 
     const barangayIds = Array.from(
       new Set(
@@ -123,9 +346,6 @@ export async function GET(request: Request) {
           id: profile.id,
           role: profile.role,
           full_name: profile.full_name,
-          barangay_id: profile.barangay_id,
-          city_id: profile.city_id,
-          municipality_id: profile.municipality_id,
           barangay_name: profile.barangay_id
             ? barangayNameById.get(profile.barangay_id) ?? null
             : null,
