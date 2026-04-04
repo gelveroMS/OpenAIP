@@ -4,7 +4,6 @@ import type {
   PipelineChatCitation,
   RetrievalFiltersPayload,
   RetrievalScopePayload,
-  RetrievalScopeTarget,
   ScopeFallbackPayload,
 } from "@/lib/chat/types";
 import { requestPipelineChatAnswer } from "@/lib/chat/pipeline-client";
@@ -18,7 +17,6 @@ import type {
 import { getTypedAppSetting, isUserBlocked } from "@/lib/settings/app-settings";
 import { enforceCsrfProtection } from "@/lib/security/csrf";
 import { assertPrivilegedWriteAccess, isInvariantError } from "@/lib/security/invariants";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   consumeChatQuota,
   insertAssistantChatMessage,
@@ -90,90 +88,22 @@ function buildFollowUps(userMessage: string): string[] {
   ];
 }
 
-async function resolveScopeName(
-  admin: ReturnType<typeof supabaseAdmin>,
-  target: RetrievalScopeTarget
-): Promise<string | null> {
-  const table =
-    target.scope_type === "barangay"
-      ? "barangays"
-      : target.scope_type === "city"
-        ? "cities"
-        : "municipalities";
-
-  const { data, error } = await admin
-    .from(table)
-    .select("name")
-    .eq("id", target.scope_id)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  return typeof data?.name === "string" ? data.name : null;
-}
-
-async function buildRetrievalScope(input: {
-  profile: ProfileScopeRow;
-  admin: ReturnType<typeof supabaseAdmin>;
-}): Promise<RetrievalScopePayload> {
-  const targets: RetrievalScopeTarget[] = [];
-
-  if (input.profile.barangay_id) {
-    targets.push({
-      scope_type: "barangay",
-      scope_id: input.profile.barangay_id,
-      scope_name: "",
-    });
-  } else if (input.profile.city_id) {
-    targets.push({
-      scope_type: "city",
-      scope_id: input.profile.city_id,
-      scope_name: "",
-    });
-  } else if (input.profile.municipality_id) {
-    targets.push({
-      scope_type: "municipality",
-      scope_id: input.profile.municipality_id,
-      scope_name: "",
-    });
-  }
-
-  if (targets.length === 0) {
-    return {
+function buildGlobalScopeContext(): {
+  retrievalScope: RetrievalScopePayload;
+  scopeResolution: ChatScopeResolution;
+} {
+  return {
+    retrievalScope: {
       mode: "global",
       targets: [],
-    };
-  }
-
-  const withNames = await Promise.all(
-    targets.map(async (target) => ({
-      ...target,
-      scope_name: (await resolveScopeName(input.admin, target)) ?? target.scope_type,
-    }))
-  );
-
-  return {
-    mode: input.profile.role === "citizen" ? "own_barangay" : "named_scopes",
-    targets: withNames,
-  };
-}
-
-function buildScopeResolutionFromRetrievalScope(retrievalScope: RetrievalScopePayload): ChatScopeResolution {
-  return {
-    mode: retrievalScope.mode,
-    requestedScopes: retrievalScope.targets.map((target) => ({
-      scopeType: target.scope_type,
-      scopeName: target.scope_name,
-    })),
-    resolvedTargets: retrievalScope.targets.map((target) => ({
-      scopeType: target.scope_type,
-      scopeId: target.scope_id,
-      scopeName: target.scope_name,
-    })),
-    unresolvedScopes: [],
-    ambiguousScopes: [],
+    },
+    scopeResolution: {
+      mode: "global",
+      requestedScopes: [],
+      resolvedTargets: [],
+      unresolvedScopes: [],
+      ambiguousScopes: [],
+    },
   };
 }
 
@@ -610,12 +540,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const admin = supabaseAdmin();
-    const retrievalScope = await buildRetrievalScope({
-      profile,
-      admin,
-    });
-    const scopeResolution = buildScopeResolutionFromRetrievalScope(retrievalScope);
+    const { retrievalScope, scopeResolution } = buildGlobalScopeContext();
 
     const repo = getChatRepo();
     const priorMessages = await repo.listMessages(sessionId);

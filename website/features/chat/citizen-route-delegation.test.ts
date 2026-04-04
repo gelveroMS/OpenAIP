@@ -7,7 +7,6 @@ const mockConsumeChatQuota = vi.fn();
 const mockInsertAssistantChatMessage = vi.fn();
 const mockToPrivilegedActorContextFromProfile = vi.fn();
 const mockSupabaseServer = vi.fn();
-const mockSupabaseAdmin = vi.fn();
 const mockListMessages = vi.fn();
 
 vi.mock("@/lib/security/csrf", () => ({
@@ -38,10 +37,6 @@ vi.mock("@/lib/supabase/privileged-ops", () => ({
 
 vi.mock("@/lib/supabase/server", () => ({
   supabaseServer: () => mockSupabaseServer(),
-}));
-
-vi.mock("@/lib/supabase/admin", () => ({
-  supabaseAdmin: () => mockSupabaseAdmin(),
 }));
 
 vi.mock("@/lib/auth/citizen-profile-completion", () => ({
@@ -112,21 +107,6 @@ function makeServerClient() {
   };
 }
 
-function makeAdminClient() {
-  return {
-    from: () => ({
-      select: () => ({
-        eq: () => ({
-          maybeSingle: async () => ({
-            data: { name: "Mamatid" },
-            error: null,
-          }),
-        }),
-      }),
-    }),
-  };
-}
-
 function makeRequest(userMessage: string) {
   return new Request("http://localhost/api/citizen/chat/reply", {
     method: "POST",
@@ -147,7 +127,6 @@ describe("citizen chat route delegation", () => {
     postHandler = null;
 
     mockSupabaseServer.mockResolvedValue(makeServerClient());
-    mockSupabaseAdmin.mockReturnValue(makeAdminClient());
     mockGetTypedAppSetting.mockResolvedValue({
       maxRequests: 20,
       timeWindow: "per_hour",
@@ -220,6 +199,16 @@ describe("citizen chat route delegation", () => {
     expect(Array.isArray(payload.assistantMessage.retrievalMeta.suggestions)).toBe(true);
 
     expect(mockRequestPipelineChatAnswer).toHaveBeenCalledTimes(1);
+    expect(mockRequestPipelineChatAnswer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        retrievalScope: { mode: "global", targets: [] },
+      })
+    );
+    const pipelineInput = mockRequestPipelineChatAnswer.mock.calls[0]?.[0] as {
+      retrievalFilters?: { scope_type?: string; scope_name?: string };
+    };
+    expect(pipelineInput.retrievalFilters?.scope_type).toBeUndefined();
+    expect(pipelineInput.retrievalFilters?.scope_name).toBeUndefined();
     expect(mockInsertAssistantChatMessage).toHaveBeenCalledTimes(1);
   });
 
@@ -295,6 +284,7 @@ describe("citizen chat route delegation", () => {
     expect(response.status).toBe(200);
     expect(mockRequestPipelineChatAnswer).toHaveBeenCalledWith(
       expect.objectContaining({
+        retrievalScope: { mode: "global", targets: [] },
         scopeFallback: {
           scope_type: "city",
           scope_name: "Cabuyao",
