@@ -233,6 +233,109 @@ describe("ChatMessageBubble", () => {
     expect(link).toHaveAttribute("href", "/city/aips/aip-city/project-city");
   });
 
+  it("renders barangay totals evidence as scoped AIP detail link", () => {
+    render(
+      <ChatMessageBubble
+        routeScope="barangay"
+        message={{
+          id: "msg-brgy-totals-link",
+          role: "assistant",
+          content: "Totals citation.",
+          timeLabel: "10:06 AM",
+          deliveryStatus: "sent",
+          retrievalMeta: null,
+          citations: [
+            {
+              sourceId: "S6",
+              scopeName: "Published AIP totals",
+              scopeType: "system",
+              snippet: "Total investment program value from structured totals table.",
+              aipId: "aip-2025-1",
+              lguName: "Mamatid",
+              resolvedFiscalYear: 2025,
+              metadata: {
+                type: "aip_totals",
+              },
+            },
+          ],
+        }}
+      />
+    );
+
+    const link = screen.getByRole("link", { name: "Mamatid FY 2025 AIP" });
+    expect(link).toHaveAttribute("href", "/barangay/aips/aip-2025-1");
+  });
+
+  it("renders city totals evidence as scoped AIP detail link", () => {
+    render(
+      <ChatMessageBubble
+        routeScope="city"
+        message={{
+          id: "msg-city-totals-link",
+          role: "assistant",
+          content: "Totals citation.",
+          timeLabel: "10:07 AM",
+          deliveryStatus: "sent",
+          retrievalMeta: null,
+          citations: [
+            {
+              sourceId: "S7",
+              scopeName: "Published AIP line items",
+              scopeType: "system",
+              snippet: "Computed from published AIP line-item totals.",
+              aipId: "aip-city-2025",
+              lguName: "Cabuyao City",
+              resolvedFiscalYear: 2025,
+              metadata: {
+                type: "aip_line_items",
+                aggregate_type: "total_investment_program",
+              },
+            },
+          ],
+        }}
+      />
+    );
+
+    const link = screen.getByRole("link", { name: "Cabuyao City FY 2025 AIP" });
+    expect(link).toHaveAttribute("href", "/city/aips/aip-city-2025");
+  });
+
+  it("prefers project detail link over totals link when both metadata paths are present", () => {
+    render(
+      <ChatMessageBubble
+        routeScope="barangay"
+        message={{
+          id: "msg-project-precedence",
+          role: "assistant",
+          content: "Link precedence.",
+          timeLabel: "10:08 AM",
+          deliveryStatus: "sent",
+          retrievalMeta: null,
+          citations: [
+            {
+              sourceId: "S8",
+              scopeName: "Mamatid",
+              scopeType: "barangay",
+              snippet: "Project citation snippet.",
+              aipId: "aip-precedence",
+              projectId: "project-precedence",
+              lguName: "Mamatid",
+              resolvedFiscalYear: 2026,
+              projectTitle: "Road Concreting",
+              metadata: {
+                type: "aip_totals",
+              },
+            },
+          ],
+        }}
+      />
+    );
+
+    const link = screen.getByRole("link", { name: "Mamatid FY 2026 Road Concreting" });
+    expect(link).toHaveAttribute("href", "/barangay/aips/aip-precedence/project-precedence");
+    expect(screen.queryByRole("link", { name: "Mamatid FY 2026 AIP" })).not.toBeInTheDocument();
+  });
+
   it("keeps non-project system citations as plain text evidence", () => {
     render(
       <ChatMessageBubble
@@ -262,5 +365,36 @@ describe("ChatMessageBubble", () => {
 
     expect(screen.getByText("Pipeline request failed.")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /FY/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps totals citations plain text when required AIP-link fields are incomplete", () => {
+    render(
+      <ChatMessageBubble
+        routeScope="barangay"
+        message={{
+          id: "msg-incomplete-totals",
+          role: "assistant",
+          content: "Incomplete totals evidence.",
+          timeLabel: "10:09 AM",
+          deliveryStatus: "sent",
+          retrievalMeta: null,
+          citations: [
+            {
+              sourceId: "S9",
+              scopeName: "Published AIP totals",
+              scopeType: "system",
+              snippet: "Totals evidence snippet.",
+              aipId: "aip-incomplete",
+              metadata: {
+                type: "aip_totals",
+              },
+            },
+          ],
+        }}
+      />
+    );
+
+    expect(screen.getByText("Totals evidence snippet.")).toBeInTheDocument();
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
 });

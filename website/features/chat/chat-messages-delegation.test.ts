@@ -710,4 +710,119 @@ describe("barangay chat route delegation", () => {
     expect(payload.assistantMessage.citations[0]?.projectId).toBeUndefined();
     expect(payload.assistantMessage.citations[0]?.snippet).toContain("Unmatched Ref");
   });
+
+  it("enriches totals citations from metadata.aip_id with AIP-level link fields", async () => {
+    mockSupabaseServer.mockResolvedValue(
+      makeServerClient({
+        aips: [
+          {
+            id: "aip-totals-1",
+            fiscal_year: 2025,
+            barangay_id: "brgy-1",
+            city_id: null,
+            municipality_id: null,
+          },
+        ],
+        barangays: [{ id: "brgy-1", name: "Mamatid" }],
+      })
+    );
+    mockRequestPipelineChatAnswer.mockResolvedValue({
+      answer: "Total investment program for Mamatid for FY 2025: PHP 1,000.00.",
+      refused: false,
+      citations: [
+        {
+          source_id: "S20",
+          snippet: "Total investment program value from structured totals table.",
+          scope_type: "system",
+          scope_name: "Published AIP totals",
+          metadata: {
+            type: "aip_totals",
+            aip_id: "aip-totals-1",
+            page_no: 1,
+          },
+        },
+      ],
+      retrieval_meta: {
+        reason: "ok",
+        status: "answer",
+        route_family: "sql_totals",
+        context_count: 1,
+      },
+    });
+
+    const POST = await getPostHandler();
+    const response = await POST(
+      makeRequest({
+        sessionId: session.id,
+        content: "Show totals evidence link fields.",
+      })
+    );
+
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      assistantMessage: {
+        citations: Array<{
+          aipId?: string | null;
+          projectId?: string | null;
+          lguName?: string | null;
+          resolvedFiscalYear?: number | null;
+        }>;
+      };
+    };
+
+    expect(payload.assistantMessage.citations[0]).toMatchObject({
+      aipId: "aip-totals-1",
+      lguName: "Mamatid",
+      resolvedFiscalYear: 2025,
+    });
+    expect(payload.assistantMessage.citations[0]?.projectId).toBeUndefined();
+  });
+
+  it("keeps totals citations plain when aip_id cannot be resolved", async () => {
+    mockSupabaseServer.mockResolvedValue(makeServerClient());
+    mockRequestPipelineChatAnswer.mockResolvedValue({
+      answer: "Total investment program is unavailable.",
+      refused: false,
+      citations: [
+        {
+          source_id: "S21",
+          snippet: "Computed from published AIP line-item totals.",
+          scope_type: "system",
+          scope_name: "Structured SQL",
+          metadata: {
+            type: "aip_totals",
+          },
+        },
+      ],
+      retrieval_meta: {
+        reason: "ok",
+        status: "answer",
+        route_family: "sql_totals",
+        context_count: 1,
+      },
+    });
+
+    const POST = await getPostHandler();
+    const response = await POST(
+      makeRequest({
+        sessionId: session.id,
+        content: "Try unresolved totals citation.",
+      })
+    );
+
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      assistantMessage: {
+        citations: Array<{
+          aipId?: string | null;
+          lguName?: string | null;
+          snippet?: string;
+        }>;
+      };
+    };
+
+    expect(payload.assistantMessage.citations[0]?.aipId).toBeNull();
+    expect(payload.assistantMessage.citations[0]?.lguName).toBeUndefined();
+    expect(payload.assistantMessage.citations[0]?.snippet).toContain("Computed from published AIP");
+  });
 });

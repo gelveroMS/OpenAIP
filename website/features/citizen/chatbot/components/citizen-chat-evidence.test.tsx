@@ -43,12 +43,33 @@ describe("CitizenChatEvidence", () => {
     expect(screen.queryByText("Fallback snippet")).not.toBeInTheDocument();
   });
 
-  it("keeps unresolved evidence as plain snippet text", () => {
+  it("renders totals evidence link with citizen AIP detail route and standard label", () => {
     render(
       <CitizenChatEvidence
         evidence={[
           {
             id: "evidence-2",
+            documentLabel: "Published AIP totals",
+            snippet: "Totals snippet",
+            fiscalYear: "2025",
+            pageOrSection: "Page 1",
+            href: "/aips/aip-2",
+            linkLabel: "Mamatid FY 2025 AIP",
+          },
+        ]}
+      />
+    );
+
+    const link = screen.getByRole("link", { name: "Mamatid FY 2025 AIP" });
+    expect(link).toHaveAttribute("href", "/aips/aip-2");
+  });
+
+  it("keeps unresolved evidence as plain snippet text", () => {
+    render(
+      <CitizenChatEvidence
+        evidence={[
+          {
+            id: "evidence-3",
             documentLabel: "System",
             snippet: "No retrieval citations were produced for this response.",
             fiscalYear: null,

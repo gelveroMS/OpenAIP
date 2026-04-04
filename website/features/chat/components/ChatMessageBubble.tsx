@@ -8,6 +8,27 @@ import type { ChatCitation } from "@/lib/repos/chat/types";
 
 type LguRouteScope = "barangay" | "city";
 
+function normalizeText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeCitationMetadata(citation: ChatCitation): Record<string, unknown> {
+  if (!citation.metadata || typeof citation.metadata !== "object" || Array.isArray(citation.metadata)) {
+    return {};
+  }
+  return citation.metadata as Record<string, unknown>;
+}
+
+function isAipTotalsCitation(citation: ChatCitation): boolean {
+  const metadata = normalizeCitationMetadata(citation);
+  const type = normalizeText(metadata.type)?.toLowerCase() ?? null;
+  if (type === "aip_totals") return true;
+  const aggregateType = normalizeText(metadata.aggregate_type)?.toLowerCase() ?? null;
+  return type === "aip_line_items" && aggregateType === "total_investment_program";
+}
+
 function buildCitationProjectHref(citation: ChatCitation, routeScope: LguRouteScope | null): string | null {
   if (!routeScope) return null;
   const aipId = typeof citation.aipId === "string" ? citation.aipId.trim() : "";
@@ -29,6 +50,25 @@ function buildCitationProjectLabel(citation: ChatCitation): string | null {
 
   if (!lguName || fiscalYear === null || !projectTitle) return null;
   return `${lguName} FY ${fiscalYear} ${projectTitle}`;
+}
+
+function buildCitationAipTotalsHref(citation: ChatCitation, routeScope: LguRouteScope | null): string | null {
+  if (!routeScope) return null;
+  const aipId = typeof citation.aipId === "string" ? citation.aipId.trim() : "";
+  if (!aipId) return null;
+  return `/${routeScope}/aips/${encodeURIComponent(aipId)}`;
+}
+
+function buildCitationAipTotalsLabel(citation: ChatCitation): string | null {
+  const lguName = typeof citation.lguName === "string" ? citation.lguName.trim() : "";
+  const fiscalYear =
+    typeof citation.resolvedFiscalYear === "number"
+      ? citation.resolvedFiscalYear
+      : typeof citation.fiscalYear === "number"
+        ? citation.fiscalYear
+        : null;
+  if (!lguName || fiscalYear === null) return null;
+  return `${lguName} FY ${fiscalYear} AIP`;
 }
 
 export default function ChatMessageBubble({
@@ -90,11 +130,30 @@ export default function ChatMessageBubble({
               });
               const citationProjectHref = buildCitationProjectHref(citation, routeScope);
               const citationProjectLabel = buildCitationProjectLabel(citation);
+              const citationTotalsHref = buildCitationAipTotalsHref(citation, routeScope);
+              const citationTotalsLabel = buildCitationAipTotalsLabel(citation);
               const shouldRenderProjectLink =
                 typeof citationProjectHref === "string" &&
                 citationProjectHref.length > 0 &&
                 typeof citationProjectLabel === "string" &&
                 citationProjectLabel.length > 0;
+              const shouldRenderTotalsLink =
+                !shouldRenderProjectLink &&
+                isAipTotalsCitation(citation) &&
+                typeof citationTotalsHref === "string" &&
+                citationTotalsHref.length > 0 &&
+                typeof citationTotalsLabel === "string" &&
+                citationTotalsLabel.length > 0;
+              const citationHref = shouldRenderProjectLink
+                ? citationProjectHref
+                : shouldRenderTotalsLink
+                  ? citationTotalsHref
+                  : null;
+              const citationLabel = shouldRenderProjectLink
+                ? citationProjectLabel
+                : shouldRenderTotalsLink
+                  ? citationTotalsLabel
+                  : null;
 
               return (
                 <div key={`${message.id}:${citation.sourceId}:${citation.chunkId ?? "chunk"}`} className="rounded-md border bg-background px-2 py-1.5">
@@ -106,12 +165,12 @@ export default function ChatMessageBubble({
                   {metric.label && metric.value ? <span>{metric.label} {metric.value}</span> : null}
                 </div>
                 <div className="mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[12px] leading-snug">
-                  {shouldRenderProjectLink ? (
+                  {citationHref && citationLabel ? (
                     <Link
-                      href={citationProjectHref}
+                      href={citationHref}
                       className="text-[#0247A1] underline decoration-[#0247A1]/60 underline-offset-2 hover:decoration-[#0247A1]"
                     >
-                      {citationProjectLabel}
+                      {citationLabel}
                     </Link>
                   ) : (
                     citation.snippet

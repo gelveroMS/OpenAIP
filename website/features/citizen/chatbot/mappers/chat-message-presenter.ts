@@ -18,6 +18,13 @@ function normalizeFiscalYearNumber(input: unknown): number | null {
   return null;
 }
 
+function isAipTotalsCitation(metadata: Record<string, unknown>): boolean {
+  const type = normalizeText(metadata.type)?.toLowerCase() ?? null;
+  if (type === "aip_totals") return true;
+  const aggregateType = normalizeText(metadata.aggregate_type)?.toLowerCase() ?? null;
+  return type === "aip_line_items" && aggregateType === "total_investment_program";
+}
+
 export function mapEvidenceFromCitations(citations: Json | null): CitizenChatEvidenceItem[] {
   if (!Array.isArray(citations)) return [];
 
@@ -63,20 +70,39 @@ export function mapEvidenceFromCitations(citations: Json | null): CitizenChatEvi
         normalizeText(metadata.project_id);
       const lguName =
         normalizeText(row.lguName) ??
-        normalizeText(row.scopeName) ??
-        normalizeText(row.scope_name) ??
-        normalizeText(metadata.scope_name);
+        normalizeText(row.lgu_name) ??
+        normalizeText(metadata.lgu_name);
       const projectTitle =
         normalizeText(row.projectTitle) ??
         normalizeText(metadata.program_project_title) ??
         normalizeText(metadata.project_title);
-      const href =
+      const projectHref =
         aipId && projectId
           ? `/aips/${encodeURIComponent(aipId)}/${encodeURIComponent(projectId)}`
           : null;
-      const linkLabel =
-        href && lguName && resolvedFiscalYear !== null && projectTitle
+      const projectLinkLabel =
+        projectHref && lguName && resolvedFiscalYear !== null && projectTitle
           ? `${lguName} FY ${resolvedFiscalYear} ${projectTitle}`
+          : null;
+      const totalsHref =
+        aipId && isAipTotalsCitation(metadata)
+          ? `/aips/${encodeURIComponent(aipId)}`
+          : null;
+      const totalsLinkLabel =
+        totalsHref && lguName && resolvedFiscalYear !== null
+          ? `${lguName} FY ${resolvedFiscalYear} AIP`
+          : null;
+      const hasProjectLink = Boolean(projectHref && projectLinkLabel);
+      const hasTotalsLink = !hasProjectLink && Boolean(totalsHref && totalsLinkLabel);
+      const href = hasProjectLink
+        ? projectHref
+        : hasTotalsLink
+          ? totalsHref
+          : null;
+      const linkLabel = hasProjectLink
+        ? projectLinkLabel
+        : hasTotalsLink
+          ? totalsLinkLabel
           : null;
 
       return {

@@ -37,6 +37,12 @@ type ScopeNameMaps = {
   municipalityNames: Map<string, string>;
 };
 
+const EMPTY_SCOPE_NAME_MAPS: ScopeNameMaps = {
+  barangayNames: new Map<string, string>(),
+  cityNames: new Map<string, string>(),
+  municipalityNames: new Map<string, string>(),
+};
+
 function normalizeText(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim();
@@ -103,6 +109,16 @@ function collectResolutionCandidates(citations: ChatCitation[]): ResolutionCandi
   }
 
   return candidates;
+}
+
+function collectAipIdsFromCitations(citations: ChatCitation[]): string[] {
+  const aipIds = citations
+    .map((citation) => {
+      const metadata = extractCitationMetadata(citation);
+      return normalizeText(citation.aipId) ?? normalizeText(metadata.aip_id);
+    })
+    .filter((value): value is string => Boolean(value));
+  return dedupeNonEmptyStrings(aipIds);
 }
 
 async function fetchProjectRows(
@@ -258,11 +274,10 @@ export async function enrichChatCitationsWithProjectLinks(input: {
   if (!input.citations.length) return input.citations;
 
   const candidates = collectResolutionCandidates(input.citations);
-  if (!candidates.length) return input.citations;
-
-  const projectRows = await fetchProjectRows(input.client, candidates);
-  if (!projectRows.length) return input.citations;
-
+  const aipIdsFromCitations = collectAipIdsFromCitations(input.citations);
+  const projectRows = candidates.length
+    ? await fetchProjectRows(input.client, candidates)
+    : [];
   const rowsByPairKey = new Map<string, ProjectLookupRow[]>();
   for (const row of projectRows) {
     const aipId = normalizeText(row.aip_id);
@@ -284,18 +299,25 @@ export async function enrichChatCitationsWithProjectLinks(input: {
     }
   }
 
-  if (!resolvedByIndex.size) return input.citations;
+  if (!resolvedByIndex.size && !aipIdsFromCitations.length) return input.citations;
 
-  const resolvedAipIds = dedupeNonEmptyStrings(
+  const resolvedAipIds = dedupeNonEmptyStrings([
+    ...aipIdsFromCitations,
     Array.from(resolvedByIndex.values()).map((row) => row.aip_id)
-  );
-  const aipById = await fetchAipRows(input.client, resolvedAipIds);
-  const scopeNameMaps = await fetchScopeNames(input.client, aipById);
+      .filter((value): value is string => Boolean(value)),
+  ].flat());
+  const aipById = resolvedAipIds.length
+    ? await fetchAipRows(input.client, resolvedAipIds)
+    : new Map<string, AipLookupRow>();
+  const scopeNameMaps = aipById.size
+    ? await fetchScopeNames(input.client, aipById)
+    : EMPTY_SCOPE_NAME_MAPS;
+  const candidatesByIndex = new Map(candidates.map((candidate) => [candidate.index, candidate]));
 
   return input.citations.map((citation, index) => {
     const metadata = extractCitationMetadata(citation);
     const resolvedProject = resolvedByIndex.get(index) ?? null;
-    const candidate = candidates.find((item) => item.index === index) ?? null;
+    const candidate = candidatesByIndex.get(index) ?? null;
     const aipId =
       normalizeText(citation.aipId) ??
       normalizeText(metadata.aip_id) ??
