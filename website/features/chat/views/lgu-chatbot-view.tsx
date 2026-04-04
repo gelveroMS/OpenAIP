@@ -14,6 +14,7 @@ export default function LguChatbotView({
 }: {
   routePrefix?: string;
 } = {}) {
+  const routeScope = routePrefix.includes("/api/city/") ? "city" : "barangay";
   const [mobileSessionsOpen, setMobileSessionsOpen] = useState(false);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const {
@@ -177,6 +178,7 @@ export default function LguChatbotView({
             isMessagesLoading={isMessagesLoading}
             showJumpToLatest={showJumpToLatest}
             isSending={isSending}
+            routeScope={routeScope}
           />
         </div>
       </div>

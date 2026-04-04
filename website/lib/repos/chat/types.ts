@@ -86,6 +86,11 @@ export type ChatCitation = {
   sourceId: string;
   chunkId?: string | null;
   aipId?: string | null;
+  projectId?: string | null;
+  projectRefCode?: string | null;
+  projectTitle?: string | null;
+  lguName?: string | null;
+  resolvedFiscalYear?: number | null;
   fiscalYear?: number | null;
   scopeType?: ChatCitationScopeType;
   scopeId?: string | null;

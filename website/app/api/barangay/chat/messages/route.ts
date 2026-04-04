@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { enrichChatCitationsWithProjectLinks } from "@/lib/chat/citation-enrichment.server";
 import type {
   PipelineChatCitation,
   RetrievalFiltersPayload,
@@ -20,6 +21,7 @@ import {
   type PrivilegedActorContext,
   toPrivilegedActorContext,
 } from "@/lib/supabase/privileged-ops";
+import { supabaseServer } from "@/lib/supabase/server";
 
 const MAX_MESSAGE_LENGTH = 12000;
 const RETRIEVAL_FILTER_YEAR_PATTERN = /\b(20\d{2})\b/g;
@@ -113,6 +115,7 @@ function normalizePipelineCitations(citations: PipelineChatCitation[]): ChatCita
       sourceId: citation.source_id || "S0",
       chunkId: citation.chunk_id ?? null,
       aipId: citation.aip_id ?? null,
+      projectRefCode: citation.project_ref_code ?? null,
       fiscalYear: citation.fiscal_year ?? null,
       scopeType: citation.scope_type ?? "unknown",
       scopeId: citation.scope_id ?? null,
@@ -455,6 +458,22 @@ export async function POST(request: Request) {
 
       assistantContent = pipeline.answer.trim();
       assistantCitations = normalizePipelineCitations(pipeline.citations);
+      if (assistantCitations.length > 0) {
+        try {
+          const client = await supabaseServer();
+          assistantCitations = await enrichChatCitationsWithProjectLinks({
+            client,
+            citations: assistantCitations,
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "unknown enrichment error";
+          console.warn("[lgu-chat] citation enrichment failed", {
+            message,
+            sessionId: session.id,
+            userId: actor.userId,
+          });
+        }
+      }
       if (!assistantContent) {
         assistantContent = "I can't provide a grounded answer right now.";
       }

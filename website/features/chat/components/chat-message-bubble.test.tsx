@@ -165,4 +165,102 @@ describe("ChatMessageBubble", () => {
     screen.getByRole("button", { name: "Retry" }).click();
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
+
+  it("renders barangay project evidence as scoped project detail link", () => {
+    render(
+      <ChatMessageBubble
+        routeScope="barangay"
+        message={{
+          id: "msg-brgy-link",
+          role: "assistant",
+          content: "Here is the supporting project.",
+          timeLabel: "10:05 AM",
+          deliveryStatus: "sent",
+          retrievalMeta: null,
+          citations: [
+            {
+              sourceId: "S4",
+              scopeName: "Mamatid",
+              scopeType: "barangay",
+              fiscalYear: 2025,
+              snippet: "Fallback snippet",
+              aipId: "aip-1",
+              projectId: "project-1",
+              lguName: "Mamatid",
+              resolvedFiscalYear: 2025,
+              projectTitle: "Health Station Upgrade",
+            },
+          ],
+        }}
+      />
+    );
+
+    const link = screen.getByRole("link", { name: "Mamatid FY 2025 Health Station Upgrade" });
+    expect(link).toHaveAttribute("href", "/barangay/aips/aip-1/project-1");
+    expect(screen.queryByText("Fallback snippet")).not.toBeInTheDocument();
+  });
+
+  it("renders city project evidence as scoped project detail link", () => {
+    render(
+      <ChatMessageBubble
+        routeScope="city"
+        message={{
+          id: "msg-city-link",
+          role: "assistant",
+          content: "City project citation.",
+          timeLabel: "10:06 AM",
+          deliveryStatus: "sent",
+          retrievalMeta: null,
+          citations: [
+            {
+              sourceId: "S5",
+              scopeName: "Cabuyao City",
+              scopeType: "city",
+              fiscalYear: 2024,
+              snippet: "Fallback city snippet",
+              aipId: "aip-city",
+              projectId: "project-city",
+              lguName: "Cabuyao City",
+              resolvedFiscalYear: 2024,
+              projectTitle: "Flood Control Rehabilitation",
+            },
+          ],
+        }}
+      />
+    );
+
+    const link = screen.getByRole("link", { name: "Cabuyao City FY 2024 Flood Control Rehabilitation" });
+    expect(link).toHaveAttribute("href", "/city/aips/aip-city/project-city");
+  });
+
+  it("keeps non-project system citations as plain text evidence", () => {
+    render(
+      <ChatMessageBubble
+        routeScope="barangay"
+        message={{
+          id: "msg-system-citation",
+          role: "assistant",
+          content: "Unable to retrieve a project citation.",
+          timeLabel: "10:07 AM",
+          deliveryStatus: "sent",
+          retrievalMeta: {
+            refused: true,
+            reason: "insufficient_evidence",
+            status: "refusal",
+          },
+          citations: [
+            {
+              sourceId: "S0",
+              scopeName: "System",
+              scopeType: "system",
+              snippet: "Pipeline request failed.",
+            },
+          ],
+        }}
+      />
+    );
+
+    expect(screen.getByText("Pipeline request failed.")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /FY/i })).not.toBeInTheDocument();
+  });
 });

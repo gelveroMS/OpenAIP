@@ -7,6 +7,17 @@ function normalizeText(input: unknown): string | null {
   return trimmed.length ? trimmed : null;
 }
 
+function normalizeFiscalYearNumber(input: unknown): number | null {
+  if (typeof input === "number" && Number.isInteger(input) && input > 0) return input;
+  if (typeof input === "string") {
+    const trimmed = input.trim();
+    if (!trimmed) return null;
+    const parsed = Number.parseInt(trimmed, 10);
+    if (Number.isInteger(parsed) && parsed > 0) return parsed;
+  }
+  return null;
+}
+
 export function mapEvidenceFromCitations(citations: Json | null): CitizenChatEvidenceItem[] {
   if (!Array.isArray(citations)) return [];
 
@@ -31,6 +42,9 @@ export function mapEvidenceFromCitations(citations: Json | null): CitizenChatEvi
             : typeof row.fiscalYear === "string"
               ? normalizeText(row.fiscalYear)
               : null;
+      const resolvedFiscalYear = normalizeFiscalYearNumber(
+        row.resolvedFiscalYear ?? row.resolved_fiscal_year ?? row.fiscalYear ?? row.fiscal_year
+      );
 
       const legacyPageOrSection = normalizeText(row.pageOrSection);
       const canonicalPageOrSection =
@@ -39,6 +53,31 @@ export function mapEvidenceFromCitations(citations: Json | null): CitizenChatEvi
           : typeof row.source_page === "number"
             ? `Page ${row.source_page}`
             : normalizeText(metadata.section);
+      const aipId =
+        normalizeText(row.aipId) ??
+        normalizeText(row.aip_id) ??
+        normalizeText(metadata.aip_id);
+      const projectId =
+        normalizeText(row.projectId) ??
+        normalizeText(row.project_id) ??
+        normalizeText(metadata.project_id);
+      const lguName =
+        normalizeText(row.lguName) ??
+        normalizeText(row.scopeName) ??
+        normalizeText(row.scope_name) ??
+        normalizeText(metadata.scope_name);
+      const projectTitle =
+        normalizeText(row.projectTitle) ??
+        normalizeText(metadata.program_project_title) ??
+        normalizeText(metadata.project_title);
+      const href =
+        aipId && projectId
+          ? `/aips/${encodeURIComponent(aipId)}/${encodeURIComponent(projectId)}`
+          : null;
+      const linkLabel =
+        href && lguName && resolvedFiscalYear !== null && projectTitle
+          ? `${lguName} FY ${resolvedFiscalYear} ${projectTitle}`
+          : null;
 
       return {
         id: normalizeText(row.id) ?? `evidence_${index + 1}`,
@@ -51,6 +90,8 @@ export function mapEvidenceFromCitations(citations: Json | null): CitizenChatEvi
         snippet,
         fiscalYear: legacyFiscalYear ?? canonicalFiscalYear,
         pageOrSection: legacyPageOrSection ?? canonicalPageOrSection ?? null,
+        href,
+        linkLabel,
       };
     })
     .filter((item): item is CitizenChatEvidenceItem => item !== null);

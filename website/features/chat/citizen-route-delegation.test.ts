@@ -9,6 +9,41 @@ const mockToPrivilegedActorContextFromProfile = vi.fn();
 const mockSupabaseServer = vi.fn();
 const mockListMessages = vi.fn();
 
+type MockRow = Record<string, unknown>;
+
+function createThenableQuery(rows: MockRow[]) {
+  let filtered = [...rows];
+
+  const query = {
+    in(column: string, values: unknown[]) {
+      filtered = filtered.filter((row) => values.includes(row[column]));
+      return query;
+    },
+    eq(column: string, value: unknown) {
+      filtered = filtered.filter((row) => row[column] === value);
+      return query;
+    },
+    order() {
+      return query;
+    },
+    limit(count: number) {
+      filtered = filtered.slice(0, count);
+      return query;
+    },
+    maybeSingle() {
+      return Promise.resolve({
+        data: filtered[0] ?? null,
+        error: null,
+      });
+    },
+    then(onFulfilled: (value: { data: MockRow[]; error: null }) => unknown) {
+      return Promise.resolve({ data: filtered, error: null }).then(onFulfilled);
+    },
+  };
+
+  return query;
+}
+
 vi.mock("@/lib/security/csrf", () => ({
   enforceCsrfProtection: () => ({ ok: true }),
 }));
@@ -54,7 +89,41 @@ async function getPostHandler() {
   return postHandler;
 }
 
-function makeServerClient() {
+function makeServerClient(dataset?: {
+  chat_sessions?: MockRow[];
+  profiles?: MockRow[];
+  projects?: MockRow[];
+  aips?: MockRow[];
+  barangays?: MockRow[];
+  cities?: MockRow[];
+  municipalities?: MockRow[];
+}) {
+  const resolved = {
+    chat_sessions: dataset?.chat_sessions ?? [
+      {
+        id: "session-1",
+        title: "Citizen Chat",
+        context: {},
+        user_id: "citizen-1",
+      },
+    ],
+    profiles: dataset?.profiles ?? [
+      {
+        id: "citizen-1",
+        role: "citizen",
+        full_name: "Citizen User",
+        barangay_id: "brgy-1",
+        city_id: null,
+        municipality_id: null,
+      },
+    ],
+    projects: dataset?.projects ?? [],
+    aips: dataset?.aips ?? [],
+    barangays: dataset?.barangays ?? [],
+    cities: dataset?.cities ?? [],
+    municipalities: dataset?.municipalities ?? [],
+  };
+
   return {
     auth: {
       getUser: async () => ({
@@ -63,46 +132,9 @@ function makeServerClient() {
       }),
     },
     from: (table: string) => {
-      if (table === "chat_sessions") {
-        return {
-          select: () => ({
-            eq: () => ({
-              eq: () => ({
-                maybeSingle: async () => ({
-                  data: {
-                    id: "session-1",
-                    title: "Citizen Chat",
-                    context: {},
-                  },
-                  error: null,
-                }),
-              }),
-            }),
-          }),
-        };
-      }
-
-      if (table === "profiles") {
-        return {
-          select: () => ({
-            eq: () => ({
-              maybeSingle: async () => ({
-                data: {
-                  id: "citizen-1",
-                  role: "citizen",
-                  full_name: "Citizen User",
-                  barangay_id: "brgy-1",
-                  city_id: null,
-                  municipality_id: null,
-                },
-                error: null,
-              }),
-            }),
-          }),
-        };
-      }
-
-      throw new Error(`Unexpected server table: ${table}`);
+      return {
+        select: () => createThenableQuery((resolved as Record<string, MockRow[]>)[table] ?? []),
+      };
     },
   };
 }
@@ -315,5 +347,260 @@ describe("citizen chat route delegation", () => {
     expect(payload.assistantMessage.retrievalMeta.routeFamily).toBe("pipeline_fallback");
     expect(payload.assistantMessage.citations[0]?.sourceId).toBe("S0");
     expect(payload.assistantMessage.citations[0]?.snippet).toContain("Pipeline request failed");
+  });
+
+  it("enriches citations with resolved project metadata from top-level project_ref_code", async () => {
+    mockSupabaseServer.mockResolvedValue(
+      makeServerClient({
+        projects: [
+          {
+            id: "project-1",
+            aip_id: "aip-1",
+            aip_ref_code: "1000-001-001-001",
+            program_project_description: "Health Station Upgrade",
+          },
+        ],
+        aips: [
+          {
+            id: "aip-1",
+            fiscal_year: 2025,
+            barangay_id: "brgy-1",
+            city_id: null,
+            municipality_id: null,
+          },
+        ],
+        barangays: [{ id: "brgy-1", name: "Mamatid" }],
+      })
+    );
+    mockRequestPipelineChatAnswer.mockResolvedValue({
+      answer: "Linked evidence response.",
+      refused: false,
+      citations: [
+        {
+          source_id: "S10",
+          aip_id: "aip-1",
+          project_ref_code: "1000-001-001-001",
+          fiscal_year: 2025,
+          scope_type: "barangay",
+          scope_name: "Mamatid",
+          snippet: "Health Station Upgrade Ref 1000-001-001-001",
+          metadata: { type: "aip_line_item" },
+        },
+      ],
+      retrieval_meta: {
+        reason: "ok",
+        status: "answer",
+        route_family: "row_sql",
+      },
+    });
+
+    const POST = await getPostHandler();
+    const response = await POST(makeRequest("Show project details."));
+
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      assistantMessage: {
+        citations: Array<{
+          aipId?: string | null;
+          projectId?: string | null;
+          projectRefCode?: string | null;
+          projectTitle?: string | null;
+          lguName?: string | null;
+          resolvedFiscalYear?: number | null;
+        }>;
+      };
+    };
+
+    expect(payload.assistantMessage.citations[0]).toMatchObject({
+      aipId: "aip-1",
+      projectId: "project-1",
+      projectRefCode: "1000-001-001-001",
+      projectTitle: "Health Station Upgrade",
+      lguName: "Mamatid",
+      resolvedFiscalYear: 2025,
+    });
+  });
+
+  it("enriches citations from metadata aip_ref_code", async () => {
+    mockSupabaseServer.mockResolvedValue(
+      makeServerClient({
+        projects: [
+          {
+            id: "project-2",
+            aip_id: "aip-2",
+            aip_ref_code: "2000-001-001-001",
+            program_project_description: "Covered Court Renovation",
+          },
+        ],
+        aips: [
+          {
+            id: "aip-2",
+            fiscal_year: 2026,
+            barangay_id: "brgy-2",
+            city_id: null,
+            municipality_id: null,
+          },
+        ],
+        barangays: [{ id: "brgy-2", name: "Banlic" }],
+      })
+    );
+    mockRequestPipelineChatAnswer.mockResolvedValue({
+      answer: "Metadata linked evidence.",
+      refused: false,
+      citations: [
+        {
+          source_id: "S11",
+          aip_id: "aip-2",
+          fiscal_year: 2026,
+          scope_type: "barangay",
+          scope_name: "Banlic",
+          snippet: "Covered Court Renovation evidence line.",
+          metadata: { aip_ref_code: "2000-001-001-001" },
+        },
+      ],
+      retrieval_meta: {
+        reason: "ok",
+        status: "answer",
+        route_family: "row_sql",
+      },
+    });
+
+    const POST = await getPostHandler();
+    const response = await POST(makeRequest("Resolve metadata citation."));
+
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      assistantMessage: {
+        citations: Array<{
+          projectId?: string | null;
+          projectRefCode?: string | null;
+          projectTitle?: string | null;
+          lguName?: string | null;
+          resolvedFiscalYear?: number | null;
+        }>;
+      };
+    };
+
+    expect(payload.assistantMessage.citations[0]).toMatchObject({
+      projectId: "project-2",
+      projectRefCode: "2000-001-001-001",
+      projectTitle: "Covered Court Renovation",
+      lguName: "Banlic",
+      resolvedFiscalYear: 2026,
+    });
+  });
+
+  it("enriches citations from snippet Ref fallback", async () => {
+    mockSupabaseServer.mockResolvedValue(
+      makeServerClient({
+        projects: [
+          {
+            id: "project-3",
+            aip_id: "aip-3",
+            aip_ref_code: "3000-001-001-001",
+            program_project_description: "Flood Control Rehabilitation",
+          },
+        ],
+        aips: [
+          {
+            id: "aip-3",
+            fiscal_year: 2027,
+            barangay_id: null,
+            city_id: "city-1",
+            municipality_id: null,
+          },
+        ],
+        cities: [{ id: "city-1", name: "Cabuyao City" }],
+      })
+    );
+    mockRequestPipelineChatAnswer.mockResolvedValue({
+      answer: "Snippet linked evidence.",
+      refused: false,
+      citations: [
+        {
+          source_id: "S12",
+          aip_id: "aip-3",
+          fiscal_year: 2027,
+          scope_type: "city",
+          scope_name: "Cabuyao City",
+          snippet: "Flood Control Rehabilitation Ref 3000-001-001-001",
+          metadata: {},
+        },
+      ],
+      retrieval_meta: {
+        reason: "ok",
+        status: "answer",
+        route_family: "row_sql",
+      },
+    });
+
+    const POST = await getPostHandler();
+    const response = await POST(makeRequest("Resolve from snippet ref."));
+
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      assistantMessage: {
+        citations: Array<{
+          projectId?: string | null;
+          projectRefCode?: string | null;
+          projectTitle?: string | null;
+          lguName?: string | null;
+          resolvedFiscalYear?: number | null;
+        }>;
+      };
+    };
+
+    expect(payload.assistantMessage.citations[0]).toMatchObject({
+      projectId: "project-3",
+      projectRefCode: "3000-001-001-001",
+      projectTitle: "Flood Control Rehabilitation",
+      lguName: "Cabuyao City",
+      resolvedFiscalYear: 2027,
+    });
+  });
+
+  it("keeps citation plain/unlinked when no safe project match exists", async () => {
+    mockSupabaseServer.mockResolvedValue(
+      makeServerClient({
+        projects: [],
+      })
+    );
+    mockRequestPipelineChatAnswer.mockResolvedValue({
+      answer: "No linked evidence.",
+      refused: false,
+      citations: [
+        {
+          source_id: "S13",
+          aip_id: "aip-4",
+          project_ref_code: "4000-001-001-001",
+          fiscal_year: 2028,
+          scope_type: "barangay",
+          scope_name: "Sala",
+          snippet: "Unmatched Ref 4000-001-001-001",
+          metadata: {},
+        },
+      ],
+      retrieval_meta: {
+        reason: "ok",
+        status: "answer",
+        route_family: "row_sql",
+      },
+    });
+
+    const POST = await getPostHandler();
+    const response = await POST(makeRequest("Try unmatched citation."));
+
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      assistantMessage: {
+        citations: Array<{
+          projectId?: string | null;
+          snippet?: string;
+        }>;
+      };
+    };
+
+    expect(payload.assistantMessage.citations[0]?.projectId).toBeUndefined();
+    expect(payload.assistantMessage.citations[0]?.snippet).toContain("Unmatched Ref");
   });
 });

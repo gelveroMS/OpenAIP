@@ -8,6 +8,8 @@ import ChatAssistantLoadingState from "./ChatAssistantLoadingState";
 import ChatMessageBubble from "./ChatMessageBubble";
 import type { ChatMessageBubble as ChatMessageBubbleType } from "../types/chat.types";
 
+type LguRouteScope = "barangay" | "city";
+
 export default function ChatThreadPanel({
   title,
   messages,
@@ -21,6 +23,7 @@ export default function ChatThreadPanel({
   isMessagesLoading = false,
   showJumpToLatest = false,
   isSending,
+  routeScope = null,
 }: {
   title: string;
   messages: ChatMessageBubbleType[];
@@ -34,6 +37,7 @@ export default function ChatThreadPanel({
   isMessagesLoading?: boolean;
   showJumpToLatest?: boolean;
   isSending: boolean;
+  routeScope?: LguRouteScope | null;
 }) {
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border bg-card shadow-sm md:rounded-2xl">
@@ -57,7 +61,7 @@ export default function ChatThreadPanel({
           ) : null}
 
           {messages.map((message) => (
-            <ChatMessageBubble key={message.id} message={message} />
+            <ChatMessageBubble key={message.id} message={message} routeScope={routeScope} />
           ))}
 
           {isSending ? <ChatAssistantLoadingState /> : null}

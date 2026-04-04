@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { Json, RoleType } from "@/lib/contracts/databasev2";
+import { enrichChatCitationsWithProjectLinks } from "@/lib/chat/citation-enrichment.server";
 import type {
   PipelineChatCitation,
   RetrievalFiltersPayload,
@@ -165,6 +166,7 @@ function normalizePipelineCitations(citations: PipelineChatCitation[]): ChatCita
       sourceId: citation.source_id || "S0",
       chunkId: citation.chunk_id ?? null,
       aipId: citation.aip_id ?? null,
+      projectRefCode: citation.project_ref_code ?? null,
       fiscalYear: citation.fiscal_year ?? null,
       scopeType: citation.scope_type ?? "unknown",
       scopeId: citation.scope_id ?? null,
@@ -569,6 +571,21 @@ export async function POST(request: Request) {
 
       assistantContent = pipeline.answer.trim();
       assistantCitations = normalizePipelineCitations(pipeline.citations);
+      if (assistantCitations.length > 0) {
+        try {
+          assistantCitations = await enrichChatCitationsWithProjectLinks({
+            client: server,
+            citations: assistantCitations,
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "unknown enrichment error";
+          console.warn("[citizen-chat] citation enrichment failed", {
+            message,
+            sessionId,
+            userId,
+          });
+        }
+      }
       if (!assistantContent) {
         assistantContent = "I can't provide a grounded answer right now.";
       }

@@ -16,6 +16,8 @@ export type CitizenChatEvidenceItem = {
   snippet: string;
   fiscalYear: string | null;
   pageOrSection: string | null;
+  href: string | null;
+  linkLabel: string | null;
 };
 
 export type CitizenChatSessionVM = {
