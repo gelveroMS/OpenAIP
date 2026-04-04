@@ -8,6 +8,7 @@ const mockInsertAssistantChatMessage = vi.fn();
 const mockToPrivilegedActorContextFromProfile = vi.fn();
 const mockSupabaseServer = vi.fn();
 const mockSupabaseAdmin = vi.fn();
+const mockListMessages = vi.fn();
 
 vi.mock("@/lib/security/csrf", () => ({
   enforceCsrfProtection: () => ({ ok: true }),
@@ -15,6 +16,12 @@ vi.mock("@/lib/security/csrf", () => ({
 
 vi.mock("@/lib/chat/pipeline-client", () => ({
   requestPipelineChatAnswer: (...args: unknown[]) => mockRequestPipelineChatAnswer(...args),
+}));
+
+vi.mock("@/lib/repos/chat/repo.server", () => ({
+  getChatRepo: () => ({
+    listMessages: (...args: unknown[]) => mockListMessages(...args),
+  }),
 }));
 
 vi.mock("@/lib/settings/app-settings", () => ({
@@ -64,8 +71,8 @@ function makeServerClient() {
       if (table === "chat_sessions") {
         return {
           select: () => ({
-            eq: (_field1: string, _value1: string) => ({
-              eq: (_field2: string, _value2: string) => ({
+            eq: () => ({
+              eq: () => ({
                 maybeSingle: async () => ({
                   data: {
                     id: "session-1",
@@ -83,7 +90,7 @@ function makeServerClient() {
       if (table === "profiles") {
         return {
           select: () => ({
-            eq: (_field: string, _value: string) => ({
+            eq: () => ({
               maybeSingle: async () => ({
                 data: {
                   id: "citizen-1",
@@ -107,9 +114,9 @@ function makeServerClient() {
 
 function makeAdminClient() {
   return {
-    from: (_table: string) => ({
+    from: () => ({
       select: () => ({
-        eq: (_field: string, _value: string) => ({
+        eq: () => ({
           maybeSingle: async () => ({
             data: { name: "Mamatid" },
             error: null,
@@ -153,6 +160,18 @@ describe("citizen chat route delegation", () => {
       lgu_id: "brgy-1",
       lgu_scope: "barangay",
     });
+    mockListMessages.mockResolvedValue([
+      {
+        id: "user-1",
+        sessionId: "session-1",
+        role: "user",
+        content: "What is the total allocation for FY 2025?",
+        createdAt: "2026-03-01T00:01:00.000Z",
+        citations: null,
+        retrievalMeta: null,
+      },
+    ]);
+
     mockInsertAssistantChatMessage.mockImplementation(async (input: Record<string, unknown>) => ({
       id: "assistant-1",
       session_id: String(input.sessionId),
@@ -164,7 +183,7 @@ describe("citizen chat route delegation", () => {
     }));
   });
 
-  it("always delegates to pipeline chat answer and persists retrieval metadata", async () => {
+  it("returns LGU-shaped payload and persists normalized retrieval metadata", async () => {
     mockRequestPipelineChatAnswer.mockResolvedValue({
       answer: "The total allocation is PHP 1,000.00.",
       refused: false,
@@ -188,14 +207,17 @@ describe("citizen chat route delegation", () => {
 
     expect(response.status).toBe(200);
     const payload = (await response.json()) as {
-      message: { content: string; retrievalMeta: { status?: string; source?: string } };
-      suggestedFollowUps: string[];
+      sessionId: string;
+      userMessage: { role: string; content: string };
+      assistantMessage: { content: string; retrievalMeta: { status?: string; routeFamily?: string; suggestions?: string[] } };
     };
 
-    expect(payload.message.content).toContain("PHP 1,000.00");
-    expect(payload.message.retrievalMeta.status).toBe("answer");
-    expect(payload.message.retrievalMeta.source).toBe("pipeline_chat_answer");
-    expect(Array.isArray(payload.suggestedFollowUps)).toBe(true);
+    expect(payload.sessionId).toBe("session-1");
+    expect(payload.userMessage.role).toBe("user");
+    expect(payload.assistantMessage.content).toContain("PHP 1,000.00");
+    expect(payload.assistantMessage.retrievalMeta.status).toBe("answer");
+    expect(payload.assistantMessage.retrievalMeta.routeFamily).toBe("sql_totals");
+    expect(Array.isArray(payload.assistantMessage.retrievalMeta.suggestions)).toBe(true);
 
     expect(mockRequestPipelineChatAnswer).toHaveBeenCalledTimes(1);
     expect(mockInsertAssistantChatMessage).toHaveBeenCalledTimes(1);
@@ -218,9 +240,90 @@ describe("citizen chat route delegation", () => {
 
     expect(response.status).toBe(200);
     const payload = (await response.json()) as {
-      message: { retrievalMeta: { status?: string; reason?: string } };
+      assistantMessage: { retrievalMeta: { status?: string; reason?: string } };
     };
-    expect(payload.message.retrievalMeta.status).toBe("clarification");
-    expect(payload.message.retrievalMeta.reason).toBe("clarification_needed");
+    expect(payload.assistantMessage.retrievalMeta.status).toBe("clarification");
+    expect(payload.assistantMessage.retrievalMeta.reason).toBe("clarification_needed");
+  });
+
+  it("uses the last successful assistant scope as pipeline scopeFallback", async () => {
+    mockListMessages.mockResolvedValue([
+      {
+        id: "user-1",
+        sessionId: "session-1",
+        role: "user",
+        content: "What projects are included?",
+        createdAt: "2026-03-01T00:00:10.000Z",
+        citations: null,
+        retrievalMeta: null,
+      },
+      {
+        id: "assistant-1",
+        sessionId: "session-1",
+        role: "assistant",
+        content: "Prior answer",
+        createdAt: "2026-03-01T00:00:20.000Z",
+        citations: [
+          {
+            sourceId: "S2",
+            snippet: "Prior scope evidence",
+            scopeType: "city",
+            scopeId: "city-cabuyao",
+            scopeName: "Cabuyao",
+          },
+        ],
+        retrievalMeta: {
+          status: "answer",
+          entities: { city: "Cabuyao", scope_type: "city", scope_name: "Cabuyao" },
+        },
+      },
+    ]);
+    mockRequestPipelineChatAnswer.mockResolvedValue({
+      answer: "Scoped answer.",
+      refused: false,
+      citations: [],
+      retrieval_meta: {
+        reason: "ok",
+        status: "answer",
+        route_family: "row_sql",
+      },
+    });
+
+    const POST = await getPostHandler();
+    const response = await POST(makeRequest("What projects are included?"));
+
+    expect(response.status).toBe(200);
+    expect(mockRequestPipelineChatAnswer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scopeFallback: {
+          scope_type: "city",
+          scope_name: "Cabuyao",
+          scope_id: "city-cabuyao",
+        },
+      })
+    );
+  });
+
+  it("returns a persisted fallback assistant response when pipeline request fails", async () => {
+    mockRequestPipelineChatAnswer.mockRejectedValue(new Error("timeout"));
+
+    const POST = await getPostHandler();
+    const response = await POST(makeRequest("What is the total allocation for FY 2025?"));
+
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      assistantMessage: {
+        content: string;
+        citations: Array<{ sourceId?: string; snippet?: string }>;
+        retrievalMeta: { reason?: string; status?: string; routeFamily?: string };
+      };
+    };
+
+    expect(payload.assistantMessage.content).toContain("temporary system issue");
+    expect(payload.assistantMessage.retrievalMeta.reason).toBe("pipeline_error");
+    expect(payload.assistantMessage.retrievalMeta.status).toBe("refusal");
+    expect(payload.assistantMessage.retrievalMeta.routeFamily).toBe("pipeline_fallback");
+    expect(payload.assistantMessage.citations[0]?.sourceId).toBe("S0");
+    expect(payload.assistantMessage.citations[0]?.snippet).toContain("Pipeline request failed");
   });
 });

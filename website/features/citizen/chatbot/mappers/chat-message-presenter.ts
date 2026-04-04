@@ -17,13 +17,40 @@ export function mapEvidenceFromCitations(citations: Json | null): CitizenChatEvi
       const row = entry as Record<string, unknown>;
       const snippet = normalizeText(row.snippet);
       if (!snippet) return null;
+      const metadata =
+        row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+          ? (row.metadata as Record<string, unknown>)
+          : {};
+
+      const legacyFiscalYear = normalizeText(row.fiscalYear);
+      const canonicalFiscalYear =
+        typeof row.fiscalYear === "number"
+          ? String(row.fiscalYear)
+          : typeof row.fiscal_year === "number"
+            ? String(row.fiscal_year)
+            : typeof row.fiscalYear === "string"
+              ? normalizeText(row.fiscalYear)
+              : null;
+
+      const legacyPageOrSection = normalizeText(row.pageOrSection);
+      const canonicalPageOrSection =
+        typeof metadata.page_no === "number"
+          ? `Page ${metadata.page_no}`
+          : typeof row.source_page === "number"
+            ? `Page ${row.source_page}`
+            : normalizeText(metadata.section);
 
       return {
         id: normalizeText(row.id) ?? `evidence_${index + 1}`,
-        documentLabel: normalizeText(row.documentLabel) ?? "Published AIP",
+        documentLabel:
+          normalizeText(row.documentLabel) ??
+          normalizeText(metadata.document_label) ??
+          normalizeText(row.scopeName) ??
+          normalizeText(row.scope_name) ??
+          "Published AIP",
         snippet,
-        fiscalYear: normalizeText(row.fiscalYear),
-        pageOrSection: normalizeText(row.pageOrSection),
+        fiscalYear: legacyFiscalYear ?? canonicalFiscalYear,
+        pageOrSection: legacyPageOrSection ?? canonicalPageOrSection ?? null,
       };
     })
     .filter((item): item is CitizenChatEvidenceItem => item !== null);
@@ -32,7 +59,8 @@ export function mapEvidenceFromCitations(citations: Json | null): CitizenChatEvi
 export function mapFollowUpsFromRetrievalMeta(meta: Json | null): CitizenChatFollowUp[] {
   if (!meta || typeof meta !== "object" || Array.isArray(meta)) return [];
 
-  const source = (meta as { suggestedFollowUps?: unknown }).suggestedFollowUps;
+  const row = meta as { suggestions?: unknown; suggestedFollowUps?: unknown };
+  const source = Array.isArray(row.suggestions) ? row.suggestions : row.suggestedFollowUps;
   if (!Array.isArray(source)) return [];
 
   return source

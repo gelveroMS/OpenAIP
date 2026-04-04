@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanelLeft } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -39,6 +39,11 @@ export default function LguChatbotView({
   const threadRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const previousSessionIdRef = useRef<string | null>(null);
+  const lastBubbleSignature = useMemo(() => {
+    const lastBubble = bubbles[bubbles.length - 1];
+    if (!lastBubble) return "none";
+    return `${lastBubble.id}:${lastBubble.content.length}`;
+  }, [bubbles]);
 
   const isNearBottom = useCallback(() => {
     const node = scrollContainerRef.current;
@@ -53,28 +58,34 @@ export default function LguChatbotView({
     }
   }, [isNearBottom]);
 
-  const handleJumpToLatest = useCallback(() => {
-    if (!threadRef.current) return;
-    threadRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    const node = scrollContainerRef.current;
+    if (!node) return;
+    if (typeof node.scrollTo === "function") {
+      node.scrollTo({ top: node.scrollHeight, behavior });
+    } else {
+      node.scrollTop = node.scrollHeight;
+    }
     setShowJumpToLatest(false);
   }, []);
 
+  const handleJumpToLatest = useCallback(() => {
+    scrollToBottom("smooth");
+  }, [scrollToBottom]);
+
   useEffect(() => {
-    if (!threadRef.current) return;
+    if (!scrollContainerRef.current) return;
 
     const sessionChanged = previousSessionIdRef.current !== activeSessionId;
     previousSessionIdRef.current = activeSessionId;
 
-    if (sessionChanged || isNearBottom()) {
-      threadRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
-      setShowJumpToLatest(false);
-      return;
+    if (sessionChanged || lastBubbleSignature !== "none" || isSending) {
+      scrollToBottom(sessionChanged ? "auto" : "smooth");
+      requestAnimationFrame(() => {
+        scrollToBottom("auto");
+      });
     }
-
-    if (bubbles.length > 0 || isSending) {
-      setShowJumpToLatest(true);
-    }
-  }, [activeSessionId, bubbles.length, isNearBottom, isSending]);
+  }, [activeSessionId, isSending, lastBubbleSignature, scrollToBottom]);
 
   const resolvedActiveTitle = activeSession ? activeSession.title ?? "New Chat" : "New Chat";
 
