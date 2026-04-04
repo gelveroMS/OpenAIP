@@ -11,17 +11,20 @@ export async function runDashboardRepoSelectorTests() {
   const oldUseMocks = process.env.NEXT_PUBLIC_USE_MOCKS;
 
   try {
-    process.env.NEXT_PUBLIC_APP_ENV = "dev";
+    process.env.NEXT_PUBLIC_APP_ENV = "local";
     process.env.NEXT_PUBLIC_USE_MOCKS = "true";
 
-    const devRepo = getDashboardRepo();
-    const devData = await devRepo.getDashboardDataByScope({
+    const localRepo = getDashboardRepo();
+    const localData = await localRepo.getDashboardDataByScope({
       scope: "barangay",
       scopeId: "barangay_001",
       requestedFiscalYear: 2026,
     });
-    assert(devData.scope === "barangay", "Expected mock dashboard repo to return barangay scope data.");
-    assert(Array.isArray(devData.allAips), "Expected mock dashboard repo to return AIP rows.");
+    assert(
+      localData.scope === "barangay",
+      "Expected mock dashboard repo to return barangay scope data."
+    );
+    assert(Array.isArray(localData.allAips), "Expected mock dashboard repo to return AIP rows.");
 
     process.env.NEXT_PUBLIC_APP_ENV = "staging";
     process.env.NEXT_PUBLIC_USE_MOCKS = "false";

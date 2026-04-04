@@ -9,14 +9,45 @@ import {
   type OutboxRow,
 } from "./index.ts";
 
-function encodeBase64Url(value: string): string {
-  return btoa(value).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+function withBearerToken(token: string): HeadersInit {
+  return {
+    Authorization: `Bearer ${token}`,
+  };
 }
 
-function makeJwt(payload: Record<string, unknown>): string {
-  const header = encodeBase64Url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+function makeJwtLikeToken(payload: Record<string, unknown>): string {
+  const encodeBase64Url = (value: string): string =>
+    btoa(value).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  const header = encodeBase64Url(JSON.stringify({ alg: "none", typ: "JWT" }));
   const body = encodeBase64Url(JSON.stringify(payload));
-  return `${header}.${body}.signature`;
+  return `${header}.${body}.forged-signature`;
+}
+
+async function withEnv(
+  values: Record<string, string | undefined>,
+  run: () => Promise<void>
+): Promise<void> {
+  const previous = new Map<string, string | undefined>();
+  for (const [name, value] of Object.entries(values)) {
+    previous.set(name, Deno.env.get(name));
+    if (typeof value === "string") {
+      Deno.env.set(name, value);
+    } else {
+      Deno.env.delete(name);
+    }
+  }
+
+  try {
+    await run();
+  } finally {
+    for (const [name, value] of previous.entries()) {
+      if (typeof value === "string") {
+        Deno.env.set(name, value);
+      } else {
+        Deno.env.delete(name);
+      }
+    }
+  }
 }
 
 function makeQueuedRow(overrides: Partial<OutboxRow> = {}): OutboxRow {
@@ -48,42 +79,107 @@ function requireNonEmptyString(value: string | null, label: string): string {
   return value;
 }
 
-Deno.test("isAuthorizedRequest accepts bearer jwt with service_role claim", () => {
-  const serviceToken = makeJwt({ role: "service_role", sub: "svc" });
+Deno.test("isAuthorizedRequest rejects missing authorization header", () => {
   const request = new Request("http://localhost/functions/v1/send-email-outbox", {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${serviceToken}`,
-    },
   });
 
-  assertEquals(isAuthorizedRequest(request), true);
+  assertEquals(isAuthorizedRequest(request, "trusted-secret"), false);
 });
 
-Deno.test("isAuthorizedRequest rejects jwt without service_role claim", () => {
-  const anonToken = makeJwt({ role: "authenticated", sub: "user-1" });
+Deno.test("isAuthorizedRequest rejects forged bearer token", () => {
   const request = new Request("http://localhost/functions/v1/send-email-outbox", {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${anonToken}`,
-    },
+    headers: withBearerToken("forged-token"),
   });
 
-  assertEquals(isAuthorizedRequest(request), false);
+  assertEquals(isAuthorizedRequest(request, "trusted-secret"), false);
 });
 
-Deno.test("handleRequest rejects non-service-role authorization", async () => {
-  const badToken = makeJwt({ role: "authenticated", sub: "user-1" });
+Deno.test("isAuthorizedRequest rejects fake unsigned jwt-looking token", () => {
+  const forgedJwt = makeJwtLikeToken({ role: "service_role", sub: "svc" });
   const request = new Request("http://localhost/functions/v1/send-email-outbox", {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${badToken}`,
-    },
-    body: JSON.stringify({}),
+    headers: withBearerToken(forgedJwt),
   });
 
-  const response = await handleRequest(request);
-  assertEquals(response.status, 401);
+  assertEquals(isAuthorizedRequest(request, "trusted-secret"), false);
+});
+
+Deno.test("isAuthorizedRequest accepts exact trusted bearer token", () => {
+  const trustedToken = "trusted-secret";
+  const request = new Request("http://localhost/functions/v1/send-email-outbox", {
+    method: "POST",
+    headers: withBearerToken(trustedToken),
+  });
+
+  assertEquals(isAuthorizedRequest(request, trustedToken), true);
+});
+
+Deno.test("handleRequest rejects missing auth header", async () => {
+  await withEnv({ OUTBOX_JOB_SECRET: "trusted-secret" }, async () => {
+    const request = new Request("http://localhost/functions/v1/send-email-outbox", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+
+    const response = await handleRequest(request);
+    assertEquals(response.status, 401);
+  });
+});
+
+Deno.test("handleRequest rejects invalid bearer token", async () => {
+  await withEnv({ OUTBOX_JOB_SECRET: "trusted-secret" }, async () => {
+    const request = new Request("http://localhost/functions/v1/send-email-outbox", {
+      method: "POST",
+      headers: withBearerToken("forged-token"),
+      body: JSON.stringify({}),
+    });
+
+    const response = await handleRequest(request);
+    assertEquals(response.status, 401);
+  });
+});
+
+Deno.test("handleRequest fails closed when auth config is missing", async () => {
+  await withEnv({ OUTBOX_JOB_SECRET: undefined }, async () => {
+    const request = new Request("http://localhost/functions/v1/send-email-outbox", {
+      method: "POST",
+      headers: withBearerToken("any-token"),
+      body: JSON.stringify({}),
+    });
+
+    const response = await handleRequest(request);
+    assertEquals(response.status, 500);
+    assertEquals(await response.json(), {
+      error: "Server auth configuration is missing.",
+    });
+  });
+});
+
+Deno.test("handleRequest accepts trusted bearer token and proceeds past auth gate", async () => {
+  await withEnv(
+    {
+      OUTBOX_JOB_SECRET: "trusted-secret",
+      SUPABASE_SERVICE_ROLE_KEY: undefined,
+      SUPABASE_URL: undefined,
+      RESEND_API_KEY: undefined,
+      FROM_EMAIL: undefined,
+      APP_BASE_URL: undefined,
+    },
+    async () => {
+      const request = new Request("http://localhost/functions/v1/send-email-outbox", {
+        method: "POST",
+        headers: withBearerToken("trusted-secret"),
+        body: JSON.stringify({}),
+      });
+
+      const response = await handleRequest(request);
+      assertEquals(response.status, 500);
+      const body = (await response.json()) as { error?: string };
+      assertEquals(body.error === "Unauthorized.", false);
+    }
+  );
 });
 
 Deno.test("processOutboxBatch marks successful sends as sent", async () => {

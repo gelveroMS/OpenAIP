@@ -119,6 +119,7 @@ describe("system-administration route contract", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
+        origin: "http://localhost",
       },
       body: JSON.stringify({
         action: "update_notification_settings",
@@ -155,6 +156,7 @@ describe("system-administration route contract", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
+        origin: "http://localhost",
       },
       body: JSON.stringify({
         action: "unpublish_system_banner",
@@ -186,6 +188,7 @@ describe("system-administration route contract", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
+        origin: "http://localhost",
       },
       body: JSON.stringify({
         action: "publish_system_banner",
@@ -216,6 +219,7 @@ describe("system-administration route contract", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
+        origin: "http://localhost",
       },
       body: JSON.stringify({
         action: "publish_system_banner",

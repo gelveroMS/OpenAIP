@@ -129,6 +129,31 @@ describe("public system routes", () => {
     );
   });
 
+  it("GET /api/system/security-policy sanitizes unexpected internal errors", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockGetSecuritySettings.mockRejectedValue(
+      new Error('invalid schema "app" with diagnostic details: service_role grants missing')
+    );
+    mockGetActorContext.mockResolvedValue(null);
+
+    const { GET } = await import("@/app/api/system/security-policy/route");
+    const request = new Request("http://localhost/api/system/security-policy");
+    const response = await GET(request);
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body).toEqual({ message: "Unable to load security policy." });
+    expect(JSON.stringify(body)).not.toContain("invalid schema");
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[SYSTEM_SECURITY_POLICY][READ_FAILED]",
+      expect.objectContaining({
+        route: "/api/system/security-policy",
+        errorName: "Error",
+        messagePreview: expect.any(String),
+      })
+    );
+  });
+
   it("GET /api/system/banner returns the active published banner", async () => {
     const banner = {
       title: "Maintenance Notice",
@@ -147,5 +172,28 @@ describe("public system routes", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toContain("no-store");
     expect(body).toEqual({ banner });
+  });
+
+  it("GET /api/system/banner sanitizes unexpected internal errors", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockGetActiveSystemBanner.mockRejectedValue(
+      new Error("settings store unavailable: app.settings relation missing")
+    );
+
+    const { GET } = await import("@/app/api/system/banner/route");
+    const response = await GET();
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body).toEqual({ message: "Unable to load system banner." });
+    expect(JSON.stringify(body)).not.toContain("settings store unavailable");
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[SYSTEM_BANNER][READ_FAILED]",
+      expect.objectContaining({
+        route: "/api/system/banner",
+        errorName: "Error",
+        messagePreview: expect.any(String),
+      })
+    );
   });
 });
