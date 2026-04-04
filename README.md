@@ -615,6 +615,58 @@ Current test coverage in repo includes:
 - Repo smoke checks under `website/tests/repo-smoke/**`
 - Pipeline smoke/resource/rules/worker-sanitization tests under `aip-intelligence-pipeline/tests/**`
 
+### Dependency Auditing (CI + Local)
+
+PR CI now includes two independent dependency audit jobs in `.github/workflows/pr-quality-gate.yml`:
+- `Dependency Audit (Node runtime)`:
+  - runs in `website/`
+  - command: `npm audit --omit=dev --audit-level=high`
+  - fails on high/critical runtime vulnerabilities
+- `Dependency Audit (Python runtime)`:
+  - builds an isolated runtime install of `aip-intelligence-pipeline`
+  - command: `pip-audit` against that runtime environment
+  - fails when vulnerabilities are detected
+
+Automated dependency update monitoring is configured in:
+- `.github/dependabot.yml`
+- ecosystems enabled:
+  - `npm` for `/website`
+  - `pip` for `/aip-intelligence-pipeline`
+
+#### Run audits locally
+
+Node (website runtime deps):
+```bash
+cd website
+npm ci
+npm audit --omit=dev --audit-level=high
+```
+
+Python (pipeline runtime deps):
+```bash
+python -m pip install --upgrade pip pip-audit
+python -m venv .venv-runtime-audit
+. .venv-runtime-audit/bin/activate
+python -m pip install --upgrade pip
+python -m pip install ./aip-intelligence-pipeline
+deactivate
+SITE_PACKAGES=$(./.venv-runtime-audit/bin/python -c "import site; print(site.getsitepackages()[0])")
+python -m pip_audit --path "$SITE_PACKAGES" --progress-spinner off
+```
+
+#### If dependency audit CI fails
+
+- Reproduce locally using the same command.
+- Identify the vulnerable package and dependency path.
+- Prefer upgrading the direct dependency first; otherwise update the transitive chain.
+- Re-run audit and tests before pushing.
+- If no upstream fix exists yet, track as a documented security exception with owner and expiry.
+
+#### Current Python lockfile limitation
+
+`aip-intelligence-pipeline` currently does not commit a lockfile, so transitive dependency resolution may change over time.
+As a result, Python audit findings can vary between runs even when repository files are unchanged.
+
 ## Deployment Guide
 - For the full UI-first production + preview deployment runbook (Vercel website + Render pipeline + Supabase), see [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md).
 

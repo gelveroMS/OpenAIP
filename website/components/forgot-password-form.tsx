@@ -1,6 +1,5 @@
 'use client'
 
-import { supabaseBrowser } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import type { AuthParameters } from '@/types'
 import {
@@ -26,16 +25,26 @@ export function ForgotPasswordForm({role, baseURL}:AuthParameters) {
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault()
-    const supabase = supabaseBrowser()
     setIsLoading(true)
     setError(null)
 
     try {
-      // The url which will be included in the email. This URL needs to be configured in your redirect URLs in the Supabase dashboard at https://supabase.com/dashboard/project/_/auth/url-configuration
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${rolePath}/update-password`,
+      const response = await fetch('/auth/forgot-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          role,
+        }),
       })
-      if (error) throw error
+      const payload = (await response.json().catch(() => null)) as
+        | { ok?: boolean; error?: { message?: string } }
+        | null
+      if (!response.ok || payload?.ok === false) {
+        throw new Error(payload?.error?.message ?? 'Unable to process request')
+      }
       setSuccess(true)
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : 'An error occurred')
