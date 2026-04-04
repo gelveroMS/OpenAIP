@@ -20,6 +20,7 @@ describe("AdminDashboardView", () => {
         aipStatus: "all",
       },
       setFilters: vi.fn(),
+      setUsageRange: vi.fn(),
       viewModel: {
         kpis: [
           {

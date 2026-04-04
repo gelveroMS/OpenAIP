@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import AipMonitoringTabs, { AipMonitoringTab } from "../components/AipMonitoringTabs";
 import AipFiltersRow from "../components/AipFiltersRow";
 import AipsTable from "../components/AipsTable";
@@ -15,18 +16,36 @@ import {
   mapActivityToCaseRows,
   mapAipRowsToMonitoringRows,
 } from "@/lib/mappers/aip-monitoring";
+import type { AipStatus } from "@/lib/contracts/databasev2/enums";
 
 type WorkflowState = { actionType: WorkflowActionType; rowId: string } | null;
 
+const AIP_STATUS_OPTIONS: Array<{ value: AipStatus; label: string }> = [
+  { value: "draft", label: "Draft" },
+  { value: "pending_review", label: "Pending Review" },
+  { value: "under_review", label: "Under Review" },
+  { value: "for_revision", label: "For Revision" },
+  { value: "published", label: "Approved" },
+];
+
 const todayStamp = () => new Date().toISOString().slice(0, 10);
 
+function parseAipStatusParam(value: string | null): AipStatus | null {
+  if (!value) return null;
+  return AIP_STATUS_OPTIONS.some((option) => option.value === value)
+    ? (value as AipStatus)
+    : null;
+}
+
 export default function AipMonitoringView() {
+  const searchParams = useSearchParams();
   const repo = useMemo(() => getAipMonitoringRepo(), []);
+  const initialQueryAppliedRef = useRef(false);
 
   const [activeTab, setActiveTab] = useState<AipMonitoringTab>("aips");
   const [query, setQuery] = useState("");
   const [yearFilter, setYearFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | AipStatus>("all");
   const [caseTypeFilter, setCaseTypeFilter] = useState("all");
   const [lguFilter, setLguFilter] = useState("all");
 
@@ -37,6 +56,26 @@ export default function AipMonitoringView() {
 
   const [selectedAipId, setSelectedAipId] = useState<string | null>(null);
   const [workflowState, setWorkflowState] = useState<WorkflowState>(null);
+
+  useEffect(() => {
+    if (initialQueryAppliedRef.current) return;
+
+    const statusParam = parseAipStatusParam(searchParams.get("status"));
+    const tabParam = searchParams.get("tab");
+
+    if (statusParam) {
+      setStatusFilter(statusParam);
+      setActiveTab("aips");
+      initialQueryAppliedRef.current = true;
+      return;
+    }
+
+    if (tabParam === "cases" || tabParam === "aips") {
+      setActiveTab(tabParam);
+    }
+
+    initialQueryAppliedRef.current = true;
+  }, [searchParams]);
 
   useEffect(() => {
     let isActive = true;
@@ -96,11 +135,6 @@ export default function AipMonitoringView() {
     return Array.from(new Set(rows.map((row) => row.year))).sort((a, b) => b - a);
   }, [activeTab, aipRows, caseRows]);
 
-  const statusOptions = useMemo(
-    () => Array.from(new Set(aipRows.map((row) => row.status))),
-    [aipRows]
-  );
-
   const caseTypeOptions = useMemo(
     () => Array.from(new Set(caseRows.map((row) => row.caseType))),
     [caseRows]
@@ -115,7 +149,7 @@ export default function AipMonitoringView() {
     const q = query.trim().toLowerCase();
     return aipRows.filter((row) => {
       if (yearFilter !== "all" && row.year !== Number(yearFilter)) return false;
-      if (statusFilter !== "all" && row.status !== statusFilter) return false;
+      if (statusFilter !== "all" && row.aipStatus !== statusFilter) return false;
       if (lguFilter !== "all" && row.lguName !== lguFilter) return false;
       if (!q) return true;
 
@@ -217,13 +251,13 @@ export default function AipMonitoringView() {
         yearFilter={yearFilter}
         onYearChange={setYearFilter}
         statusFilter={statusFilter}
-        onStatusChange={setStatusFilter}
+        onStatusChange={(value) => setStatusFilter(value as "all" | AipStatus)}
         caseTypeFilter={caseTypeFilter}
         onCaseTypeChange={setCaseTypeFilter}
         lguFilter={lguFilter}
         onLguChange={setLguFilter}
         yearOptions={yearOptions}
-        statusOptions={statusOptions}
+        statusOptions={AIP_STATUS_OPTIONS}
         caseTypeOptions={caseTypeOptions}
         lguOptions={lguOptions}
       />

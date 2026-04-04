@@ -40,7 +40,7 @@ export default function AipFiltersRow({
   lguFilter: string;
   onLguChange: (value: string) => void;
   yearOptions: number[];
-  statusOptions: string[];
+  statusOptions: Array<{ value: string; label: string }>;
   caseTypeOptions: string[];
   lguOptions: string[];
 }) {
@@ -82,8 +82,8 @@ export default function AipFiltersRow({
             <SelectContent>
               <SelectItem value="all">All Statuses</SelectItem>
               {statusOptions.map((status) => (
-                <SelectItem key={status} value={status}>
-                  {status}
+                <SelectItem key={status.value} value={status.value}>
+                  {status.label}
                 </SelectItem>
               ))}
             </SelectContent>

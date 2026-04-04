@@ -31,7 +31,10 @@ function isAdminDashboardSnapshot(payload: unknown): payload is AdminDashboardSn
   );
 }
 
-function buildQuery(filters?: AdminDashboardFilters): string {
+function buildQuery(
+  filters?: AdminDashboardFilters,
+  usageRange?: { usageFrom?: string | null; usageTo?: string | null }
+): string {
   if (!filters) return "";
 
   const params = new URLSearchParams();
@@ -40,12 +43,17 @@ function buildQuery(filters?: AdminDashboardFilters): string {
   if (filters.lguScope !== "all") params.set("lguScope", filters.lguScope);
   if (filters.lguId) params.set("lguId", filters.lguId);
   if (filters.aipStatus !== "all") params.set("status", filters.aipStatus);
+  if (usageRange?.usageFrom) params.set("usageFrom", usageRange.usageFrom);
+  if (usageRange?.usageTo) params.set("usageTo", usageRange.usageTo);
 
   return params.toString();
 }
 
-function buildCacheKey(filters?: AdminDashboardFilters): string {
-  const query = buildQuery(filters);
+function buildCacheKey(
+  filters?: AdminDashboardFilters,
+  usageRange?: { usageFrom?: string | null; usageTo?: string | null }
+): string {
+  const query = buildQuery(filters, usageRange);
   return query.length > 0 ? query : "__default__";
 }
 
@@ -79,9 +87,10 @@ async function fetchSnapshot(url: string): Promise<Response> {
 
 async function requestSnapshot(
   filters?: AdminDashboardFilters,
+  usageRange?: { usageFrom?: string | null; usageTo?: string | null },
   attempt = 0
 ): Promise<AdminDashboardSnapshot> {
-  const query = buildQuery(filters);
+  const query = buildQuery(filters, usageRange);
   const url = query.length > 0 ? `${DASHBOARD_ROUTE_PATH}?${query}` : DASHBOARD_ROUTE_PATH;
 
   const response = await fetchSnapshot(url);
@@ -103,7 +112,7 @@ async function requestSnapshot(
 
   if (shouldRetry) {
     await delay(RETRY_DELAYS_MS[attempt]);
-    return requestSnapshot(filters, attempt + 1);
+    return requestSnapshot(filters, usageRange, attempt + 1);
   }
 
   if (invalidAuthResponse) {
@@ -113,14 +122,17 @@ async function requestSnapshot(
   throw new Error((payload as SnapshotErrorPayload | null)?.message ?? "Dashboard request failed.");
 }
 
-function getSnapshot(filters?: AdminDashboardFilters): Promise<AdminDashboardSnapshot> {
-  const key = buildCacheKey(filters);
+function getSnapshot(
+  filters?: AdminDashboardFilters,
+  usageRange?: { usageFrom?: string | null; usageTo?: string | null }
+): Promise<AdminDashboardSnapshot> {
+  const key = buildCacheKey(filters, usageRange);
   const existingRequest = inFlightSnapshotRequests.get(key);
   if (existingRequest) {
     return existingRequest;
   }
 
-  const nextRequest = requestSnapshot(filters).finally(() => {
+  const nextRequest = requestSnapshot(filters, usageRange).finally(() => {
     inFlightSnapshotRequests.delete(key);
   });
   inFlightSnapshotRequests.set(key, nextRequest);
@@ -139,8 +151,8 @@ export function createSupabaseAdminDashboardRepo(): AdminDashboardRepo {
     async getReviewBacklog(filters) {
       return (await getSnapshot(filters)).reviewBacklog;
     },
-    async getUsageMetrics(filters) {
-      return (await getSnapshot(filters)).usageMetrics;
+    async getUsageMetrics(filters, input) {
+      return (await getSnapshot(filters, input)).usageMetrics;
     },
     async getRecentActivity(filters) {
       return (await getSnapshot(filters)).recentActivity;

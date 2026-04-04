@@ -20,8 +20,11 @@ export function createMockAdminDashboardRepo(): AdminDashboardRepo {
     async getReviewBacklog(filters: AdminDashboardFilters) {
       return deriveReviewBacklog(ADMIN_DASHBOARD_DATASET, filters);
     },
-    async getUsageMetrics(filters: AdminDashboardFilters) {
-      return deriveUsageMetrics(ADMIN_DASHBOARD_DATASET, filters);
+    async getUsageMetrics(
+      filters: AdminDashboardFilters,
+      input?: { usageFrom?: string | null; usageTo?: string | null }
+    ) {
+      return deriveUsageMetrics(ADMIN_DASHBOARD_DATASET, filters, input);
     },
     async getRecentActivity(filters: AdminDashboardFilters) {
       return deriveRecentActivity(ADMIN_DASHBOARD_DATASET, filters);

@@ -88,7 +88,7 @@ describe("GET /api/admin/dashboard", () => {
     const { GET } = await import("@/app/api/admin/dashboard/route");
     const response = await GET(
       new Request(
-        "http://localhost/api/admin/dashboard?from=2026-03-01&to=2026-03-31&lguScope=city&lguId=city-1&status=under_review"
+        "http://localhost/api/admin/dashboard?from=2026-01-01&to=2026-01-31&lguScope=city&lguId=city-1&status=under_review&usageFrom=2026-03-01&usageTo=2026-03-31"
       )
     );
     const body = await response.json();
@@ -112,7 +112,11 @@ describe("GET /api/admin/dashboard", () => {
         lguScope: "all",
         lguId: null,
         aipStatus: "all",
-      })
+      }),
+      {
+        usageFrom: "2026-03-01",
+        usageTo: "2026-03-31",
+      }
     );
   });
 });

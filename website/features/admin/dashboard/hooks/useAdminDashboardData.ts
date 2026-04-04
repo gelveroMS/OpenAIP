@@ -46,6 +46,13 @@ export function useAdminDashboardData(initial?: AdminDashboardInitialData) {
   const [filters, setFilters] = useState<AdminDashboardFilters>(() =>
     initial?.filters ?? createDefaultFilters()
   );
+  const [usageRange, setUsageRange] = useState<{
+    usageFrom: string | null;
+    usageTo: string | null;
+  }>({
+    usageFrom: null,
+    usageTo: null,
+  });
   const [summary, setSummary] = useState<DashboardSummaryVM | null>(
     () => initial?.snapshot.summary ?? null
   );
@@ -72,6 +79,14 @@ export function useAdminDashboardData(initial?: AdminDashboardInitialData) {
   const setFiltersWithInteraction = (next: AdminDashboardFilters) => {
     hasUserInteractedRef.current = true;
     setFilters(next);
+  };
+
+  const setUsageRangeWithInteraction = (next: {
+    usageFrom: string | null;
+    usageTo: string | null;
+  }) => {
+    hasUserInteractedRef.current = true;
+    setUsageRange(next);
   };
 
   useEffect(() => {
@@ -116,7 +131,9 @@ export function useAdminDashboardData(initial?: AdminDashboardInitialData) {
         hasInitialSnapshotRef.current &&
         !hasUserInteractedRef.current &&
         initialFiltersRef.current &&
-        areFiltersEqual(filters, initialFiltersRef.current)
+        areFiltersEqual(filters, initialFiltersRef.current) &&
+        usageRange.usageFrom === null &&
+        usageRange.usageTo === null
       ) {
         setReactiveLoading(false);
         setError(null);
@@ -133,7 +150,7 @@ export function useAdminDashboardData(initial?: AdminDashboardInitialData) {
           repo.getSummary(filters),
           repo.getAipStatusDistribution(filters),
           repo.getReviewBacklog(filters),
-          repo.getUsageMetrics(filters),
+          repo.getUsageMetrics(filters, usageRange),
         ]);
 
         if (!isActive || requestIdRef.current !== currentRequestId) return;
@@ -158,13 +175,15 @@ export function useAdminDashboardData(initial?: AdminDashboardInitialData) {
     return () => {
       isActive = false;
     };
-  }, [filters, repo]);
+  }, [filters, repo, usageRange]);
 
   const loading = staticLoading || reactiveLoading;
 
   return {
     filters,
     setFilters: setFiltersWithInteraction,
+    usageRange,
+    setUsageRange: setUsageRangeWithInteraction,
     summary,
     distribution,
     reviewBacklog,

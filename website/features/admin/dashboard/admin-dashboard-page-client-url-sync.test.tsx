@@ -186,6 +186,6 @@ describe("AdminDashboardPageClient navigation query handling", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Open Published AIPs" }));
 
-    expect(mockPush).toHaveBeenCalledWith("/admin/aip-monitoring?status=published");
+    expect(mockPush).toHaveBeenCalledWith("/admin/aip-monitoring?tab=aips&status=published");
   });
 });

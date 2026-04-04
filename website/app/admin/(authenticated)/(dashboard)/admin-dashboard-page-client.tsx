@@ -49,7 +49,10 @@ export default function AdminDashboardPageClient({
         router.push(buildPathWithQuery("/admin/feedback-moderation", buildDashboardQuery(filters)));
       },
       onOpenAipMonitoring: ({ filters, status }) => {
-        const query = buildDashboardQuery(filters, status ? { status } : undefined);
+        const query = buildDashboardQuery(
+          filters,
+          status ? { tab: "aips", status } : undefined
+        );
         router.push(buildPathWithQuery("/admin/aip-monitoring", query));
       },
       onOpenAuditLogs: ({ filters }) => {

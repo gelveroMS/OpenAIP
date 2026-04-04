@@ -11,6 +11,8 @@ export function useAdminDashboard(initial?: AdminDashboardInitialData) {
   const {
     filters,
     setFilters,
+    usageRange,
+    setUsageRange,
     summary,
     distribution,
     reviewBacklog,
@@ -49,6 +51,8 @@ export function useAdminDashboard(initial?: AdminDashboardInitialData) {
   return {
     filters,
     setFilters,
+    usageRange,
+    setUsageRange,
     viewModel,
     loading,
     error,

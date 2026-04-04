@@ -103,6 +103,7 @@ async function loadAdminDashboardDataset(): Promise<AdminDashboardDataset> {
   const admin = supabaseAdmin();
   const [
     cities,
+    provinces,
     municipalities,
     barangays,
     profiles,
@@ -119,6 +120,15 @@ async function loadAdminDashboardDataset(): Promise<AdminDashboardDataset> {
         .range(from, to);
       if (error) throw new Error(error.message);
       return (data ?? []) as AdminDashboardDataset["cities"];
+    }),
+    collectPaged(async (from, to) => {
+      const { data, error } = await admin
+        .from("provinces")
+        .select("id,region_id,psgc_code,name,is_active,created_at")
+        .order("id", { ascending: true })
+        .range(from, to);
+      if (error) throw new Error(error.message);
+      return (data ?? []) as AdminDashboardDataset["provinces"];
     }),
     collectPaged(async (from, to) => {
       const { data, error } = await admin
@@ -195,6 +205,7 @@ async function loadAdminDashboardDataset(): Promise<AdminDashboardDataset> {
 
   return {
     cities,
+    provinces,
     municipalities,
     barangays,
     profiles,
@@ -206,7 +217,8 @@ async function loadAdminDashboardDataset(): Promise<AdminDashboardDataset> {
 }
 
 export async function loadAdminDashboardSnapshot(
-  filters: AdminDashboardFilters
+  filters: AdminDashboardFilters,
+  options?: { usageFrom?: string | null; usageTo?: string | null }
 ): Promise<AdminDashboardSnapshot> {
   const dataset = await loadAdminDashboardDataset();
 
@@ -214,7 +226,7 @@ export async function loadAdminDashboardSnapshot(
     summary: deriveSummary(dataset, filters),
     distribution: deriveAipStatusDistribution(dataset, filters),
     reviewBacklog: deriveReviewBacklog(dataset, filters),
-    usageMetrics: deriveUsageMetrics(dataset, filters),
+    usageMetrics: deriveUsageMetrics(dataset, filters, options),
     recentActivity: deriveRecentActivity(dataset, filters),
     lguOptions: listLguOptions(dataset),
   };
