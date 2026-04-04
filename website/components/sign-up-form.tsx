@@ -37,6 +37,17 @@ import {
 } from "@/lib/security/password-policy";
 // import { time } from 'console'
 
+const GENERIC_SIGN_UP_ERROR_MESSAGE = "Unable to process sign-up right now. Please try again later.";
+
+function isExistingAccountSignUpError(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  return (
+    normalized.includes("already registered") ||
+    normalized.includes("user already registered") ||
+    normalized.includes("already exists")
+  );
+}
+
 export function SignUpForm({role, baseURL}:AuthParameters) {
   
   const [email, setEmail] = useState('')
@@ -138,7 +149,7 @@ export function SignUpForm({role, baseURL}:AuthParameters) {
     }
 
     try {
-      const { data, error } = await supabase.auth.signUp({
+      const { error } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -153,19 +164,13 @@ export function SignUpForm({role, baseURL}:AuthParameters) {
         },
       })
 
-      if (error) throw error
-
-      // Detect "already exists" without relying on error
-      if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-        if (isInvitedOfficialRole) {
-          throw new Error("Account already exists. Use your invite/reset link in email to set your password.");
-        }
-        throw new Error("Account already exists. Please log in.");
+      if (error && !isExistingAccountSignUpError(error.message)) {
+        throw new Error(GENERIC_SIGN_UP_ERROR_MESSAGE);
       }
 
       router.push(`${rolePath}/sign-up-success`)      
-    } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : 'An error occurred')
+    } catch {
+      setError(GENERIC_SIGN_UP_ERROR_MESSAGE)
     } finally {
       setIsLoading(false)
     }
