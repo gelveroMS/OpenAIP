@@ -73,7 +73,7 @@ describe("AdminDashboardView", () => {
     });
   });
 
-  it("does not render the recent activity section", () => {
+  it("removes dashboard filters and error-rate visuals while keeping drill-down actions", () => {
     render(
       <AdminDashboardView
         actions={{
@@ -85,6 +85,11 @@ describe("AdminDashboardView", () => {
         }}
       />
     );
+
+    expect(screen.queryByText(/Date From/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Reset Filters/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Error Rate Trend/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Error Rate$/i)).not.toBeInTheDocument();
 
     expect(screen.queryByText(/Recent Activity/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/View Audit/i)).not.toBeInTheDocument();

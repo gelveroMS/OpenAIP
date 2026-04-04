@@ -1,10 +1,6 @@
 import "server-only";
 
 import type { AipStatus } from "@/lib/contracts/databasev2/enums";
-import {
-  getDateDaysAgoInTimeZoneYmd,
-  getTodayInTimeZoneYmd,
-} from "@/lib/date/localDate";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   deriveAipStatusDistribution,
@@ -21,7 +17,6 @@ import type {
   AdminDashboardSnapshot,
 } from "./types";
 
-const ASIA_MANILA_TIMEZONE = "Asia/Manila";
 const YMD_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const AIP_STATUSES: ReadonlySet<AipStatus> = new Set([
   "draft",
@@ -77,8 +72,8 @@ function parseAipStatus(value: string | null): AdminDashboardFilters["aipStatus"
 
 export function createDefaultAdminDashboardFilters(): AdminDashboardFilters {
   return {
-    dateFrom: getDateDaysAgoInTimeZoneYmd(ASIA_MANILA_TIMEZONE, 13),
-    dateTo: getTodayInTimeZoneYmd(ASIA_MANILA_TIMEZONE),
+    dateFrom: null,
+    dateTo: null,
     lguScope: "all",
     lguId: null,
     aipStatus: "all",

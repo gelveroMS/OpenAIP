@@ -2,10 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getAdminDashboardRepo } from "@/lib/repos/admin-dashboard";
-import {
-  getDateDaysAgoInTimeZoneYmd,
-  getTodayInTimeZoneYmd,
-} from "@/lib/date/localDate";
 import type {
   AdminDashboardSnapshot,
   AdminDashboardFilters,
@@ -17,12 +13,10 @@ import type {
   UsageMetricsVM,
 } from "@/lib/repos/admin-dashboard/types";
 
-const ASIA_MANILA_TIMEZONE = "Asia/Manila";
-
 const createDefaultFilters = (): AdminDashboardFilters => {
   return {
-    dateFrom: getDateDaysAgoInTimeZoneYmd(ASIA_MANILA_TIMEZONE, 13),
-    dateTo: getTodayInTimeZoneYmd(ASIA_MANILA_TIMEZONE),
+    dateFrom: null,
+    dateTo: null,
     lguScope: "all",
     lguId: null,
     aipStatus: "all",

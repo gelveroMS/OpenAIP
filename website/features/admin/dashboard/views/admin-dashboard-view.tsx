@@ -2,10 +2,8 @@
 
 import { Badge } from "@/components/ui/badge";
 import KpiCard from "../components/KpiCard";
-import DashboardFiltersRow from "../components/DashboardFiltersRow";
 import AipStatusDonutCard from "../components/AipStatusDonutCard";
 import ReviewBacklogCard from "../components/ReviewBacklogCard";
-import ErrorRateBarChart from "../components/ErrorRateBarChart";
 import ChatbotUsageLineChart from "../components/ChatbotUsageLineChart";
 import MiniKpiStack from "../components/MiniKpiStack";
 import { Users, Building2, MessageSquare, FileText } from "lucide-react";
@@ -18,7 +16,6 @@ import type {
 
 type AdminDashboardViewProps = {
   actions: AdminDashboardActions;
-  onFiltersChange?: (filters: AdminDashboardFilters) => void;
   initialData?: {
     filters: AdminDashboardFilters;
     snapshot: AdminDashboardSnapshot;
@@ -27,22 +24,9 @@ type AdminDashboardViewProps = {
 
 export default function AdminDashboardView({
   actions,
-  onFiltersChange,
   initialData,
 }: AdminDashboardViewProps) {
-  const { filters, setFilters, viewModel, loading, error, createDefaultFilters } =
-    useAdminDashboard(initialData);
-
-  const handleFilterChange = (nextFilters: AdminDashboardFilters) => {
-    setFilters(nextFilters);
-    onFiltersChange?.(nextFilters);
-  };
-
-  const handleReset = () => {
-    const nextFilters = createDefaultFilters();
-    setFilters(nextFilters);
-    onFiltersChange?.(nextFilters);
-  };
+  const { filters, viewModel, loading, error } = useAdminDashboard(initialData);
 
   const handleStatusClick = (status: string) => {
     actions.onOpenAipMonitoring?.({ filters, status });
@@ -63,15 +47,6 @@ export default function AdminDashboardView({
         >
           Read-only
         </Badge>
-      </div>
-
-      <div className="rounded-[10px] bg-[#F4F6F8] px-4 py-3 sm:px-6 sm:py-4 lg:px-8">
-        <DashboardFiltersRow
-          filters={filters}
-          lguOptions={viewModel.lguOptions}
-          onChange={handleFilterChange}
-          onReset={handleReset}
-        />
       </div>
 
       {error && (
@@ -139,10 +114,7 @@ export default function AdminDashboardView({
 
       {viewModel.usageMetrics && (
         <div className="grid gap-6 xl:grid-cols-[2.1fr_1fr]">
-          <div className="space-y-6">
-            <ErrorRateBarChart metrics={viewModel.usageMetrics} />
-            <ChatbotUsageLineChart metrics={viewModel.usageMetrics} />
-          </div>
+          <ChatbotUsageLineChart metrics={viewModel.usageMetrics} />
           <MiniKpiStack metrics={viewModel.usageMetrics} />
         </div>
       )}
