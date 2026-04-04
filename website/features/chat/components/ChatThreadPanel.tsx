@@ -23,6 +23,7 @@ export default function ChatThreadPanel({
   isMessagesLoading = false,
   showJumpToLatest = false,
   isSending,
+  isAwaitingAssistant,
   routeScope = null,
 }: {
   title: string;
@@ -37,6 +38,7 @@ export default function ChatThreadPanel({
   isMessagesLoading?: boolean;
   showJumpToLatest?: boolean;
   isSending: boolean;
+  isAwaitingAssistant: boolean;
   routeScope?: LguRouteScope | null;
 }) {
   return (
@@ -64,9 +66,9 @@ export default function ChatThreadPanel({
             <ChatMessageBubble key={message.id} message={message} routeScope={routeScope} />
           ))}
 
-          {isSending ? <ChatAssistantLoadingState /> : null}
+          {isAwaitingAssistant ? <ChatAssistantLoadingState /> : null}
 
-          {!messages.length && !isSending && !isMessagesLoading && (
+          {!messages.length && !isSending && !isAwaitingAssistant && !isMessagesLoading && (
             <div className="text-muted-foreground text-sm">Start a conversation.</div>
           )}
 
@@ -101,13 +103,13 @@ export default function ChatThreadPanel({
               }
             }}
             placeholder="Type a message..."
-            disabled={isSending}
+            disabled={isSending || isAwaitingAssistant}
             className="min-h-10 max-h-32 resize-none overflow-y-auto whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[13px] md:min-h-11 md:text-[13.5px]"
           />
           <Button
             className="h-10 gap-2 rounded-lg px-4 text-xs"
             onClick={onSend}
-            disabled={!messageInput.trim() || isSending}
+            disabled={!messageInput.trim() || isSending || isAwaitingAssistant}
           >
             <Send className="h-4 w-4" />
             Send

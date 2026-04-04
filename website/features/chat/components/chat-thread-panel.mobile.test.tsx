@@ -14,6 +14,7 @@ describe("ChatThreadPanel mobile composer", () => {
         onSend={() => {}}
         threadRef={createRef<HTMLDivElement>()}
         isSending={false}
+        isAwaitingAssistant={false}
       />
     );
 

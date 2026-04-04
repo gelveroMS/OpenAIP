@@ -24,6 +24,7 @@ export default function LguChatbotView({
     isSessionsLoading,
     isMessagesLoading,
     isSending,
+    isAwaitingAssistant,
     error,
     sessionListItems,
     activeSession,
@@ -80,13 +81,13 @@ export default function LguChatbotView({
     const sessionChanged = previousSessionIdRef.current !== activeSessionId;
     previousSessionIdRef.current = activeSessionId;
 
-    if (sessionChanged || lastBubbleSignature !== "none" || isSending) {
+    if (sessionChanged || lastBubbleSignature !== "none" || isSending || isAwaitingAssistant) {
       scrollToBottom(sessionChanged ? "auto" : "smooth");
       requestAnimationFrame(() => {
         scrollToBottom("auto");
       });
     }
-  }, [activeSessionId, isSending, lastBubbleSignature, scrollToBottom]);
+  }, [activeSessionId, isAwaitingAssistant, isSending, lastBubbleSignature, scrollToBottom]);
 
   const resolvedActiveTitle = activeSession ? activeSession.title ?? "New Chat" : "New Chat";
 
@@ -178,6 +179,7 @@ export default function LguChatbotView({
             isMessagesLoading={isMessagesLoading}
             showJumpToLatest={showJumpToLatest}
             isSending={isSending}
+            isAwaitingAssistant={isAwaitingAssistant}
             routeScope={routeScope}
           />
         </div>
