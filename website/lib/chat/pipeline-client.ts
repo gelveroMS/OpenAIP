@@ -103,7 +103,7 @@ export async function requestPipelineChatAnswer(input: {
 }): Promise<PipelineChatAnswer> {
   const baseUrl = requireEnv("PIPELINE_API_BASE_URL").replace(/\/+$/, "");
   const retrievalMode = input.retrievalMode ?? "qa";
-  const defaultTopK = retrievalMode === "overview" ? 6 : 4;
+  const defaultTopK = retrievalMode === "overview" ? 6 : 5;
   const rawBody = JSON.stringify({
     question: input.question,
     retrieval_scope: input.retrievalScope,

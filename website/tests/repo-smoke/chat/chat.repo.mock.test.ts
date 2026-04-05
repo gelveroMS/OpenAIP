@@ -25,7 +25,16 @@ export async function runChatRepoTests() {
   assert(threw, "Expected INVALID_ROLE when adding non-user role");
 
   await repo.appendUserMessage(session.id, "first");
+  const afterFirstMessage = await repo.listSessions("u1");
+  const firstSession = afterFirstMessage.find((item) => item.id === session.id) ?? null;
+  assert(Boolean(firstSession?.title), "Expected untitled session to auto-title after first message");
+  const generatedTitle = firstSession?.title ?? null;
+
   await repo.appendUserMessage(session.id, "second");
+  const afterSecondMessage = await repo.listSessions("u1");
+  const secondSession = afterSecondMessage.find((item) => item.id === session.id) ?? null;
+  assert(secondSession?.title === generatedTitle, "Expected auto-generated title to stay stable");
+
   const messages = await repo.listMessages(session.id);
   assert(messages.length === 2, "Expected 2 messages");
   assert(messages[0].content === "first", "Expected insertion order preserved");

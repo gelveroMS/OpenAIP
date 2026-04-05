@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Pencil, Trash2 } from "lucide-react";
+import { EllipsisVertical, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -11,7 +11,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { useFinePointer } from "@/lib/ui/use-fine-pointer";
 import { cn } from "@/lib/ui/utils";
 import type { CitizenChatSessionVM } from "../types/citizen-chatbot.types";
 
@@ -36,6 +43,7 @@ export default function CitizenChatSessionItem({
   const [renameError, setRenameError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const skipBlurSaveRef = useRef(false);
+  const isFinePointer = useFinePointer();
 
   const beginRename = () => {
     setDraftTitle(session.title);
@@ -90,7 +98,7 @@ export default function CitizenChatSessionItem({
     <>
       <div
         className={cn(
-          "w-full border-l-4 border-transparent bg-white px-4 py-4 text-left transition-all hover:bg-slate-50",
+          "group w-full border-l-4 border-transparent bg-white px-4 py-4 text-left transition-all hover:bg-slate-50",
           session.isActive && "border-l-[#022437] bg-[#f5f8fa]"
         )}
       >
@@ -139,33 +147,68 @@ export default function CitizenChatSessionItem({
             )}
           </div>
 
-          <div className="flex shrink-0 items-center gap-1.5">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={beginRename}
-              disabled={isBusy}
-              aria-label={`Rename ${session.title}`}
+          {isFinePointer ? (
+            <div
+              data-testid={`session-actions-inline-${session.id}`}
+              className="flex shrink-0 items-center gap-1.5 opacity-0 transition-opacity pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto group-hover:opacity-100 group-focus-within:opacity-100"
             >
-              <Pencil className="h-4 w-4" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-rose-700 hover:text-rose-700"
-              onClick={() => {
-                setDeleteError(null);
-                setIsDeleting(true);
-              }}
-              disabled={isBusy}
-              aria-label={`Delete ${session.title}`}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={beginRename}
+                disabled={isBusy}
+                aria-label={`Rename ${session.title}`}
+              >
+                <Pencil className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-rose-700 hover:text-rose-700"
+                onClick={() => {
+                  setDeleteError(null);
+                  setIsDeleting(true);
+                }}
+                disabled={isBusy}
+                aria-label={`Delete ${session.title}`}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          ) : (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  disabled={isBusy}
+                  aria-label={`Session actions for ${session.title}`}
+                >
+                  <EllipsisVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-36">
+                <DropdownMenuItem onSelect={beginRename} disabled={isBusy}>
+                  Rename
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  variant="destructive"
+                  onSelect={() => {
+                    setDeleteError(null);
+                    setIsDeleting(true);
+                  }}
+                  disabled={isBusy}
+                >
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </div>
 

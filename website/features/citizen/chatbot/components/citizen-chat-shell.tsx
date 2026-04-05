@@ -44,7 +44,6 @@ export default function CitizenChatShell({
   onComposerPrimaryAction,
   onSend,
   onUseExample,
-  onUseFollowUp,
 }: {
   activeContext: Json;
   errorMessage: string | null;
@@ -74,7 +73,6 @@ export default function CitizenChatShell({
   onComposerPrimaryAction: () => void;
   onSend: () => void;
   onUseExample: (value: string) => void;
-  onUseFollowUp: (value: string) => void;
 }) {
   void activeContext;
   const [isConversationsDrawerOpen, setIsConversationsDrawerOpen] = useState(false);
@@ -142,7 +140,6 @@ export default function CitizenChatShell({
               isSending={isSending}
               exampleQueries={exampleQueries}
               onUseExample={onUseExample}
-              onUseFollowUp={onUseFollowUp}
               onScroll={onThreadScroll}
               onJumpToLatest={onJumpToLatest}
               scrollContainerRef={scrollContainerRef}

@@ -5,6 +5,7 @@ import {
   collectPaged,
   dedupeNonEmptyStrings,
 } from "@/lib/repos/_shared/supabase-batching";
+import { formatFirstChatSessionTitle } from "@/lib/chat/session-title";
 import { supabaseServer } from "@/lib/supabase/server";
 import { ChatRepoErrors } from "./types";
 import type { ChatCitation, ChatRetrievalMeta } from "./types";
@@ -284,6 +285,15 @@ export function createSupabaseChatRepo(): ChatRepo {
           throw new Error(ChatRepoErrors.NOT_FOUND);
         }
         throw new Error(error?.message ?? ChatRepoErrors.NOT_FOUND);
+      }
+
+      const generatedTitle = formatFirstChatSessionTitle((data as ChatMessageRow).created_at);
+      if (generatedTitle) {
+        await client
+          .from("chat_sessions")
+          .update({ title: generatedTitle })
+          .eq("id", sessionId)
+          .is("title", null);
       }
 
       return mapMessage(data as ChatMessageRow);

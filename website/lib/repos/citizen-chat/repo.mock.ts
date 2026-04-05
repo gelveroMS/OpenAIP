@@ -1,6 +1,7 @@
 import { CitizenChatRepoErrors } from "./types";
 import type { CitizenChatMessage, CitizenChatRepo, CitizenChatSession } from "./repo";
 import type { Json } from "@/lib/contracts/databasev2";
+import { formatFirstChatSessionTitle } from "@/lib/chat/session-title";
 
 let sessionSequence = 1;
 let messageSequence = 1;
@@ -136,6 +137,8 @@ export function createMockCitizenChatRepo(): CitizenChatRepo {
 
       const nextSession: CitizenChatSession = {
         ...sessionsStore[sessionIndex],
+        title:
+          sessionsStore[sessionIndex]?.title ?? formatFirstChatSessionTitle(now) ?? null,
         lastMessageAt: now,
         updatedAt: now,
       };

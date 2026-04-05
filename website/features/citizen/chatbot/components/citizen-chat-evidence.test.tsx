@@ -19,69 +19,58 @@ vi.mock("next/link", () => ({
 }));
 
 describe("CitizenChatEvidence", () => {
-  it("renders project evidence link with citizen route and required label format", () => {
+  it("renders one-line clickable evidence content when href exists", () => {
     render(
       <CitizenChatEvidence
         evidence={[
           {
             id: "evidence-1",
-            documentLabel: "Published AIP",
-            snippet: "Fallback snippet",
-            fiscalYear: "2025",
-            pageOrSection: "Page 3",
+            displayLine: "[S1] Mamatid FY 2025 Health Station Upgrade",
             href: "/aips/aip-1/project-1",
-            linkLabel: "Mamatid FY 2025 Health Station Upgrade",
           },
         ]}
       />
     );
 
     const link = screen.getByRole("link", {
-      name: "Mamatid FY 2025 Health Station Upgrade",
+      name: "[S1] Mamatid FY 2025 Health Station Upgrade",
     });
     expect(link).toHaveAttribute("href", "/aips/aip-1/project-1");
-    expect(screen.queryByText("Fallback snippet")).not.toBeInTheDocument();
+    expect(screen.queryByText("Published AIP")).not.toBeInTheDocument();
+    expect(screen.queryByText("Page 3")).not.toBeInTheDocument();
   });
 
-  it("renders totals evidence link with citizen AIP detail route and standard label", () => {
+  it("renders one-line totals evidence as clickable content", () => {
     render(
       <CitizenChatEvidence
         evidence={[
           {
             id: "evidence-2",
-            documentLabel: "Published AIP totals",
-            snippet: "Totals snippet",
-            fiscalYear: "2025",
-            pageOrSection: "Page 1",
+            displayLine: "[S2] Mamatid FY 2025 AIP",
             href: "/aips/aip-2",
-            linkLabel: "Mamatid FY 2025 AIP",
           },
         ]}
       />
     );
 
-    const link = screen.getByRole("link", { name: "Mamatid FY 2025 AIP" });
+    const link = screen.getByRole("link", { name: "[S2] Mamatid FY 2025 AIP" });
     expect(link).toHaveAttribute("href", "/aips/aip-2");
   });
 
-  it("keeps unresolved evidence as plain snippet text", () => {
+  it("renders one-line plain text evidence when href is missing", () => {
     render(
       <CitizenChatEvidence
         evidence={[
           {
             id: "evidence-3",
-            documentLabel: "System",
-            snippet: "No retrieval citations were produced for this response.",
-            fiscalYear: null,
-            pageOrSection: null,
+            displayLine: "[S3] Unknown LGU FY Unknown FY Unknown Program",
             href: null,
-            linkLabel: null,
           },
         ]}
       />
     );
 
-    expect(screen.getByText("No retrieval citations were produced for this response.")).toBeInTheDocument();
+    expect(screen.getByText("[S3] Unknown LGU FY Unknown FY Unknown Program")).toBeInTheDocument();
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
 });

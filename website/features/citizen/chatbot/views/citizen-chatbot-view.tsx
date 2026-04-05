@@ -29,7 +29,6 @@ export default function CitizenChatbotView() {
     handleSelectSession,
     handleSend,
     handleUseExample,
-    handleUseFollowUp,
   } = useCitizenChatbot();
 
   const threadRef = useRef<HTMLDivElement | null>(null);
@@ -116,7 +115,6 @@ export default function CitizenChatbotView() {
       onSelectSession={handleSelectSession}
       onSend={handleSend}
       onUseExample={handleUseExample}
-      onUseFollowUp={handleUseFollowUp}
     />
   );
 }

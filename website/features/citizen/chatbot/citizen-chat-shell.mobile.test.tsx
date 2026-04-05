@@ -69,7 +69,6 @@ describe("CitizenChatShell mobile layout", () => {
         onComposerPrimaryAction={vi.fn()}
         onSend={vi.fn()}
         onUseExample={vi.fn()}
-        onUseFollowUp={vi.fn()}
       />
     );
 
