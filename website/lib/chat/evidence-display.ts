@@ -47,6 +47,21 @@ function toMetadata(citation: EvidenceCitationLike): EvidenceMetadata {
   return citation.metadata as EvidenceMetadata;
 }
 
+function normalizeFallbackSnippet(value: unknown): string | null {
+  const snippet = normalizeText(value);
+  if (!snippet) return null;
+  return snippet.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function hasFallbackSnippet(citation: EvidenceCitationLike): boolean {
+  const normalizedSnippet = normalizeFallbackSnippet((citation as Record<string, unknown>).snippet);
+  if (!normalizedSnippet) return false;
+  return (
+    normalizedSnippet.includes("no retrieval citations were produced for this response.") ||
+    normalizedSnippet.includes("pipeline request failed.")
+  );
+}
+
 function isUsableLguScopeName(scopeName: string): boolean {
   const lowered = scopeName.toLowerCase();
   if (lowered === "unknown scope") return false;
@@ -96,11 +111,9 @@ export function isTotalsEvidenceCitation(citation: EvidenceCitationLike): boolea
 }
 
 export function isSystemEvidenceCitation(citation: EvidenceCitationLike): boolean {
-  const scopeType = normalizeText(citation.scopeType ?? citation.scope_type)?.toLowerCase() ?? null;
-  if (scopeType === "system") return true;
-
+  if (citation.insufficient !== true) return false;
   const sourceId = normalizeText(citation.sourceId ?? citation.source_id)?.toUpperCase() ?? null;
-  return sourceId === "S0" && citation.insufficient === true;
+  return sourceId === "S0" || hasFallbackSnippet(citation);
 }
 
 export function formatEvidenceDisplayLine(citation: EvidenceCitationLike, index: number): string {

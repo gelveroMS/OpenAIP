@@ -341,6 +341,41 @@ describe("ChatMessageBubble", () => {
     expect(link).toHaveAttribute("href", "/city/aips/aip-city-2025");
   });
 
+  it("renders system-scope totals evidence and resolves AIP link from metadata.aip_id", () => {
+    render(
+      <ChatMessageBubble
+        routeScope="barangay"
+        message={{
+          id: "msg-system-totals-link",
+          role: "assistant",
+          content: "Totals citation from structured SQL.",
+          timeLabel: "10:07 AM",
+          deliveryStatus: "sent",
+          retrievalMeta: null,
+          citations: [
+            {
+              sourceId: "S12",
+              scopeName: "Published AIP totals",
+              scopeType: "system",
+              snippet: "Total investment program value from structured totals table.",
+              insufficient: false,
+              lguName: "Mamatid",
+              resolvedFiscalYear: 2025,
+              metadata: {
+                type: "aip_totals",
+                aip_id: "aip-meta-1",
+              },
+            },
+          ],
+        }}
+      />
+    );
+
+    expandEvidence();
+    const link = screen.getByRole("link", { name: "[S12] Mamatid FY 2025 AIP" });
+    expect(link).toHaveAttribute("href", "/barangay/aips/aip-meta-1");
+  });
+
   it("prefers project detail link over totals link when both metadata paths are present", () => {
     render(
       <ChatMessageBubble
@@ -399,6 +434,7 @@ describe("ChatMessageBubble", () => {
               scopeName: "System",
               scopeType: "system",
               snippet: "Pipeline request failed.",
+              insufficient: true,
             },
           ],
         }}

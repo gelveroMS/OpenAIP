@@ -13,10 +13,16 @@ import type { ChatCitation } from "@/lib/repos/chat/types";
 
 type LguRouteScope = "barangay" | "city";
 
+function normalizeText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+
 function buildCitationProjectHref(citation: ChatCitation, routeScope: LguRouteScope | null): string | null {
   if (!routeScope) return null;
-  const aipId = typeof citation.aipId === "string" ? citation.aipId.trim() : "";
-  const projectId = typeof citation.projectId === "string" ? citation.projectId.trim() : "";
+  const aipId = normalizeText(citation.aipId) ?? "";
+  const projectId = normalizeText(citation.projectId) ?? "";
   if (!aipId || !projectId) return null;
 
   return `/${routeScope}/aips/${encodeURIComponent(aipId)}/${encodeURIComponent(projectId)}`;
@@ -24,7 +30,11 @@ function buildCitationProjectHref(citation: ChatCitation, routeScope: LguRouteSc
 
 function buildCitationAipTotalsHref(citation: ChatCitation, routeScope: LguRouteScope | null): string | null {
   if (!routeScope) return null;
-  const aipId = typeof citation.aipId === "string" ? citation.aipId.trim() : "";
+  const metadata =
+    citation.metadata && typeof citation.metadata === "object" && !Array.isArray(citation.metadata)
+      ? (citation.metadata as Record<string, unknown>)
+      : null;
+  const aipId = normalizeText(citation.aipId) ?? normalizeText(metadata?.aip_id) ?? "";
   if (!aipId) return null;
   return `/${routeScope}/aips/${encodeURIComponent(aipId)}`;
 }

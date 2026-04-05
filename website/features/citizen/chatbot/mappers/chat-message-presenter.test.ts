@@ -71,10 +71,35 @@ describe("mapEvidenceFromCitations", () => {
         snippet: "Pipeline request failed.",
         scopeType: "system",
         scopeName: "System",
+        insufficient: true,
       },
     ]);
 
     expect(evidence).toEqual([]);
+  });
+
+  it("keeps non-fallback system totals evidence visible and linkable", () => {
+    const evidence = mapEvidenceFromCitations([
+      {
+        sourceId: "S6",
+        snippet: "Total investment program value from structured totals table.",
+        scopeType: "system",
+        scopeName: "Published AIP totals",
+        insufficient: false,
+        lguName: "Mamatid",
+        resolvedFiscalYear: 2025,
+        metadata: {
+          type: "aip_totals",
+          aip_id: "aip-system-1",
+        },
+      },
+    ]);
+
+    expect(evidence).toHaveLength(1);
+    expect(evidence[0]).toMatchObject({
+      href: "/aips/aip-system-1",
+      displayLine: "[S6] Mamatid FY 2025 AIP",
+    });
   });
 
   it("keeps evidence renderable when citations are mixed system and non-system", () => {
