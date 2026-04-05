@@ -12,7 +12,7 @@ import {
   invalidateCitizenProfileStatusCache,
 } from "@/features/citizen/auth/utils/profile-status-client";
 import { CITIZEN_CHAT_LIMITS } from "../constants/ui";
-import { mapEvidenceFromCitations, mapFollowUpsFromRetrievalMeta } from "../mappers/chat-message-presenter";
+import { mapEvidenceFromCitations } from "../mappers/chat-message-presenter";
 import type {
   CitizenChatComposerMode,
   CitizenChatErrorState,
@@ -65,7 +65,6 @@ function toMessageVm(message: CitizenChatMessage): CitizenChatMessageVM {
     citations: message.citations,
     retrievalMeta: message.retrievalMeta,
     evidence: mapEvidenceFromCitations(message.citations),
-    followUps: mapFollowUpsFromRetrievalMeta(message.retrievalMeta),
   };
 }
 
@@ -451,10 +450,6 @@ export function useCitizenChatbot() {
     setMessageInput(value);
   }, []);
 
-  const handleUseFollowUp = useCallback((value: string) => {
-    setMessageInput(value);
-  }, []);
-
   const handleSend = useCallback(async () => {
     if (!userId) {
       openAuthModal(false);
@@ -647,6 +642,5 @@ export function useCitizenChatbot() {
     handleSelectSession,
     handleSend,
     handleUseExample,
-    handleUseFollowUp,
   };
 }

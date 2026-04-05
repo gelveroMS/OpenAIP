@@ -1,5 +1,5 @@
 import type { Json } from "@/lib/contracts/databasev2";
-import type { CitizenChatFollowUp, CitizenChatEvidenceItem } from "../types/citizen-chatbot.types";
+import type { CitizenChatEvidenceItem } from "../types/citizen-chatbot.types";
 
 function normalizeText(input: unknown): string | null {
   if (typeof input !== "string") return null;
@@ -123,21 +123,3 @@ export function mapEvidenceFromCitations(citations: Json | null): CitizenChatEvi
     .filter((item): item is CitizenChatEvidenceItem => item !== null);
 }
 
-export function mapFollowUpsFromRetrievalMeta(meta: Json | null): CitizenChatFollowUp[] {
-  if (!meta || typeof meta !== "object" || Array.isArray(meta)) return [];
-
-  const row = meta as { suggestions?: unknown; suggestedFollowUps?: unknown };
-  const source = Array.isArray(row.suggestions) ? row.suggestions : row.suggestedFollowUps;
-  if (!Array.isArray(source)) return [];
-
-  return source
-    .map((value, index) => {
-      const label = normalizeText(value);
-      if (!label) return null;
-      return {
-        id: `follow_up_${index + 1}`,
-        label,
-      };
-    })
-    .filter((item): item is CitizenChatFollowUp => item !== null);
-}

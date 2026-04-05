@@ -254,7 +254,7 @@ describe("useCitizenChatbot", () => {
     );
   });
 
-  it("parses LGU-style assistant payload and surfaces retrievalMeta.suggestions as follow-ups", async () => {
+  it("parses LGU-style assistant payload without rendering follow-up chips", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce({
@@ -328,9 +328,10 @@ describe("useCitizenChatbot", () => {
     await waitFor(() => {
       expect(result.current.messages).toHaveLength(2);
     });
-    expect(result.current.messages[1]?.followUps.map((item) => item.label)).toEqual([
-      "Show top projects",
-      "Compare with last year",
-    ]);
+    expect(result.current.messages[1]?.content).toBe("Here are budget details.");
+    expect(result.current.messages[1]?.retrievalMeta).toEqual({
+      status: "answer",
+      suggestions: ["Show top projects", "Compare with last year"],
+    });
   });
 });

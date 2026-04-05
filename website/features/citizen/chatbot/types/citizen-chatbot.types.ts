@@ -5,11 +5,6 @@ export type CitizenChatScopeChip = {
   label: string;
 };
 
-export type CitizenChatFollowUp = {
-  id: string;
-  label: string;
-};
-
 export type CitizenChatEvidenceItem = {
   id: string;
   documentLabel: string;
@@ -35,7 +30,6 @@ export type CitizenChatMessageVM = {
   citations: Json | null;
   retrievalMeta: Json | null;
   evidence: CitizenChatEvidenceItem[];
-  followUps: CitizenChatFollowUp[];
 };
 
 export type CitizenChatReplyResult = {
