@@ -329,6 +329,7 @@ describe("useCitizenChatbot", () => {
       expect(result.current.messages).toHaveLength(2);
     });
     expect(result.current.messages[1]?.content).toBe("Here are budget details.");
+    expect(result.current.sessionItems[0]?.title).toBe("March 1, 2026 8:00 AM");
     expect(result.current.messages[1]?.retrievalMeta).toEqual({
       status: "answer",
       suggestions: ["Show top projects", "Compare with last year"],

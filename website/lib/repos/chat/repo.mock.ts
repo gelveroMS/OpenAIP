@@ -1,5 +1,6 @@
 import { CHAT_MESSAGES_FIXTURE, CHAT_SESSIONS_FIXTURE } from "@/mocks/fixtures/chat/chat.fixture";
 import type { ChatMessageRole } from "@/lib/contracts/databasev2";
+import { formatFirstChatSessionTitle } from "@/lib/chat/session-title";
 import { ChatRepoErrors } from "./types";
 import type { ChatMessage, ChatRepo, ChatSession } from "./repo";
 
@@ -149,8 +150,10 @@ export function createMockChatRepo(): ChatRepo {
       messagesStore = [...messagesStore, message];
 
       const session = sessionsStore[sessionIndex];
+      const generatedTitle = !session.title ? formatFirstChatSessionTitle(now) : null;
       const updatedSession: ChatSession = {
         ...session,
+        title: session.title ?? generatedTitle ?? null,
         lastMessageAt: now,
         updatedAt: now,
       };

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ChatMessage, ChatSession } from "@/lib/repos/chat/repo";
 import type { ChatCitation, ChatRetrievalMeta } from "@/lib/repos/chat/types";
+import { formatFirstChatSessionTitle } from "@/lib/chat/session-title";
 import type {
   ChatMessageBubble,
   ChatMessageDeliveryStatus,
@@ -442,6 +443,21 @@ export function useLguChatbot(routePrefix = "/api/barangay/chat") {
           ];
           return next;
         });
+        setSessions((prev) =>
+          sortSessionsByUpdatedAt(
+            prev.map((session) =>
+              session.id === resolvedSessionId
+                ? {
+                    ...session,
+                    title:
+                      session.title?.trim() ||
+                      formatFirstChatSessionTitle(userMessage.createdAt) ||
+                      session.title,
+                  }
+                : session
+            )
+          )
+        );
 
         await loadSessions();
         await refreshSearch();

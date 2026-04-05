@@ -40,4 +40,26 @@ describe("Citizen chat mock repo", () => {
     expect(messagesAfterDelete).toHaveLength(0);
     expect(deletedAgain).toBe(false);
   });
+
+  it("auto-titles an untitled session on first message and keeps it stable after", async () => {
+    vi.useFakeTimers();
+    const repo = createMockCitizenChatRepo();
+
+    vi.setSystemTime(new Date("2026-03-01T00:00:00.000Z"));
+    const session = await repo.createSession("citizen-1", { context: {} });
+
+    vi.setSystemTime(new Date("2026-03-01T00:01:00.000Z"));
+    await repo.appendUserMessage(session.id, "First message");
+
+    const firstPass = await repo.listSessions("citizen-1");
+    const firstTitle = firstPass[0]?.title ?? null;
+    expect(firstTitle).toBe("March 1, 2026 8:01 AM");
+
+    vi.setSystemTime(new Date("2026-03-01T00:05:00.000Z"));
+    await repo.appendUserMessage(session.id, "Second message");
+
+    const secondPass = await repo.listSessions("citizen-1");
+    expect(secondPass[0]?.title).toBe(firstTitle);
+    vi.useRealTimers();
+  });
 });

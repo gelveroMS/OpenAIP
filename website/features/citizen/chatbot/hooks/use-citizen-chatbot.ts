@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { getCitizenChatRepo } from "@/lib/repos/citizen-chat/repo";
 import type { CitizenChatMessage, CitizenChatSession } from "@/lib/repos/citizen-chat/repo";
+import { formatFirstChatSessionTitle } from "@/lib/chat/session-title";
 import { buildCitizenAuthHref, setReturnToInSessionStorage } from "@/features/citizen/auth/utils/auth-query";
 import { addCitizenAuthChangedListener } from "@/features/citizen/auth/utils/auth-sync";
 import {
@@ -530,6 +531,10 @@ export function useCitizenChatbot() {
             session.id === resolvedSessionId
               ? {
                   ...session,
+                  title:
+                    session.title?.trim() ||
+                    formatFirstChatSessionTitle(persistedUser.createdAt) ||
+                    session.title,
                   lastMessageAt: persistedUser.createdAt,
                   updatedAt: persistedUser.createdAt,
                 }

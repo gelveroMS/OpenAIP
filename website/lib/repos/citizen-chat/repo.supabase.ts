@@ -1,4 +1,5 @@
 import type { Json } from "@/lib/contracts/databasev2";
+import { formatFirstChatSessionTitle } from "@/lib/chat/session-title";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { CitizenChatRepoErrors } from "./types";
 import type { CitizenChatMessage, CitizenChatRepo, CitizenChatSession } from "./repo";
@@ -174,6 +175,15 @@ export function createSupabaseCitizenChatRepo(): CitizenChatRepo {
 
       if (error) {
         throw new Error(error.message);
+      }
+
+      const generatedTitle = formatFirstChatSessionTitle((data as ChatMessageRow).created_at);
+      if (generatedTitle) {
+        await client
+          .from("chat_sessions")
+          .update({ title: generatedTitle })
+          .eq("id", sessionId)
+          .is("title", null);
       }
 
       return toMessage(data as ChatMessageRow);
