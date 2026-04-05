@@ -282,7 +282,7 @@ describe("ChatMessageBubble", () => {
             {
               sourceId: "S6",
               scopeName: "Published AIP totals",
-              scopeType: "system",
+              scopeType: "unknown",
               snippet: "Total investment program value from structured totals table.",
               aipId: "aip-2025-1",
               lguName: "Mamatid",
@@ -316,7 +316,7 @@ describe("ChatMessageBubble", () => {
             {
               sourceId: "S7",
               scopeName: "Published AIP line items",
-              scopeType: "system",
+              scopeType: "unknown",
               snippet: "Computed from published AIP line-item totals.",
               aipId: "aip-city-2025",
               lguName: "Cabuyao City",
@@ -373,7 +373,7 @@ describe("ChatMessageBubble", () => {
     expect(screen.queryByRole("link", { name: "Mamatid FY 2026 AIP" })).not.toBeInTheDocument();
   });
 
-  it("keeps non-project system citations as plain text evidence", () => {
+  it("does not render evidence container for system-only citations", () => {
     render(
       <ChatMessageBubble
         routeScope="barangay"
@@ -400,9 +400,43 @@ describe("ChatMessageBubble", () => {
       />
     );
 
+    expect(screen.queryByTestId("chat-evidence-details")).not.toBeInTheDocument();
+    expect(screen.queryByText("Pipeline request failed.")).not.toBeInTheDocument();
+  });
+
+  it("renders evidence container when citations include at least one non-system citation", () => {
+    render(
+      <ChatMessageBubble
+        routeScope="barangay"
+        message={{
+          id: "msg-mixed-citations",
+          role: "assistant",
+          content: "Mixed citations response.",
+          timeLabel: "10:08 AM",
+          deliveryStatus: "sent",
+          retrievalMeta: null,
+          citations: [
+            {
+              sourceId: "S0",
+              scopeName: "System",
+              scopeType: "system",
+              snippet: "No retrieval citations were produced for this response.",
+              insufficient: true,
+            },
+            {
+              sourceId: "S10",
+              scopeName: "Mamatid",
+              scopeType: "barangay",
+              snippet: "Road concreting line item evidence.",
+            },
+          ],
+        }}
+      />
+    );
+
+    expect(screen.getByTestId("chat-evidence-details")).toBeInTheDocument();
     expandEvidence();
-    expect(screen.getByText("Pipeline request failed.")).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /FY/i })).not.toBeInTheDocument();
+    expect(screen.getByText("Road concreting line item evidence.")).toBeInTheDocument();
   });
 
   it("keeps totals citations plain text when required AIP-link fields are incomplete", () => {
@@ -420,7 +454,7 @@ describe("ChatMessageBubble", () => {
             {
               sourceId: "S9",
               scopeName: "Published AIP totals",
-              scopeType: "system",
+              scopeType: "unknown",
               snippet: "Totals evidence snippet.",
               aipId: "aip-incomplete",
               metadata: {

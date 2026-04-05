@@ -30,6 +30,14 @@ function isAipTotalsCitation(citation: ChatCitation): boolean {
   return type === "aip_line_items" && aggregateType === "total_investment_program";
 }
 
+function isSystemCitation(citation: ChatCitation): boolean {
+  const scopeType = normalizeText(citation.scopeType)?.toLowerCase() ?? null;
+  if (scopeType === "system") return true;
+
+  const sourceId = normalizeText(citation.sourceId)?.toUpperCase() ?? null;
+  return sourceId === "S0" && citation.insufficient === true;
+}
+
 function buildCitationProjectHref(citation: ChatCitation, routeScope: LguRouteScope | null): string | null {
   if (!routeScope) return null;
   const aipId = typeof citation.aipId === "string" ? citation.aipId.trim() : "";
@@ -83,6 +91,7 @@ export default function ChatMessageBubble({
   const resolvedStatus =
     message.retrievalMeta?.status ??
     (message.retrievalMeta?.refused ? "refusal" : "answer");
+  const hasNonSystemCitation = message.citations.some((citation) => !isSystemCitation(citation));
 
   return (
     <div className={cn("flex w-full", isUser ? "justify-end" : "justify-start")}>
@@ -121,7 +130,7 @@ export default function ChatMessageBubble({
             </div>
           )}
 
-        {!isUser && message.citations.length > 0 && (
+        {!isUser && hasNonSystemCitation && (
           <details data-testid="chat-evidence-details" className="group mt-3 rounded-md border bg-background px-2 py-2">
             <summary
               data-testid="chat-evidence-summary"

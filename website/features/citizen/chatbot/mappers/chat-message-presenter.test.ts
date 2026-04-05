@@ -68,7 +68,7 @@ describe("mapEvidenceFromCitations", () => {
     });
   });
 
-  it("keeps unresolved evidence as plain-text entry metadata", () => {
+  it("filters out evidence when citations are system-only", () => {
     const evidence = mapEvidenceFromCitations([
       {
         sourceId: "S4",
@@ -78,11 +78,27 @@ describe("mapEvidenceFromCitations", () => {
       },
     ]);
 
-    expect(evidence).toHaveLength(1);
-    expect(evidence[0]).toMatchObject({
-      snippet: "Pipeline request failed.",
-      href: null,
-      linkLabel: null,
-    });
+    expect(evidence).toEqual([]);
+  });
+
+  it("keeps evidence renderable when citations are mixed system and non-system", () => {
+    const evidence = mapEvidenceFromCitations([
+      {
+        sourceId: "S0",
+        snippet: "No retrieval citations were produced for this response.",
+        scopeType: "system",
+        scopeName: "System",
+        insufficient: true,
+      },
+      {
+        sourceId: "S5",
+        snippet: "Road concreting line item evidence.",
+        scopeType: "barangay",
+        scopeName: "Mamatid",
+      },
+    ]);
+
+    expect(evidence).toHaveLength(2);
+    expect(evidence.some((item) => item.snippet === "Road concreting line item evidence.")).toBe(true);
   });
 });

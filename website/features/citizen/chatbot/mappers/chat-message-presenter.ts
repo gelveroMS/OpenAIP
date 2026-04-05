@@ -25,14 +25,24 @@ function isAipTotalsCitation(metadata: Record<string, unknown>): boolean {
   return type === "aip_line_items" && aggregateType === "total_investment_program";
 }
 
+function isSystemCitationRow(row: Record<string, unknown>): boolean {
+  const scopeType = normalizeText(row.scopeType ?? row.scope_type)?.toLowerCase() ?? null;
+  if (scopeType === "system") return true;
+
+  const sourceId = normalizeText(row.sourceId ?? row.source_id)?.toUpperCase() ?? null;
+  return sourceId === "S0" && row.insufficient === true;
+}
+
 export function mapEvidenceFromCitations(citations: Json | null): CitizenChatEvidenceItem[] {
   if (!Array.isArray(citations)) return [];
+  const citationRows = citations.filter((entry): entry is Record<string, unknown> => (
+    Boolean(entry) && typeof entry === "object" && !Array.isArray(entry)
+  ));
+  if (!citationRows.length) return [];
+  if (!citationRows.some((row) => !isSystemCitationRow(row))) return [];
 
-  return citations
-    .map((entry, index) => {
-      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
-
-      const row = entry as Record<string, unknown>;
+  return citationRows
+    .map((row, index) => {
       const snippet = normalizeText(row.snippet);
       if (!snippet) return null;
       const metadata =
