@@ -1,14 +1,11 @@
 import { cn } from "@/lib/ui/utils";
 import type { CitizenChatMessageVM } from "../types/citizen-chatbot.types";
 import CitizenChatEvidence from "./citizen-chat-evidence";
-import CitizenChatFollowups from "./citizen-chat-followups";
 
 export default function CitizenChatMessageBubble({
   message,
-  onUseFollowUp,
 }: {
   message: CitizenChatMessageVM;
-  onUseFollowUp: (value: string) => void;
 }) {
   const isUser = message.role === "user";
 
@@ -28,7 +25,6 @@ export default function CitizenChatMessageBubble({
         {!isUser ? (
           <>
             <CitizenChatEvidence evidence={message.evidence} />
-            <CitizenChatFollowups followUps={message.followUps} onUseFollowUp={onUseFollowUp} />
           </>
         ) : null}
       </div>

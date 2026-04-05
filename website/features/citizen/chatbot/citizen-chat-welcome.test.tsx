@@ -9,7 +9,7 @@ describe("CitizenChatWelcome", () => {
 
     render(
       <CitizenChatWelcome
-        examples={[firstExample, "List infrastructure projects in my barangay."]}
+        examples={[firstExample, "Which projects for 2025 focus on building and facility maintenance?"]}
         onUseExample={onUseExample}
       />
     );

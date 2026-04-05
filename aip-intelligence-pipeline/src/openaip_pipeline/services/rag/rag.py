@@ -25,7 +25,7 @@ YEAR_PATTERN = re.compile(r"\b(20\d{2})\b")
 MAX_SNIPPET_LENGTH = 360
 MAX_RESPONSE_SENTENCES = 2
 MAX_RETRIEVAL_QUERY_PREVIEW = 240
-INSUFFICIENT_CONTEXT_RESPONSE = "Insufficient context."
+INSUFFICIENT_CONTEXT_RESPONSE = "I couldn’t find a reliable answer for that in the published AIP records."
 FALLBACK_LIMIT_POLICY = {
     "max_sentences": 2,
     "max_list_items": 2,
@@ -807,7 +807,7 @@ def answer_with_rag(
     retrieval_scope: dict[str, Any] | None = None,
     retrieval_mode: str = "qa",
     retrieval_filters: dict[str, Any] | None = None,
-    top_k: int = 4,
+    top_k: int = 5,
     min_similarity: float = 0.3,
     metadata_filter: dict[str, Any] | None = None,
     sql_fallback: bool = False,

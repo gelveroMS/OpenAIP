@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { EllipsisVertical, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -11,7 +11,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { useFinePointer } from "@/lib/ui/use-fine-pointer";
 import { cn } from "@/lib/ui/utils";
 import type { ChatSessionListItem } from "../types/chat.types";
 
@@ -46,6 +53,7 @@ export default function ChatSessionsPanel({
   const [deleteTarget, setDeleteTarget] = useState<ChatSessionListItem | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const skipBlurSaveRef = useRef(false);
+  const isFinePointer = useFinePointer();
 
   const beginRename = (session: ChatSessionListItem) => {
     setEditingSessionId(session.id);
@@ -164,7 +172,7 @@ export default function ChatSessionsPanel({
                 <div
                   key={session.id}
                   className={cn(
-                    "border-l-2 transition-colors",
+                    "group border-l-2 transition-colors",
                     compact ? "px-4 py-3" : "px-5 py-4",
                     session.isActive ? "border-primary bg-muted/50" : "border-transparent hover:bg-muted/50"
                   )}
@@ -219,35 +227,75 @@ export default function ChatSessionsPanel({
                       )}
                     </div>
 
-                    <div className="flex shrink-0 items-center gap-1.5">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className={cn(compact ? "h-8 w-8" : "h-7 w-7")}
-                        onClick={() => beginRename(session)}
-                        disabled={isBusy}
-                        aria-label={`Rename ${session.title}`}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
+                    {isFinePointer ? (
+                      <div
+                        data-testid={`session-actions-inline-${session.id}`}
                         className={cn(
-                          compact ? "h-8 w-8 text-rose-700 hover:text-rose-700" : "h-7 w-7 text-rose-700 hover:text-rose-700"
+                          "flex shrink-0 items-center gap-1.5 opacity-0 transition-opacity pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto group-hover:opacity-100 group-focus-within:opacity-100"
                         )}
-                        onClick={() => {
-                          setDeleteError(null);
-                          setDeleteTarget(session);
-                        }}
-                        disabled={isBusy}
-                        aria-label={`Delete ${session.title}`}
                       >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className={cn(compact ? "h-8 w-8" : "h-7 w-7")}
+                          onClick={() => beginRename(session)}
+                          disabled={isBusy}
+                          aria-label={`Rename ${session.title}`}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className={cn(
+                            compact ? "h-8 w-8 text-rose-700 hover:text-rose-700" : "h-7 w-7 text-rose-700 hover:text-rose-700"
+                          )}
+                          onClick={() => {
+                            setDeleteError(null);
+                            setDeleteTarget(session);
+                          }}
+                          disabled={isBusy}
+                          aria-label={`Delete ${session.title}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className={cn(compact ? "h-8 w-8" : "h-7 w-7")}
+                            disabled={isBusy}
+                            aria-label={`Session actions for ${session.title}`}
+                          >
+                            <EllipsisVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-36">
+                          <DropdownMenuItem
+                            onSelect={() => beginRename(session)}
+                            disabled={isBusy}
+                          >
+                            Rename
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onSelect={() => {
+                              setDeleteError(null);
+                              setDeleteTarget(session);
+                            }}
+                            disabled={isBusy}
+                          >
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
                   </div>
                 </div>
               );

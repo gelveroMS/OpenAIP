@@ -1,6 +1,38 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import ChatSessionsPanel from "./ChatSessionsPanel";
+
+const mockUseFinePointer = vi.fn(() => true);
+
+vi.mock("@/lib/ui/use-fine-pointer", () => ({
+  useFinePointer: () => mockUseFinePointer(),
+}));
+
+vi.mock("@/components/ui/dropdown-menu", () => ({
+  DropdownMenu: ({ children }: { children: ReactNode }) => <>{children}</>,
+  DropdownMenuTrigger: ({ children }: { children: ReactNode }) => <span>{children}</span>,
+  DropdownMenuContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  DropdownMenuItem: ({
+    children,
+    onSelect,
+    disabled,
+  }: {
+    children: ReactNode;
+    onSelect?: () => void;
+    disabled?: boolean;
+  }) => (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => {
+        onSelect?.();
+      }}
+    >
+      {children}
+    </button>
+  ),
+}));
 
 describe("ChatSessionsPanel", () => {
   const baseSessions = [
@@ -11,6 +43,10 @@ describe("ChatSessionsPanel", () => {
       isActive: true,
     },
   ];
+
+  beforeEach(() => {
+    mockUseFinePointer.mockReturnValue(true);
+  });
 
   it("renders conversation title without session time", () => {
     render(
@@ -28,6 +64,26 @@ describe("ChatSessionsPanel", () => {
     expect(screen.getByText("Budget Review")).toBeInTheDocument();
     expect(screen.queryByText("10:00 AM")).not.toBeInTheDocument();
     expect(screen.queryByText("No messages yet.")).not.toBeInTheDocument();
+  });
+
+  it("uses hover/focus classes for inline actions on fine pointers", () => {
+    render(
+      <ChatSessionsPanel
+        sessions={baseSessions}
+        query=""
+        onQueryChange={() => {}}
+        onSelect={() => {}}
+        onNewChat={() => {}}
+        onRename={async () => {}}
+        onDelete={async () => {}}
+      />
+    );
+
+    expect(screen.getByTestId("session-actions-inline-session-1")).toHaveClass(
+      "opacity-0",
+      "group-hover:opacity-100",
+      "group-focus-within:opacity-100"
+    );
   });
 
   it("renames a conversation with Enter", async () => {
@@ -91,5 +147,30 @@ describe("ChatSessionsPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /rename budget review/i }));
     expect(screen.getByDisplayValue("Budget Review")).toBeInTheDocument();
+  });
+
+  it("uses a meatballs menu on touch pointers", async () => {
+    mockUseFinePointer.mockReturnValue(false);
+
+    render(
+      <ChatSessionsPanel
+        sessions={baseSessions}
+        query=""
+        onQueryChange={() => {}}
+        onSelect={() => {}}
+        onNewChat={() => {}}
+        onRename={async () => {}}
+        onDelete={async () => {}}
+      />
+    );
+
+    expect(screen.queryByTestId("session-actions-inline-session-1")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /session actions for budget review/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("Budget Review")).toBeInTheDocument();
+    });
   });
 });

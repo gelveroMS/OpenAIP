@@ -10,7 +10,6 @@ export default function CitizenChatMessageList({
   isSending,
   exampleQueries,
   onUseExample,
-  onUseFollowUp,
   onScroll,
   onJumpToLatest,
   scrollContainerRef,
@@ -21,7 +20,6 @@ export default function CitizenChatMessageList({
   isSending: boolean;
   exampleQueries: readonly string[];
   onUseExample: (value: string) => void;
-  onUseFollowUp: (value: string) => void;
   onScroll?: () => void;
   onJumpToLatest?: () => void;
   scrollContainerRef?: RefObject<HTMLDivElement | null>;
@@ -40,7 +38,7 @@ export default function CitizenChatMessageList({
           <CitizenChatWelcome examples={exampleQueries} onUseExample={onUseExample} />
         ) : (
           messages.map((message) => (
-            <CitizenChatMessageBubble key={message.id} message={message} onUseFollowUp={onUseFollowUp} />
+            <CitizenChatMessageBubble key={message.id} message={message} />
           ))
         )}
 

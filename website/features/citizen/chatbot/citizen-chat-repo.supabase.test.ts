@@ -67,4 +67,42 @@ describe("Citizen chat supabase repo adapter", () => {
 
     await expect(repo.renameSession("session-3", "Title")).rejects.toThrow("update failed");
   });
+
+  it("conditionally stamps an untitled session title after appending a user message", async () => {
+    const single = vi.fn().mockResolvedValue({
+      data: {
+        id: "msg-1",
+        session_id: "session-4",
+        role: "user",
+        content: "Hello",
+        citations: null,
+        retrieval_meta: null,
+        created_at: "2026-03-01T00:02:00.000Z",
+      },
+      error: null,
+    });
+    const selectMessage = vi.fn().mockReturnValue({ single });
+    const insertMessage = vi.fn().mockReturnValue({ select: selectMessage });
+
+    const is = vi.fn().mockResolvedValue({ data: [], error: null });
+    const eq = vi.fn().mockReturnValue({ is });
+    const updateSession = vi.fn().mockReturnValue({ eq });
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "chat_messages") {
+        return { insert: insertMessage };
+      }
+      if (table === "chat_sessions") {
+        return { update: updateSession };
+      }
+      throw new Error(`Unexpected table ${table}`);
+    });
+
+    const repo = createSupabaseCitizenChatRepo();
+    await repo.appendUserMessage("session-4", "Hello");
+
+    expect(updateSession).toHaveBeenCalledWith({ title: "March 1, 2026 8:02 AM" });
+    expect(eq).toHaveBeenCalledWith("id", "session-4");
+    expect(is).toHaveBeenCalledWith("title", null);
+  });
 });

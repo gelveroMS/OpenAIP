@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { getCitizenChatRepo } from "@/lib/repos/citizen-chat/repo";
 import type { CitizenChatMessage, CitizenChatSession } from "@/lib/repos/citizen-chat/repo";
+import { formatFirstChatSessionTitle } from "@/lib/chat/session-title";
 import { buildCitizenAuthHref, setReturnToInSessionStorage } from "@/features/citizen/auth/utils/auth-query";
 import { addCitizenAuthChangedListener } from "@/features/citizen/auth/utils/auth-sync";
 import {
@@ -12,7 +13,7 @@ import {
   invalidateCitizenProfileStatusCache,
 } from "@/features/citizen/auth/utils/profile-status-client";
 import { CITIZEN_CHAT_LIMITS } from "../constants/ui";
-import { mapEvidenceFromCitations, mapFollowUpsFromRetrievalMeta } from "../mappers/chat-message-presenter";
+import { mapEvidenceFromCitations } from "../mappers/chat-message-presenter";
 import type {
   CitizenChatComposerMode,
   CitizenChatErrorState,
@@ -23,8 +24,8 @@ import type {
 
 const EXAMPLE_QUERIES = [
   "What is the total budget for FY 2025?",
-  "Show Social Services allocation trends from 2020-2026.",
-  "List infrastructure projects in my barangay.",
+  "What projects for FY 2025 involve health and nutrition services?",
+  "Which projects for 2025 focus on building and facility maintenance?",
 ] as const;
 
 function formatTimeLabel(value: string | null | undefined) {
@@ -64,8 +65,7 @@ function toMessageVm(message: CitizenChatMessage): CitizenChatMessageVM {
     timeLabel: formatTimeLabel(message.createdAt),
     citations: message.citations,
     retrievalMeta: message.retrievalMeta,
-    evidence: mapEvidenceFromCitations(message.citations),
-    followUps: mapFollowUpsFromRetrievalMeta(message.retrievalMeta),
+    evidence: mapEvidenceFromCitations(message.citations, message.content),
   };
 }
 
@@ -451,10 +451,6 @@ export function useCitizenChatbot() {
     setMessageInput(value);
   }, []);
 
-  const handleUseFollowUp = useCallback((value: string) => {
-    setMessageInput(value);
-  }, []);
-
   const handleSend = useCallback(async () => {
     if (!userId) {
       openAuthModal(false);
@@ -535,6 +531,10 @@ export function useCitizenChatbot() {
             session.id === resolvedSessionId
               ? {
                   ...session,
+                  title:
+                    session.title?.trim() ||
+                    formatFirstChatSessionTitle(persistedUser.createdAt) ||
+                    session.title,
                   lastMessageAt: persistedUser.createdAt,
                   updatedAt: persistedUser.createdAt,
                 }
@@ -647,6 +647,5 @@ export function useCitizenChatbot() {
     handleSelectSession,
     handleSend,
     handleUseExample,
-    handleUseFollowUp,
   };
 }
