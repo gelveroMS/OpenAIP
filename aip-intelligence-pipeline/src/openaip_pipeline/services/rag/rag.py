@@ -807,7 +807,7 @@ def answer_with_rag(
     retrieval_scope: dict[str, Any] | None = None,
     retrieval_mode: str = "qa",
     retrieval_filters: dict[str, Any] | None = None,
-    top_k: int = 4,
+    top_k: int = 5,
     min_similarity: float = 0.3,
     metadata_filter: dict[str, Any] | None = None,
     sql_fallback: bool = False,
