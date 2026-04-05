@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mapEvidenceFromCitations } from "./chat-message-presenter";
 
 describe("mapEvidenceFromCitations", () => {
-  it("builds citizen project evidence links and labels from enriched citations", () => {
+  it("builds project evidence line in the standardized format", () => {
     const evidence = mapEvidenceFromCitations([
       {
         sourceId: "S1",
@@ -22,11 +22,11 @@ describe("mapEvidenceFromCitations", () => {
     expect(evidence).toHaveLength(1);
     expect(evidence[0]).toMatchObject({
       href: "/aips/aip-1/project-1",
-      linkLabel: "Mamatid FY 2025 Health Station Upgrade",
+      displayLine: "[S1] Mamatid FY 2025 Health Station Upgrade",
     });
   });
 
-  it("builds citizen AIP totals evidence link and label from enriched totals citations", () => {
+  it("builds totals evidence line with AIP label", () => {
     const evidence = mapEvidenceFromCitations([
       {
         sourceId: "S2",
@@ -43,28 +43,24 @@ describe("mapEvidenceFromCitations", () => {
     expect(evidence).toHaveLength(1);
     expect(evidence[0]).toMatchObject({
       href: "/aips/aip-1",
-      linkLabel: "Mamatid FY 2025 AIP",
+      displayLine: "[S2] Mamatid FY 2025 AIP",
     });
   });
 
-  it("keeps totals evidence unresolved when required AIP label inputs are missing", () => {
+  it("uses placeholders when LGU, fiscal year, and program are missing", () => {
     const evidence = mapEvidenceFromCitations([
       {
         sourceId: "S3",
-        snippet: "Computed from published AIP line-item totals.",
-        aipId: "aip-2",
-        metadata: {
-          type: "aip_line_items",
-          aggregate_type: "total_investment_program",
-        },
+        snippet: "Missing key labels.",
+        scopeType: "barangay",
+        scopeName: "Unknown scope",
       },
     ]);
 
     expect(evidence).toHaveLength(1);
     expect(evidence[0]).toMatchObject({
       href: null,
-      linkLabel: null,
-      snippet: "Computed from published AIP line-item totals.",
+      displayLine: "[S3] Unknown LGU FY Unknown FY Unknown Program",
     });
   });
 
@@ -92,13 +88,17 @@ describe("mapEvidenceFromCitations", () => {
       },
       {
         sourceId: "S5",
-        snippet: "Road concreting line item evidence.",
+        snippet: "Road line item evidence.",
         scopeType: "barangay",
-        scopeName: "Mamatid",
+        lguName: "Mamatid",
+        fiscalYear: 2026,
+        projectTitle: "Road Concreting",
       },
     ]);
 
-    expect(evidence).toHaveLength(2);
-    expect(evidence.some((item) => item.snippet === "Road concreting line item evidence.")).toBe(true);
+    expect(evidence).toHaveLength(1);
+    expect(evidence[0]).toMatchObject({
+      displayLine: "[S5] Mamatid FY 2026 Road Concreting",
+    });
   });
 });

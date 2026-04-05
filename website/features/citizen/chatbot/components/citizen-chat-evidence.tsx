@@ -19,25 +19,16 @@ export default function CitizenChatEvidence({
       <div className="mt-3 space-y-2">
         {evidence.map((entry) => (
           <article key={entry.id} className="rounded-md bg-white p-3">
-            <p className="text-xs font-semibold text-slate-700">{entry.documentLabel}</p>
-            {entry.href && entry.linkLabel ? (
+            {entry.href ? (
               <Link
                 href={entry.href}
-                className="mt-1 inline-block text-xs text-[#0247A1] underline decoration-[#0247A1]/60 underline-offset-2 hover:decoration-[#0247A1]"
+                className="inline-block text-xs text-[#0247A1] underline decoration-[#0247A1]/60 underline-offset-2 hover:decoration-[#0247A1]"
               >
-                {entry.linkLabel}
+                {entry.displayLine}
               </Link>
             ) : (
-              <p className="mt-1 text-xs text-slate-600">{entry.snippet}</p>
+              <p className="text-xs text-slate-600">{entry.displayLine}</p>
             )}
-            <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
-              {entry.fiscalYear ? (
-                <span className="rounded-full bg-slate-100 px-2 py-0.5">{entry.fiscalYear}</span>
-              ) : null}
-              {entry.pageOrSection ? (
-                <span className="rounded-full bg-slate-100 px-2 py-0.5">{entry.pageOrSection}</span>
-              ) : null}
-            </div>
           </article>
         ))}
       </div>

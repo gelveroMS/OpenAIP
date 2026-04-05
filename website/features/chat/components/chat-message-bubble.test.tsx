@@ -7,7 +7,7 @@ describe("ChatMessageBubble", () => {
     fireEvent.click(screen.getByTestId("chat-evidence-summary"));
   }
 
-  it("shows DIST or MATCH labels and never shows SIM", () => {
+  it("renders one-line evidence entries and removes match-metric labels", () => {
     render(
       <ChatMessageBubble
         message={{
@@ -48,10 +48,12 @@ describe("ChatMessageBubble", () => {
     );
 
     expandEvidence();
-    expect(screen.getByText("DIST 0.235")).toBeInTheDocument();
-    expect(screen.getByText("MATCH 75%")).toBeInTheDocument();
-    expect(screen.getByText("MATCH 64%")).toBeInTheDocument();
-    expect(screen.queryByText(/sim/i)).not.toBeInTheDocument();
+    expect(
+      screen.getByText("[L1] Barangay Mamatid - FY 2026 - Honoraria FY 2026 Unknown Program")
+    ).toBeInTheDocument();
+    expect(screen.queryByText("DIST 0.235")).not.toBeInTheDocument();
+    expect(screen.queryByText("MATCH 75%")).not.toBeInTheDocument();
+    expect(screen.queryByText("MATCH 64%")).not.toBeInTheDocument();
   });
 
   it("renders assistant evidence in a collapsed details container by default", () => {
@@ -228,9 +230,10 @@ describe("ChatMessageBubble", () => {
     );
 
     expandEvidence();
-    const link = screen.getByRole("link", { name: "Mamatid FY 2025 Health Station Upgrade" });
+    const link = screen.getByRole("link", {
+      name: "[S4] Mamatid FY 2025 Health Station Upgrade",
+    });
     expect(link).toHaveAttribute("href", "/barangay/aips/aip-1/project-1");
-    expect(screen.queryByText("Fallback snippet")).not.toBeInTheDocument();
   });
 
   it("renders city project evidence as scoped project detail link", () => {
@@ -263,7 +266,9 @@ describe("ChatMessageBubble", () => {
     );
 
     expandEvidence();
-    const link = screen.getByRole("link", { name: "Cabuyao City FY 2024 Flood Control Rehabilitation" });
+    const link = screen.getByRole("link", {
+      name: "[S5] Cabuyao City FY 2024 Flood Control Rehabilitation",
+    });
     expect(link).toHaveAttribute("href", "/city/aips/aip-city/project-city");
   });
 
@@ -297,7 +302,7 @@ describe("ChatMessageBubble", () => {
     );
 
     expandEvidence();
-    const link = screen.getByRole("link", { name: "Mamatid FY 2025 AIP" });
+    const link = screen.getByRole("link", { name: "[S6] Mamatid FY 2025 AIP" });
     expect(link).toHaveAttribute("href", "/barangay/aips/aip-2025-1");
   });
 
@@ -332,7 +337,7 @@ describe("ChatMessageBubble", () => {
     );
 
     expandEvidence();
-    const link = screen.getByRole("link", { name: "Cabuyao City FY 2025 AIP" });
+    const link = screen.getByRole("link", { name: "[S7] Cabuyao City FY 2025 AIP" });
     expect(link).toHaveAttribute("href", "/city/aips/aip-city-2025");
   });
 
@@ -368,9 +373,9 @@ describe("ChatMessageBubble", () => {
     );
 
     expandEvidence();
-    const link = screen.getByRole("link", { name: "Mamatid FY 2026 Road Concreting" });
+    const link = screen.getByRole("link", { name: "[S8] Mamatid FY 2026 Road Concreting" });
     expect(link).toHaveAttribute("href", "/barangay/aips/aip-precedence/project-precedence");
-    expect(screen.queryByRole("link", { name: "Mamatid FY 2026 AIP" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "[S8] Mamatid FY 2026 AIP" })).not.toBeInTheDocument();
   });
 
   it("does not render evidence container for system-only citations", () => {
@@ -435,11 +440,13 @@ describe("ChatMessageBubble", () => {
     );
 
     expect(screen.getByTestId("chat-evidence-details")).toBeInTheDocument();
+    expect(screen.getByTestId("chat-evidence-summary")).toHaveTextContent("Evidence (1)");
     expandEvidence();
-    expect(screen.getByText("Road concreting line item evidence.")).toBeInTheDocument();
+    expect(screen.getByText("[S10] Mamatid FY Unknown FY Unknown Program")).toBeInTheDocument();
+    expect(screen.queryByText("[S0] Unknown LGU FY Unknown FY Unknown Program")).not.toBeInTheDocument();
   });
 
-  it("keeps totals citations plain text when required AIP-link fields are incomplete", () => {
+  it("keeps totals citations clickable when AIP route exists", () => {
     render(
       <ChatMessageBubble
         routeScope="barangay"
@@ -467,8 +474,8 @@ describe("ChatMessageBubble", () => {
     );
 
     expandEvidence();
-    expect(screen.getByText("Totals evidence snippet.")).toBeInTheDocument();
-    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    const link = screen.getByRole("link", { name: "[S9] Unknown LGU FY Unknown FY AIP" });
+    expect(link).toHaveAttribute("href", "/barangay/aips/aip-incomplete");
   });
 
   it("does not render evidence container when there are no citations", () => {

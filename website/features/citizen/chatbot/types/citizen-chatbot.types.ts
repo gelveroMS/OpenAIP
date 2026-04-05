@@ -7,12 +7,8 @@ export type CitizenChatScopeChip = {
 
 export type CitizenChatEvidenceItem = {
   id: string;
-  documentLabel: string;
-  snippet: string;
-  fiscalYear: string | null;
-  pageOrSection: string | null;
+  displayLine: string;
   href: string | null;
-  linkLabel: string | null;
 };
 
 export type CitizenChatSessionVM = {
