@@ -3,6 +3,7 @@ type EvidenceMetadata = Record<string, unknown>;
 export type EvidenceCitationLike = {
   sourceId?: unknown;
   source_id?: unknown;
+  snippet?: unknown;
   scopeType?: unknown;
   scope_type?: unknown;
   scopeName?: unknown;

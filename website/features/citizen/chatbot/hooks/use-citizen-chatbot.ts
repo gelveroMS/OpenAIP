@@ -24,8 +24,8 @@ import type {
 
 const EXAMPLE_QUERIES = [
   "What is the total budget for FY 2025?",
-  "Show Social Services allocation trends from 2020-2026.",
-  "List infrastructure projects in my barangay.",
+  "What projects for FY 2025 involve health and nutrition services?",
+  "Which projects for 2025 focus on building and facility maintenance?",
 ] as const;
 
 function formatTimeLabel(value: string | null | undefined) {

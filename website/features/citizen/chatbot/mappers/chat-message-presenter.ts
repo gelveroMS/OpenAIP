@@ -7,6 +7,8 @@ import {
 import { isInsufficientContextReply } from "@/lib/chat/insufficient-context";
 import type { CitizenChatEvidenceItem } from "../types/citizen-chatbot.types";
 
+type CitationRow = Record<string, unknown>;
+
 function normalizeText(input: unknown): string | null {
   if (typeof input !== "string") return null;
   const trimmed = input.trim();
@@ -19,9 +21,12 @@ export function mapEvidenceFromCitations(
 ): CitizenChatEvidenceItem[] {
   if (isInsufficientContextReply(messageContent)) return [];
   if (!Array.isArray(citations)) return [];
-  const citationRows = citations.filter((entry): entry is Record<string, unknown> => (
-    Boolean(entry) && typeof entry === "object" && !Array.isArray(entry)
-  ));
+  const citationRows: CitationRow[] = [];
+  for (const entry of citations) {
+    if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+      citationRows.push(entry as CitationRow);
+    }
+  }
   if (!citationRows.length) return [];
   const visibleRows = citationRows.filter((row) => !isSystemEvidenceCitation(row));
   if (!visibleRows.length) return [];
