@@ -126,4 +126,40 @@ describe("mapEvidenceFromCitations", () => {
       displayLine: "[S5] Mamatid FY 2026 Road Concreting",
     });
   });
+
+  it("returns no evidence for canonical insufficient-context fallback message", () => {
+    const evidence = mapEvidenceFromCitations(
+      [
+        {
+          sourceId: "S7",
+          snippet: "Road line item evidence.",
+          scopeType: "barangay",
+          lguName: "Mamatid",
+          fiscalYear: 2026,
+          projectTitle: "Road Concreting",
+        },
+      ],
+      "I couldn\u2019t find a reliable answer for that in the published AIP records."
+    );
+
+    expect(evidence).toEqual([]);
+  });
+
+  it("returns no evidence for legacy insufficient-context fallback message", () => {
+    const evidence = mapEvidenceFromCitations(
+      [
+        {
+          sourceId: "S8",
+          snippet: "Road line item evidence.",
+          scopeType: "barangay",
+          lguName: "Mamatid",
+          fiscalYear: 2026,
+          projectTitle: "Road Concreting",
+        },
+      ],
+      "Insufficient context."
+    );
+
+    expect(evidence).toEqual([]);
+  });
 });

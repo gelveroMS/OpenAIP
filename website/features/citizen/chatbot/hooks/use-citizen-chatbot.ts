@@ -65,7 +65,7 @@ function toMessageVm(message: CitizenChatMessage): CitizenChatMessageVM {
     timeLabel: formatTimeLabel(message.createdAt),
     citations: message.citations,
     retrievalMeta: message.retrievalMeta,
-    evidence: mapEvidenceFromCitations(message.citations),
+    evidence: mapEvidenceFromCitations(message.citations, message.content),
   };
 }
 

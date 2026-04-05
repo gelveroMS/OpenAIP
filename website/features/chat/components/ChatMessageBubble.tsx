@@ -7,6 +7,7 @@ import {
   isSystemEvidenceCitation,
   isTotalsEvidenceCitation,
 } from "@/lib/chat/evidence-display";
+import { isInsufficientContextReply } from "@/lib/chat/insufficient-context";
 import { cn } from "@/lib/ui/utils";
 import type { ChatMessageBubble as ChatMessageBubbleType } from "../types/chat.types";
 import type { ChatCitation } from "@/lib/repos/chat/types";
@@ -53,6 +54,9 @@ export default function ChatMessageBubble({
   const visibleCitations = message.citations.filter(
     (citation) => !isSystemEvidenceCitation(citation)
   );
+  const shouldShowEvidence = !isUser &&
+    visibleCitations.length > 0 &&
+    !isInsufficientContextReply(message.content);
 
   return (
     <div className={cn("flex w-full", isUser ? "justify-end" : "justify-start")}>
@@ -91,7 +95,7 @@ export default function ChatMessageBubble({
             </div>
           )}
 
-        {!isUser && visibleCitations.length > 0 && (
+        {shouldShowEvidence && (
           <details data-testid="chat-evidence-details" className="group mt-3 rounded-md border bg-background px-2 py-2">
             <summary
               data-testid="chat-evidence-summary"

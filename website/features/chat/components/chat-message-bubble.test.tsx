@@ -482,6 +482,41 @@ describe("ChatMessageBubble", () => {
     expect(screen.queryByText("[S0] Unknown LGU FY Unknown FY Unknown Program")).not.toBeInTheDocument();
   });
 
+  it("does not render evidence container for insufficient-context fallback reply", () => {
+    render(
+      <ChatMessageBubble
+        routeScope="barangay"
+        message={{
+          id: "msg-insufficient-context",
+          role: "assistant",
+          content: "I couldn\u2019t find a reliable answer for that in the published AIP records.",
+          timeLabel: "10:09 AM",
+          deliveryStatus: "sent",
+          retrievalMeta: {
+            refused: true,
+            reason: "insufficient_evidence",
+            status: "refusal",
+          },
+          citations: [
+            {
+              sourceId: "S11",
+              scopeName: "Mamatid",
+              scopeType: "barangay",
+              snippet: "Road concreting line item evidence.",
+              lguName: "Mamatid",
+              fiscalYear: 2026,
+              projectTitle: "Road Concreting",
+            },
+          ],
+        }}
+      />
+    );
+
+    expect(screen.queryByTestId("chat-evidence-details")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("chat-evidence-summary")).not.toBeInTheDocument();
+    expect(screen.queryByText("[S11] Mamatid FY 2026 Road Concreting")).not.toBeInTheDocument();
+  });
+
   it("keeps totals citations clickable when AIP route exists", () => {
     render(
       <ChatMessageBubble

@@ -4,6 +4,7 @@ import {
   isSystemEvidenceCitation,
   isTotalsEvidenceCitation,
 } from "@/lib/chat/evidence-display";
+import { isInsufficientContextReply } from "@/lib/chat/insufficient-context";
 import type { CitizenChatEvidenceItem } from "../types/citizen-chatbot.types";
 
 function normalizeText(input: unknown): string | null {
@@ -12,7 +13,11 @@ function normalizeText(input: unknown): string | null {
   return trimmed.length ? trimmed : null;
 }
 
-export function mapEvidenceFromCitations(citations: Json | null): CitizenChatEvidenceItem[] {
+export function mapEvidenceFromCitations(
+  citations: Json | null,
+  messageContent?: string | null
+): CitizenChatEvidenceItem[] {
+  if (isInsufficientContextReply(messageContent)) return [];
   if (!Array.isArray(citations)) return [];
   const citationRows = citations.filter((entry): entry is Record<string, unknown> => (
     Boolean(entry) && typeof entry === "object" && !Array.isArray(entry)
