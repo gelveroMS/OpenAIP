@@ -5,7 +5,11 @@ import logging
 import os
 
 from openaip_pipeline.services.intent.classifier import classify_with_llm
-from openaip_pipeline.services.intent.rules import classify_with_rules
+from openaip_pipeline.services.intent.rules import (
+    classify_with_heuristics,
+    classify_with_rules,
+    looks_like_broad_aip_query,
+)
 from openaip_pipeline.services.intent.types import DEFAULT_CLARIFICATION_RESPONSE, IntentResult
 
 logger = logging.getLogger(__name__)
@@ -42,13 +46,15 @@ def _has_useful_entities(entities: dict[str, object]) -> bool:
     return False
 
 
-def _apply_low_confidence_guard(result: IntentResult) -> IntentResult:
+def _apply_low_confidence_guard(result: IntentResult, *, message: str) -> IntentResult:
     if result.intent != "rag_query":
         return result
     if result.confidence >= _RAG_CONFIDENCE_FLOOR:
         return result
     entities = dict(result.entities)
     if _has_useful_entities(entities):
+        return result
+    if looks_like_broad_aip_query(message):
         return result
     return IntentResult(
         intent="clarification",
@@ -92,10 +98,24 @@ def _is_model_not_found_error(error: Exception) -> bool:
     return "model_not_found" in text or "does not exist or you do not have access to it" in text
 
 
+def _heuristic_fallback(message: str, *, reason: str) -> IntentResult:
+    fallback = classify_with_heuristics(message)
+    _trace_log(
+        "heuristic_fallback_applied",
+        reason=reason,
+        intent=fallback.intent,
+        confidence=fallback.confidence,
+        route_hint=fallback.route_hint,
+        needs_retrieval=fallback.needs_retrieval,
+        classifier_method=fallback.classifier_method,
+    )
+    return fallback
+
+
 def classify_message(*, message: str, openai_api_key: str | None, default_model: str) -> IntentResult:
     rules_result = classify_with_rules(message)
     if rules_result is not None:
-        normalized_rules_result = _apply_low_confidence_guard(rules_result)
+        normalized_rules_result = _apply_low_confidence_guard(rules_result, message=message)
         _trace_log(
             "rules_match",
             intent=normalized_rules_result.intent,
@@ -111,9 +131,7 @@ def classify_message(*, message: str, openai_api_key: str | None, default_model:
     key = (openai_api_key or "").strip()
     if not key:
         _trace_log("llm_fallback_unavailable", reason="missing_openai_api_key")
-        raise IntentClassificationError(
-            "OPENAI_API_KEY is required for LLM fallback classification and was not configured."
-        )
+        return _heuristic_fallback(message, reason="missing_openai_api_key")
 
     def _invoke(model: str) -> IntentResult:
         return classify_with_llm(
@@ -124,7 +142,7 @@ def classify_message(*, message: str, openai_api_key: str | None, default_model:
 
     try:
         result = _invoke(model_name)
-        normalized_result = _apply_low_confidence_guard(result)
+        normalized_result = _apply_low_confidence_guard(result, message=message)
         _trace_log(
             "llm_fallback_success",
             intent=normalized_result.intent,
@@ -143,7 +161,7 @@ def classify_message(*, message: str, openai_api_key: str | None, default_model:
             )
             try:
                 retry_result = _invoke(_INTENT_COMPAT_MODEL_FALLBACK)
-                normalized_retry_result = _apply_low_confidence_guard(retry_result)
+                normalized_retry_result = _apply_low_confidence_guard(retry_result, message=message)
                 _trace_log(
                     "llm_fallback_success",
                     intent=normalized_retry_result.intent,
@@ -155,7 +173,7 @@ def classify_message(*, message: str, openai_api_key: str | None, default_model:
                 return normalized_retry_result
             except Exception as retry_error:
                 _trace_log("llm_fallback_failed", error=str(retry_error))
-                raise IntentClassificationError("LLM fallback classification failed.") from retry_error
+                return _heuristic_fallback(message, reason=f"llm_retry_failed:{retry_error}")
 
         _trace_log("llm_fallback_failed", error=str(error))
-        raise IntentClassificationError("LLM fallback classification failed.") from error
+        return _heuristic_fallback(message, reason=f"llm_failed:{error}")

@@ -2,10 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import pytest
-
 from openaip_pipeline.services.intent.classifier import classify_with_llm
-from openaip_pipeline.services.intent.service import IntentClassificationError, classify_message, resolve_intent_model
+from openaip_pipeline.services.intent.service import classify_message, resolve_intent_model
 from openaip_pipeline.services.intent.types import (
     DEFAULT_CLARIFICATION_RESPONSE,
     IntentResult,
@@ -84,26 +82,48 @@ def test_classify_message_rules_detects_out_of_scope() -> None:
     assert result.needs_retrieval is False
 
 
-def test_classify_message_requires_api_key_for_llm_fallback() -> None:
-    with pytest.raises(IntentClassificationError):
-        classify_message(
-            message="What projects are available in Barangay Mamatid?",
-            openai_api_key=None,
-            default_model="gpt-5.2",
-        )
+def test_classify_message_rules_detects_broad_rag_query_and_extracts_entities() -> None:
+    result = classify_message(
+        message="What projects are available in Barangay Mamatid for FY 2025?",
+        openai_api_key=None,
+        default_model="gpt-5.2",
+    )
+
+    assert result.intent == "rag_query"
+    assert result.needs_retrieval is True
+    assert result.classifier_method == "rule"
+    assert result.entities["barangay"] == "Mamatid"
+    assert result.entities["scope_type"] == "barangay"
+    assert result.entities["scope_name"] == "Mamatid"
+    assert result.entities["fiscal_year"] == 2025
 
 
-def test_classify_message_wraps_llm_failure(monkeypatch) -> None:
+def test_classify_message_missing_api_key_uses_heuristic_fallback_for_aip_like_query() -> None:
+    result = classify_message(
+        message="AIP FY 2025",
+        openai_api_key=None,
+        default_model="gpt-5.2",
+    )
+
+    assert result.intent == "rag_query"
+    assert result.needs_retrieval is True
+    assert result.classifier_method == "heuristic"
+
+
+def test_classify_message_llm_failure_uses_heuristic_out_of_scope(monkeypatch) -> None:
     def fake_llm(**_kwargs):
         raise RuntimeError("boom")
 
     monkeypatch.setattr("openaip_pipeline.services.intent.service.classify_with_llm", fake_llm)
-    with pytest.raises(IntentClassificationError):
-        classify_message(
-            message="Tell me something unexpected",
-            openai_api_key="test-key",
-            default_model="gpt-5.2",
-        )
+    result = classify_message(
+        message="Tell me something unexpected",
+        openai_api_key="test-key",
+        default_model="gpt-5.2",
+    )
+
+    assert result.intent == "out_of_scope"
+    assert result.needs_retrieval is False
+    assert result.classifier_method == "heuristic"
 
 
 def test_classify_message_retries_with_gpt_5_2_when_model_not_found(monkeypatch) -> None:
@@ -258,7 +278,7 @@ def test_classify_message_low_confidence_rag_without_entities_downgrades_to_clar
     )
 
     result = classify_message(
-        message="Show me something about the AIP",
+        message="Tell me something unexpected",
         openai_api_key="test-key",
         default_model="gpt-5.2",
     )
