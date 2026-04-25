@@ -62,6 +62,7 @@ def _patch_base(monkeypatch) -> None:
 def _clear_clarification_context_store() -> None:
     with chat_route_module._CLARIFICATION_CONTEXT_LOCK:
         chat_route_module._CLARIFICATION_CONTEXT_STORE.clear()
+        chat_route_module._OPTIONAL_NARROWING_CONTEXT_STORE.clear()
 
 
 def _post_chat(client: TestClient, question: str, **overrides):
@@ -1272,3 +1273,338 @@ def test_expired_clarification_context_processes_request_statelessly(monkeypatch
     payload = second.json()
     assert payload["retrieval_meta"]["clarification_context_status"] == "expired"
     assert payload["answer"].endswith("Fresh stateless answer.")
+
+
+def test_optional_narrowing_context_stored_after_broad_answer(monkeypatch) -> None:
+    _clear_clarification_context_store()
+    _patch_base(monkeypatch)
+    monkeypatch.setattr(
+        chat_route_module,
+        "classify_message",
+        lambda **_kwargs: _classification(intent="rag_query", needs_retrieval=True, route_hint="rag_query"),
+    )
+    monkeypatch.setattr(chat_route_module, "maybe_answer_with_sql", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        chat_route_module,
+        "answer_with_rag",
+        lambda **kwargs: {
+            "question": kwargs.get("question"),
+            "answer": "Broad answer from retrieved records.",
+            "refused": False,
+            "citations": [],
+            "retrieval_meta": {"reason": "ok"},
+            "context_count": 0,
+        },
+    )
+
+    client = TestClient(create_app())
+    response = _post_chat(client, "Show infrastructure projects.", conversation_id="conv-opt-store")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["retrieval_meta"]["optional_narrowing_context_status"] == "stored"
+    assert payload["retrieval_meta"]["optional_narrowing_merge_used"] is False
+    with chat_route_module._CLARIFICATION_CONTEXT_LOCK:
+        assert "conv-opt-store" in chat_route_module._OPTIONAL_NARROWING_CONTEXT_STORE
+
+
+def test_optional_narrowing_slot_follow_up_merges_and_clears(monkeypatch) -> None:
+    _clear_clarification_context_store()
+    _patch_base(monkeypatch)
+    captured_messages: list[str] = []
+
+    def _classify(**kwargs):
+        message = str(kwargs.get("message") or "")
+        captured_messages.append(message)
+        entities = empty_entities()
+        lowered = message.lower()
+        if "mamatid" in lowered:
+            entities["barangay"] = "Mamatid"
+            entities["scope_type"] = "barangay"
+            entities["scope_name"] = "Mamatid"
+        if "2025" in lowered:
+            entities["fiscal_year"] = 2025
+        return _classification(intent="rag_query", needs_retrieval=True, entities=entities, route_hint="rag_query")
+
+    monkeypatch.setattr(chat_route_module, "classify_message", _classify)
+    monkeypatch.setattr(chat_route_module, "maybe_answer_with_sql", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        chat_route_module,
+        "answer_with_rag",
+        lambda **kwargs: {
+            "question": kwargs.get("question"),
+            "answer": "Merged broad-to-narrow answer.",
+            "refused": False,
+            "citations": [],
+            "retrieval_meta": {"reason": "ok"},
+            "context_count": 0,
+        },
+    )
+
+    client = TestClient(create_app())
+    first = _post_chat(client, "Show infrastructure projects.", conversation_id="conv-opt-merge")
+    assert first.status_code == 200
+    assert first.json()["retrieval_meta"]["optional_narrowing_context_status"] == "stored"
+
+    second = _post_chat(client, "Mamatid 2025", conversation_id="conv-opt-merge")
+    assert second.status_code == 200
+    payload = second.json()
+    assert payload["retrieval_meta"]["optional_narrowing_merge_used"] is True
+    assert payload["retrieval_meta"]["optional_narrowing_context_status"] == "cleared"
+    assert "Show infrastructure projects." in captured_messages[-1]
+    assert "User clarification: Mamatid 2025" in captured_messages[-1]
+
+
+def test_optional_narrowing_new_question_discards_without_merge(monkeypatch) -> None:
+    _clear_clarification_context_store()
+    _patch_base(monkeypatch)
+    captured_messages: list[str] = []
+
+    def _classify(**kwargs):
+        message = str(kwargs.get("message") or "")
+        captured_messages.append(message)
+        entities = empty_entities()
+        lowered = message.lower()
+        if "pulo" in lowered:
+            entities["barangay"] = "Pulo"
+            entities["scope_type"] = "barangay"
+            entities["scope_name"] = "Pulo"
+        if "2025" in lowered:
+            entities["fiscal_year"] = 2025
+        return _classification(intent="rag_query", needs_retrieval=True, entities=entities, route_hint="rag_query")
+
+    monkeypatch.setattr(chat_route_module, "classify_message", _classify)
+    monkeypatch.setattr(chat_route_module, "maybe_answer_with_sql", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        chat_route_module,
+        "answer_with_rag",
+        lambda **kwargs: {
+            "question": kwargs.get("question"),
+            "answer": "New-topic answer.",
+            "refused": False,
+            "citations": [],
+            "retrieval_meta": {"reason": "ok"},
+            "context_count": 0,
+        },
+    )
+
+    client = TestClient(create_app())
+    first = _post_chat(client, "Show infrastructure projects.", conversation_id="conv-opt-topic")
+    assert first.status_code == 200
+    assert first.json()["retrieval_meta"]["optional_narrowing_context_status"] == "stored"
+
+    second = _post_chat(client, "What projects are in Pulo for FY 2025?", conversation_id="conv-opt-topic")
+    assert second.status_code == 200
+    payload = second.json()
+    assert payload["retrieval_meta"]["optional_narrowing_merge_used"] is False
+    assert payload["retrieval_meta"]["optional_narrowing_context_status"] == "discarded_topic_change"
+    assert captured_messages[-1] == "What projects are in Pulo for FY 2025?"
+
+
+def test_optional_narrowing_affirmative_reply_requests_specific_filter(monkeypatch) -> None:
+    _clear_clarification_context_store()
+    _patch_base(monkeypatch)
+    monkeypatch.setattr(
+        chat_route_module,
+        "classify_message",
+        lambda **_kwargs: _classification(intent="rag_query", needs_retrieval=True, route_hint="rag_query"),
+    )
+    monkeypatch.setattr(chat_route_module, "maybe_answer_with_sql", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        chat_route_module,
+        "answer_with_rag",
+        lambda **kwargs: {
+            "question": kwargs.get("question"),
+            "answer": "Broad answer from retrieved records.",
+            "refused": False,
+            "citations": [],
+            "retrieval_meta": {"reason": "ok"},
+            "context_count": 0,
+        },
+    )
+
+    client = TestClient(create_app())
+    first = _post_chat(client, "May project ba para sa bakuna?", conversation_id="conv-opt-ack")
+    assert first.status_code == 200
+    assert first.json()["retrieval_meta"]["optional_narrowing_context_status"] == "stored"
+
+    monkeypatch.setattr(
+        chat_route_module,
+        "_resolve_followup_relation",
+        lambda **_kwargs: chat_route_module.FollowUpRelationResult(
+            relation="follow_up",
+            confidence=0.91,
+            provided_slots=[],
+            source="llm",
+        ),
+    )
+    monkeypatch.setattr(
+        chat_route_module,
+        "classify_message",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("Classifier should not run for short affirmative follow-up.")),
+    )
+
+    second = _post_chat(client, "oo", conversation_id="conv-opt-ack")
+    assert second.status_code == 200
+    payload = second.json()
+    assert payload["retrieval_meta"]["status"] == "clarification"
+    assert payload["retrieval_meta"]["route_family"] == "optional_narrowing_context"
+    assert payload["retrieval_meta"]["optional_narrowing_context_status"] == "stored"
+    assert payload["retrieval_meta"]["optional_narrowing_merge_used"] is False
+    assert payload["retrieval_meta"]["followup_relation_source"] == "llm"
+    assert payload["retrieval_meta"]["followup_relation"] == "follow_up"
+    assert payload["retrieval_meta"]["followup_merge_used"] is False
+    assert "pakispecify" in payload["answer"].lower()
+    with chat_route_module._CLARIFICATION_CONTEXT_LOCK:
+        assert "conv-opt-ack" in chat_route_module._OPTIONAL_NARROWING_CONTEXT_STORE
+
+
+def test_optional_narrowing_llm_follow_up_merges(monkeypatch) -> None:
+    _clear_clarification_context_store()
+    _patch_base(monkeypatch)
+    captured_messages: list[str] = []
+
+    def _classify(**kwargs):
+        message = str(kwargs.get("message") or "")
+        captured_messages.append(message)
+        return _classification(intent="rag_query", needs_retrieval=True, route_hint="rag_query")
+
+    monkeypatch.setattr(chat_route_module, "classify_message", _classify)
+    monkeypatch.setattr(chat_route_module, "maybe_answer_with_sql", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        chat_route_module,
+        "answer_with_rag",
+        lambda **kwargs: {
+            "question": kwargs.get("question"),
+            "answer": "LLM-merged answer.",
+            "refused": False,
+            "citations": [],
+            "retrieval_meta": {"reason": "ok"},
+            "context_count": 0,
+        },
+    )
+
+    client = TestClient(create_app())
+    first = _post_chat(client, "Show infrastructure projects.", conversation_id="conv-llm-merge")
+    assert first.status_code == 200
+    assert first.json()["retrieval_meta"]["optional_narrowing_context_status"] == "stored"
+
+    monkeypatch.setattr(
+        chat_route_module,
+        "_resolve_followup_relation",
+        lambda **_kwargs: chat_route_module.FollowUpRelationResult(
+            relation="follow_up",
+            confidence=0.93,
+            provided_slots=["scope", "fiscal_year"],
+            source="llm",
+        ),
+    )
+    second = _post_chat(client, "yes, sa Mamatid FY 2025", conversation_id="conv-llm-merge")
+    assert second.status_code == 200
+    payload = second.json()
+    assert payload["retrieval_meta"]["optional_narrowing_merge_used"] is True
+    assert payload["retrieval_meta"]["optional_narrowing_context_status"] == "cleared"
+    assert payload["retrieval_meta"]["followup_relation_source"] == "llm"
+    assert payload["retrieval_meta"]["followup_relation"] == "follow_up"
+    assert payload["retrieval_meta"]["followup_merge_used"] is True
+    assert "User clarification: yes, sa Mamatid FY 2025" in captured_messages[-1]
+
+
+def test_optional_narrowing_llm_new_question_discards(monkeypatch) -> None:
+    _clear_clarification_context_store()
+    _patch_base(monkeypatch)
+    captured_messages: list[str] = []
+
+    def _classify(**kwargs):
+        message = str(kwargs.get("message") or "")
+        captured_messages.append(message)
+        return _classification(intent="rag_query", needs_retrieval=True, route_hint="rag_query")
+
+    monkeypatch.setattr(chat_route_module, "classify_message", _classify)
+    monkeypatch.setattr(chat_route_module, "maybe_answer_with_sql", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        chat_route_module,
+        "answer_with_rag",
+        lambda **kwargs: {
+            "question": kwargs.get("question"),
+            "answer": "Fresh new question answer.",
+            "refused": False,
+            "citations": [],
+            "retrieval_meta": {"reason": "ok"},
+            "context_count": 0,
+        },
+    )
+
+    client = TestClient(create_app())
+    first = _post_chat(client, "Show infrastructure projects.", conversation_id="conv-llm-new")
+    assert first.status_code == 200
+    assert first.json()["retrieval_meta"]["optional_narrowing_context_status"] == "stored"
+
+    monkeypatch.setattr(
+        chat_route_module,
+        "_resolve_followup_relation",
+        lambda **_kwargs: chat_route_module.FollowUpRelationResult(
+            relation="new_question",
+            confidence=0.88,
+            provided_slots=[],
+            source="llm",
+        ),
+    )
+    second = _post_chat(client, "What budgets are in Cabuyao?", conversation_id="conv-llm-new")
+    assert second.status_code == 200
+    payload = second.json()
+    assert payload["retrieval_meta"]["optional_narrowing_merge_used"] is False
+    assert payload["retrieval_meta"]["optional_narrowing_context_status"] == "stored"
+    assert payload["retrieval_meta"]["followup_relation_source"] == "llm"
+    assert payload["retrieval_meta"]["followup_relation"] == "new_question"
+    assert payload["retrieval_meta"]["followup_merge_used"] is False
+    assert captured_messages[-1] == "What budgets are in Cabuyao?"
+
+
+def test_optional_narrowing_llm_low_confidence_follow_up_defaults_to_new_question(monkeypatch) -> None:
+    _clear_clarification_context_store()
+    _patch_base(monkeypatch)
+    captured_messages: list[str] = []
+
+    def _classify(**kwargs):
+        message = str(kwargs.get("message") or "")
+        captured_messages.append(message)
+        return _classification(intent="rag_query", needs_retrieval=True, route_hint="rag_query")
+
+    monkeypatch.setattr(chat_route_module, "classify_message", _classify)
+    monkeypatch.setattr(chat_route_module, "maybe_answer_with_sql", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        chat_route_module,
+        "answer_with_rag",
+        lambda **kwargs: {
+            "question": kwargs.get("question"),
+            "answer": "Low-confidence new-question answer.",
+            "refused": False,
+            "citations": [],
+            "retrieval_meta": {"reason": "ok"},
+            "context_count": 0,
+        },
+    )
+
+    client = TestClient(create_app())
+    first = _post_chat(client, "Show infrastructure projects.", conversation_id="conv-llm-low")
+    assert first.status_code == 200
+    assert first.json()["retrieval_meta"]["optional_narrowing_context_status"] == "stored"
+
+    monkeypatch.setattr(
+        chat_route_module,
+        "_resolve_followup_relation",
+        lambda **_kwargs: chat_route_module.FollowUpRelationResult(
+            relation="follow_up",
+            confidence=0.20,
+            provided_slots=["scope"],
+            source="llm",
+        ),
+    )
+    second = _post_chat(client, "Mamatid", conversation_id="conv-llm-low")
+    assert second.status_code == 200
+    payload = second.json()
+    assert payload["retrieval_meta"]["followup_relation_source"] == "llm"
+    assert payload["retrieval_meta"]["followup_relation"] == "follow_up"
+    assert payload["retrieval_meta"]["followup_merge_used"] is False
+    assert captured_messages[-1] == "Mamatid"

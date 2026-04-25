@@ -7,6 +7,7 @@ import os
 import re
 import threading
 import time
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -22,6 +23,7 @@ from openaip_pipeline.services.intent import (
     IntentResult,
     NON_RETRIEVAL_INTENTS,
     classify_message,
+    resolve_intent_model,
 )
 from openaip_pipeline.services.intent.rules import (
     extract_known_barangay_from_text,
@@ -44,6 +46,7 @@ _STRUCTURED_SQL_INTENTS: set[str] = {
 
 _CLARIFICATION_CONTEXT_LOCK = threading.Lock()
 _CLARIFICATION_CONTEXT_STORE: dict[str, dict[str, Any]] = {}
+_OPTIONAL_NARROWING_CONTEXT_STORE: dict[str, dict[str, Any]] = {}
 _CLARIFICATION_CONTEXT_TTL_SECONDS = 10 * 60
 _CLARIFICATION_CONTEXT_MAX_TURNS = 3
 
@@ -69,6 +72,39 @@ _DOMAIN_DETAIL_RE = re.compile(
     r"\b(health|education|infrastructure|livelihood|governance|social services|program|project|budget|sector|fund)\b",
     re.IGNORECASE,
 )
+_AFFIRMATIVE_SHORT_RE = re.compile(r"^(oo|opo|yes|yeah|yep|sige|ok|okay|pwede|go|ituloy|continue)$", re.IGNORECASE)
+_OPTIONAL_CATEGORY_ONLY_RE = re.compile(
+    r"^(health|education|infrastructure|livelihood|governance|social services|social|agriculture|environment|disaster|drainage|flood|sanitation|budget|projects?|programs?)$",
+    re.IGNORECASE,
+)
+_FOLLOWUP_RELATION_CONFIDENCE_THRESHOLD = 0.6
+_FOLLOWUP_RELATION_ALLOWED = {"follow_up", "new_question", "unclear"}
+_FOLLOWUP_SLOT_ALLOWED = {"fiscal_year", "scope", "category", "topic"}
+_FOLLOWUP_RELATION_SYSTEM_PROMPT = (
+    "You are a follow-up relation classifier for OpenAIP conversation routing.\n"
+    "Determine whether CURRENT_MESSAGE is a follow-up to the previous narrowing prompt.\n"
+    "Return strict JSON only with keys:\n"
+    '{\n'
+    '  "relation": "follow_up|new_question|unclear",\n'
+    '  "confidence": 0.0,\n'
+    '  "provided_slots": ["fiscal_year","scope","category","topic"]\n'
+    "}\n"
+    "Rules:\n"
+    "1. follow_up: user provides requested details or clear continuation of prior request.\n"
+    "2. new_question: user asks a new standalone question or topic.\n"
+    "3. unclear: too ambiguous to classify confidently.\n"
+    "4. Use confidence 0..1.\n"
+    "5. provided_slots must include only fiscal_year, scope, category, topic.\n"
+    "6. Return JSON only."
+)
+
+
+@dataclass(slots=True)
+class FollowUpRelationResult:
+    relation: str
+    confidence: float
+    provided_slots: list[str]
+    source: str
 
 
 def _normalize_text(text: str) -> str:
@@ -220,15 +256,23 @@ def _clarification_context_key(conversation_id: str | None) -> str | None:
     return normalized if normalized else None
 
 
-def _expire_clarification_context_locked(now: float) -> None:
+def _expire_context_store_locked(now: float, store: dict[str, dict[str, Any]]) -> None:
     expired_keys: list[str] = []
-    for conversation_id, payload in _CLARIFICATION_CONTEXT_STORE.items():
+    for conversation_id, payload in store.items():
         created_at = float(payload.get("created_at") or 0.0)
         turns = int(payload.get("turns") or 0)
         if created_at <= 0 or (now - created_at) > _CLARIFICATION_CONTEXT_TTL_SECONDS or turns >= _CLARIFICATION_CONTEXT_MAX_TURNS:
             expired_keys.append(conversation_id)
     for conversation_id in expired_keys:
-        _CLARIFICATION_CONTEXT_STORE.pop(conversation_id, None)
+        store.pop(conversation_id, None)
+
+
+def _expire_clarification_context_locked(now: float) -> None:
+    _expire_context_store_locked(now, _CLARIFICATION_CONTEXT_STORE)
+
+
+def _expire_optional_narrowing_context_locked(now: float) -> None:
+    _expire_context_store_locked(now, _OPTIONAL_NARROWING_CONTEXT_STORE)
 
 
 def _load_clarification_context_for_turn(conversation_id: str | None) -> tuple[dict[str, Any] | None, bool]:
@@ -247,12 +291,36 @@ def _load_clarification_context_for_turn(conversation_id: str | None) -> tuple[d
         return dict(payload), False
 
 
+def _load_optional_narrowing_context_for_turn(conversation_id: str | None) -> tuple[dict[str, Any] | None, bool]:
+    key = _clarification_context_key(conversation_id)
+    if key is None:
+        return None, False
+    now = time.time()
+    with _CLARIFICATION_CONTEXT_LOCK:
+        had_entry_before_prune = key in _OPTIONAL_NARROWING_CONTEXT_STORE
+        _expire_optional_narrowing_context_locked(now)
+        payload = _OPTIONAL_NARROWING_CONTEXT_STORE.get(key)
+        if payload is None:
+            return None, had_entry_before_prune
+        payload["turns"] = int(payload.get("turns") or 0) + 1
+        payload["updated_at"] = now
+        return dict(payload), False
+
+
 def _clear_clarification_context(conversation_id: str | None) -> None:
     key = _clarification_context_key(conversation_id)
     if key is None:
         return
     with _CLARIFICATION_CONTEXT_LOCK:
         _CLARIFICATION_CONTEXT_STORE.pop(key, None)
+
+
+def _clear_optional_narrowing_context(conversation_id: str | None) -> None:
+    key = _clarification_context_key(conversation_id)
+    if key is None:
+        return
+    with _CLARIFICATION_CONTEXT_LOCK:
+        _OPTIONAL_NARROWING_CONTEXT_STORE.pop(key, None)
 
 
 def _store_clarification_context(
@@ -283,6 +351,33 @@ def _store_clarification_context(
     return True
 
 
+def _store_optional_narrowing_context(
+    *,
+    conversation_id: str | None,
+    original_question: str,
+    unresolved_fields: list[str],
+    resolved_entities: dict[str, Any],
+    assistant_prompt: str | None = None,
+) -> bool:
+    key = _clarification_context_key(conversation_id)
+    if key is None:
+        return False
+    now = time.time()
+    payload = {
+        "mode": "optional_narrowing",
+        "original_question": original_question,
+        "unresolved_fields": list(unresolved_fields),
+        "resolved_entities": dict(resolved_entities),
+        "assistant_prompt": _normalize_text(assistant_prompt or ""),
+        "created_at": now,
+        "updated_at": now,
+        "turns": 0,
+    }
+    with _CLARIFICATION_CONTEXT_LOCK:
+        _OPTIONAL_NARROWING_CONTEXT_STORE[key] = payload
+    return True
+
+
 def _follow_up_has_clarification_detail(message: str) -> bool:
     normalized = _normalize_text(message)
     lowered = normalized.lower()
@@ -301,6 +396,46 @@ def _follow_up_has_clarification_detail(message: str) -> bool:
     return False
 
 
+def _looks_like_optional_narrowing_slot_follow_up(message: str) -> bool:
+    normalized = _normalize_text(message)
+    lowered = normalized.lower()
+    if not lowered:
+        return False
+    if _QUESTION_LIKE_RE.search(lowered) and len(lowered.split()) >= 4:
+        return False
+    if looks_like_broad_aip_query(normalized) and _QUESTION_LIKE_RE.search(lowered):
+        return False
+    if _TOPIC_CHANGE_RE.search(lowered):
+        return False
+
+    tokens = [token for token in re.split(r"\s+", lowered) if token]
+    token_count = len(tokens)
+    has_year = _has_year(normalized)
+    has_scope = (
+        extract_known_barangay_from_text(normalized) is not None
+        or extract_known_city_from_text(normalized) is not None
+        or _SCOPE_DETAIL_RE.search(lowered) is not None
+    )
+    has_category_only = _OPTIONAL_CATEGORY_ONLY_RE.match(lowered) is not None
+
+    if has_category_only and token_count <= 3:
+        return True
+    if has_year and has_scope and token_count <= 6:
+        return True
+    if has_year and token_count <= 4:
+        return True
+    if has_scope and token_count <= 4:
+        return True
+    return False
+
+
+def _is_brief_affirmative_follow_up(message: str) -> bool:
+    normalized = _normalize_text(message)
+    if not normalized:
+        return False
+    return _AFFIRMATIVE_SHORT_RE.match(normalized) is not None
+
+
 def _is_topic_change_message(message: str) -> bool:
     normalized = _normalize_text(message)
     lowered = normalized.lower()
@@ -315,8 +450,232 @@ def _is_topic_change_message(message: str) -> bool:
     return False
 
 
+def _extract_chat_completion_text(response: Any) -> str:
+    choices = getattr(response, "choices", None)
+    if isinstance(choices, list) and choices:
+        message = getattr(choices[0], "message", None)
+        if message is not None:
+            content = getattr(message, "content", None)
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                parts: list[str] = []
+                for item in content:
+                    if isinstance(item, dict):
+                        text = item.get("text")
+                        if isinstance(text, str):
+                            parts.append(text)
+                if parts:
+                    return "\n".join(parts)
+    return ""
+
+
+def _extract_json_object(text: str) -> dict[str, Any]:
+    raw = str(text or "").strip()
+    raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
+    raw = re.sub(r"\s*```$", "", raw)
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        first = raw.find("{")
+        last = raw.rfind("}")
+        if first < 0 or last < 0 or last <= first:
+            raise
+        parsed = json.loads(raw[first : last + 1])
+    if not isinstance(parsed, dict):
+        raise ValueError("Expected JSON object.")
+    return parsed
+
+
+def _coerce_followup_confidence(value: Any) -> float:
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if confidence < 0.0:
+        return 0.0
+    if confidence > 1.0:
+        return 1.0
+    return confidence
+
+
+def _normalize_followup_slots(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    slots: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        normalized = item.strip().lower()
+        if normalized in _FOLLOWUP_SLOT_ALLOWED and normalized not in slots:
+            slots.append(normalized)
+    return slots
+
+
+def _extract_followup_slots_from_message(message: str) -> list[str]:
+    normalized = _normalize_text(message)
+    lowered = normalized.lower()
+    slots: list[str] = []
+    if _has_year(normalized) or "all years" in lowered:
+        slots.append("fiscal_year")
+    if (
+        extract_known_barangay_from_text(normalized)
+        or extract_known_city_from_text(normalized)
+        or _SCOPE_DETAIL_RE.search(lowered)
+        or "all scopes" in lowered
+        or "all barangays" in lowered
+        or "all cities" in lowered
+    ):
+        slots.append("scope")
+    if _OPTIONAL_CATEGORY_ONLY_RE.match(lowered):
+        slots.append("category")
+    elif _DOMAIN_DETAIL_RE.search(lowered):
+        slots.append("topic")
+    return slots
+
+
+def _resolve_followup_relation_rule_fast_path(
+    *,
+    current_message: str,
+) -> FollowUpRelationResult | None:
+    normalized = _normalize_text(current_message)
+    if not normalized:
+        return None
+    if _is_topic_change_message(normalized):
+        return FollowUpRelationResult(
+            relation="new_question",
+            confidence=0.99,
+            provided_slots=[],
+            source="rule",
+        )
+    if _looks_like_optional_narrowing_slot_follow_up(normalized):
+        return FollowUpRelationResult(
+            relation="follow_up",
+            confidence=0.99,
+            provided_slots=_extract_followup_slots_from_message(normalized),
+            source="rule",
+        )
+    return None
+
+
+def _classify_followup_relation_with_llm(
+    *,
+    openai_api_key: str | None,
+    default_model: str,
+    original_question: str,
+    assistant_prompt: str,
+    current_message: str,
+    unresolved_fields: list[str],
+) -> FollowUpRelationResult:
+    key = (openai_api_key or "").strip()
+    if not key:
+        return FollowUpRelationResult(
+            relation="new_question",
+            confidence=0.0,
+            provided_slots=[],
+            source="fallback",
+        )
+    model_name = resolve_intent_model(default_model)
+    user_payload = (
+        f"ORIGINAL_QUESTION:\n{_normalize_text(original_question)}\n\n"
+        f"ASSISTANT_PROMPT:\n{_normalize_text(assistant_prompt)}\n\n"
+        f"CURRENT_MESSAGE:\n{_normalize_text(current_message)}\n\n"
+        f"UNRESOLVED_FIELDS:\n{json.dumps(list(unresolved_fields), ensure_ascii=False)}"
+    )
+    try:
+        client = build_openai_client(key)
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": _FOLLOWUP_RELATION_SYSTEM_PROMPT},
+                {"role": "user", "content": user_payload},
+            ],
+        )
+        raw_text = _extract_chat_completion_text(response)
+        parsed = _extract_json_object(raw_text)
+        relation_raw = str(parsed.get("relation") or "").strip().lower()
+        relation = relation_raw if relation_raw in _FOLLOWUP_RELATION_ALLOWED else "unclear"
+        return FollowUpRelationResult(
+            relation=relation,
+            confidence=_coerce_followup_confidence(parsed.get("confidence")),
+            provided_slots=_normalize_followup_slots(parsed.get("provided_slots")),
+            source="llm",
+        )
+    except Exception as error:
+        _trace_log("followup_relation_llm_failed", error=str(error))
+        return FollowUpRelationResult(
+            relation="new_question",
+            confidence=0.0,
+            provided_slots=[],
+            source="fallback",
+        )
+
+
+def _resolve_followup_relation(
+    *,
+    openai_api_key: str | None,
+    default_model: str,
+    original_question: str,
+    assistant_prompt: str,
+    current_message: str,
+    unresolved_fields: list[str],
+) -> FollowUpRelationResult:
+    rule_result = _resolve_followup_relation_rule_fast_path(current_message=current_message)
+    if rule_result is not None:
+        return rule_result
+    return _classify_followup_relation_with_llm(
+        openai_api_key=openai_api_key,
+        default_model=default_model,
+        original_question=original_question,
+        assistant_prompt=assistant_prompt,
+        current_message=current_message,
+        unresolved_fields=unresolved_fields,
+    )
+
+
 def _merge_clarification_query(*, original_question: str, follow_up: str) -> str:
     return f"{_normalize_text(original_question)}\n\nUser clarification: {_normalize_text(follow_up)}"
+
+
+def _build_optional_narrowing_follow_up_response(
+    *,
+    question: str,
+    optional_context: dict[str, Any],
+) -> ChatAnswerResponse:
+    unresolved = list(optional_context.get("unresolved_fields") or [])
+    has_year = "fiscal_year" in unresolved
+    has_scope = "scope" in unresolved
+
+    if has_year and has_scope:
+        answer = (
+            "Sige. Para ma-filter ko nang tama, pakispecify ang fiscal year at scope "
+            "(barangay o city), o magbigay ng specific category/topic."
+        )
+    elif has_year:
+        answer = "Sige. Pakispecify ang fiscal year o specific category/topic para ma-filter ko nang tama."
+    elif has_scope:
+        answer = "Sige. Pakispecify ang barangay/city o specific category/topic para ma-filter ko nang tama."
+    else:
+        answer = (
+            "Sige. Pakispecify ang gusto mong filter (hal. category/topic, fiscal year, o barangay/city) "
+            "para ma-narrow ko ang result."
+        )
+
+    return ChatAnswerResponse(
+        question=question,
+        answer=answer,
+        refused=False,
+        citations=[],
+        retrieval_meta={
+            "reason": "clarification_needed",
+            "status": "clarification",
+            "route_family": "optional_narrowing_context",
+            "context_count": 0,
+            "clarification_type": "optional_narrowing_followup",
+            "missing_fields": unresolved,
+        },
+        context_count=0,
+    )
 
 
 def _resolve_latest_fiscal_year_from_preflight(
@@ -349,10 +708,22 @@ def _attach_runtime_meta(
     clarification_context_status: str,
     missing_fields: list[str],
     enriched_query_used: bool,
+    optional_narrowing_context_status: str,
+    optional_narrowing_merge_used: bool,
+    followup_relation_source: str = "none",
+    followup_relation: str = "new_question",
+    followup_relation_confidence: float = 0.0,
+    followup_merge_used: bool = False,
 ) -> dict[str, Any]:
     retrieval_meta["clarification_context_status"] = clarification_context_status
     retrieval_meta["clarification_missing_fields"] = list(missing_fields)
     retrieval_meta["enriched_query_used"] = bool(enriched_query_used)
+    retrieval_meta["optional_narrowing_context_status"] = optional_narrowing_context_status
+    retrieval_meta["optional_narrowing_merge_used"] = bool(optional_narrowing_merge_used)
+    retrieval_meta["followup_relation_source"] = followup_relation_source
+    retrieval_meta["followup_relation"] = followup_relation
+    retrieval_meta["followup_relation_confidence"] = float(followup_relation_confidence)
+    retrieval_meta["followup_merge_used"] = bool(followup_merge_used)
     return retrieval_meta
 
 
@@ -868,30 +1239,124 @@ def chat_answer(
     req: ChatAnswerRequest,
 ) -> ChatAnswerResponse:
     conversation_key = _clarification_context_key(req.conversation_id)
+    intent_model_override = (req.model_name or "").strip()
     clarification_context_status = "stateless" if conversation_key is None else "none"
+    optional_narrowing_context_status = "stateless" if conversation_key is None else "none"
     clarification_missing_fields: list[str] = []
     enriched_query_used = False
+    optional_narrowing_merge_used = False
+    followup_merge_used = False
+    optional_narrowing_acknowledged = False
+    followup_relation_source = "none"
+    followup_relation = "new_question"
+    followup_relation_confidence = 0.0
     effective_question = req.question
     clarification_original_question = req.question
+    relation_openai_api_key: str | None = None
 
     existing_context, context_expired = _load_clarification_context_for_turn(req.conversation_id)
     if conversation_key is not None and context_expired:
         clarification_context_status = "expired"
     if existing_context is not None:
         stored_original = str(existing_context.get("original_question") or "").strip()
+        clarification_prompt = str(existing_context.get("clarification_question") or DEFAULT_CLARIFICATION_RESPONSE)
+        unresolved_fields = list(existing_context.get("unresolved_fields") or [])
         if stored_original:
             clarification_original_question = stored_original
-        if _is_topic_change_message(req.question):
-            _clear_clarification_context(req.conversation_id)
-            clarification_context_status = "discarded_topic_change"
-        elif _follow_up_has_clarification_detail(req.question):
+        if relation_openai_api_key is None:
+            relation_settings = Settings.load(require_supabase=False, require_openai=False)
+            relation_openai_api_key = relation_settings.openai_api_key
+        relation_result = _resolve_followup_relation(
+            openai_api_key=relation_openai_api_key,
+            default_model=intent_model_override,
+            original_question=clarification_original_question,
+            assistant_prompt=clarification_prompt,
+            current_message=req.question,
+            unresolved_fields=unresolved_fields,
+        )
+        followup_relation_source = relation_result.source
+        followup_relation = relation_result.relation
+        followup_relation_confidence = relation_result.confidence
+        _trace_log(
+            "followup_relation_evaluated",
+            context_type="clarification",
+            source=followup_relation_source,
+            relation=followup_relation,
+            confidence=followup_relation_confidence,
+            provided_slots=relation_result.provided_slots,
+        )
+        if (
+            relation_result.relation == "follow_up"
+            and relation_result.confidence >= _FOLLOWUP_RELATION_CONFIDENCE_THRESHOLD
+        ):
             effective_question = _merge_clarification_query(
                 original_question=clarification_original_question,
                 follow_up=req.question,
             )
-            clarification_missing_fields = list(existing_context.get("unresolved_fields") or [])
+            clarification_missing_fields = unresolved_fields
             enriched_query_used = True
+            followup_merge_used = True
             clarification_context_status = "merged"
+            _clear_optional_narrowing_context(req.conversation_id)
+            optional_narrowing_context_status = "cleared"
+        else:
+            _clear_clarification_context(req.conversation_id)
+            clarification_context_status = "discarded_topic_change"
+            clarification_missing_fields = []
+            _clear_optional_narrowing_context(req.conversation_id)
+            optional_narrowing_context_status = "discarded_topic_change"
+
+    optional_context: dict[str, Any] | None = None
+    if existing_context is None:
+        optional_context, optional_context_expired = _load_optional_narrowing_context_for_turn(req.conversation_id)
+        if conversation_key is not None and optional_context_expired:
+            optional_narrowing_context_status = "expired"
+        if optional_context is not None:
+            optional_original = str(optional_context.get("original_question") or "").strip()
+            optional_prompt = str(optional_context.get("assistant_prompt") or "")
+            unresolved_fields = list(optional_context.get("unresolved_fields") or [])
+            if relation_openai_api_key is None:
+                relation_settings = Settings.load(require_supabase=False, require_openai=False)
+                relation_openai_api_key = relation_settings.openai_api_key
+            relation_result = _resolve_followup_relation(
+                openai_api_key=relation_openai_api_key,
+                default_model=intent_model_override,
+                original_question=optional_original or req.question,
+                assistant_prompt=optional_prompt,
+                current_message=req.question,
+                unresolved_fields=unresolved_fields,
+            )
+            followup_relation_source = relation_result.source
+            followup_relation = relation_result.relation
+            followup_relation_confidence = relation_result.confidence
+            _trace_log(
+                "followup_relation_evaluated",
+                context_type="optional_narrowing",
+                source=followup_relation_source,
+                relation=followup_relation,
+                confidence=followup_relation_confidence,
+                provided_slots=relation_result.provided_slots,
+            )
+            if (
+                relation_result.relation == "follow_up"
+                and relation_result.confidence >= _FOLLOWUP_RELATION_CONFIDENCE_THRESHOLD
+                and optional_original
+            ):
+                has_structured_slot = bool(relation_result.provided_slots) or _follow_up_has_clarification_detail(req.question)
+                if has_structured_slot:
+                    effective_question = _merge_clarification_query(
+                        original_question=optional_original,
+                        follow_up=req.question,
+                    )
+                    optional_narrowing_merge_used = True
+                    followup_merge_used = True
+                    optional_narrowing_context_status = "merged"
+                else:
+                    optional_narrowing_acknowledged = True
+                    optional_narrowing_context_status = "stored"
+            else:
+                _clear_optional_narrowing_context(req.conversation_id)
+                optional_narrowing_context_status = "discarded_topic_change"
 
     _trace_log(
         "request_received",
@@ -900,12 +1365,44 @@ def chat_answer(
         conversation_id=conversation_key,
         clarification_context_status=clarification_context_status,
         enriched_query_used=enriched_query_used,
+        optional_narrowing_context_status=optional_narrowing_context_status,
+        optional_narrowing_merge_used=optional_narrowing_merge_used,
+        optional_narrowing_acknowledged=optional_narrowing_acknowledged,
+        followup_relation_source=followup_relation_source,
+        followup_relation=followup_relation,
+        followup_relation_confidence=followup_relation_confidence,
+        followup_merge_used=followup_merge_used,
         retrieval_mode=req.retrieval_mode,
         top_k=req.top_k,
         min_similarity=req.min_similarity,
     )
+
+    if optional_narrowing_acknowledged and optional_context is not None:
+        response = _build_optional_narrowing_follow_up_response(
+            question=req.question,
+            optional_context=optional_context,
+        )
+        response.retrieval_meta = _attach_runtime_meta(
+            retrieval_meta=response.retrieval_meta,
+            clarification_context_status=clarification_context_status,
+            missing_fields=clarification_missing_fields,
+            enriched_query_used=enriched_query_used,
+            optional_narrowing_context_status=optional_narrowing_context_status,
+            optional_narrowing_merge_used=optional_narrowing_merge_used,
+            followup_relation_source=followup_relation_source,
+            followup_relation=followup_relation,
+            followup_relation_confidence=followup_relation_confidence,
+            followup_merge_used=followup_merge_used,
+        )
+        _trace_log(
+            "optional_narrowing_follow_up_requested",
+            status=response.retrieval_meta.get("status"),
+            reason=response.retrieval_meta.get("reason"),
+            optional_narrowing_context_status=optional_narrowing_context_status,
+        )
+        return response
+
     settings = Settings.load(require_supabase=True, require_openai=False)
-    intent_model_override = (req.model_name or "").strip()
     model_name = (req.model_name or settings.pipeline_model).strip() or settings.pipeline_model
 
     try:
@@ -923,6 +1420,12 @@ def chat_answer(
             clarification_context_status=clarification_context_status,
             missing_fields=clarification_missing_fields,
             enriched_query_used=enriched_query_used,
+            optional_narrowing_context_status=optional_narrowing_context_status,
+            optional_narrowing_merge_used=optional_narrowing_merge_used,
+            followup_relation_source=followup_relation_source,
+            followup_relation=followup_relation,
+            followup_relation_confidence=followup_relation_confidence,
+            followup_merge_used=followup_merge_used,
         )
         return response
 
@@ -963,15 +1466,24 @@ def chat_answer(
                 clarification_context_status=clarification_context_status,
                 missing_fields=clarification_missing_fields,
                 enriched_query_used=enriched_query_used,
+                optional_narrowing_context_status=optional_narrowing_context_status,
+                optional_narrowing_merge_used=optional_narrowing_merge_used,
+                followup_relation_source=followup_relation_source,
+                followup_relation=followup_relation,
+                followup_relation_confidence=followup_relation_confidence,
+                followup_merge_used=followup_merge_used,
             )
             return response
 
         response = _build_short_circuit_response(question=req.question, classification=classification)
         if classification.intent in {"greeting", "farewell", "thanks", "help", "small_talk", "out_of_scope"}:
-            if existing_context is not None and conversation_key is not None:
+            if conversation_key is not None and existing_context is not None:
                 _clear_clarification_context(req.conversation_id)
                 clarification_context_status = "discarded_topic_change"
                 clarification_missing_fields = []
+            if conversation_key is not None and optional_context is not None:
+                _clear_optional_narrowing_context(req.conversation_id)
+                optional_narrowing_context_status = "discarded_topic_change"
         if classification.intent == "clarification" and conversation_key is not None:
             unresolved = list(clarification_missing_fields)
             if not unresolved and existing_context is not None:
@@ -987,6 +1499,8 @@ def chat_answer(
             if stored:
                 clarification_context_status = "stored"
                 clarification_missing_fields = unresolved
+                _clear_optional_narrowing_context(req.conversation_id)
+                optional_narrowing_context_status = "cleared"
             elif clarification_context_status == "merged":
                 clarification_context_status = "none"
         response.retrieval_meta = _attach_runtime_meta(
@@ -994,6 +1508,12 @@ def chat_answer(
             clarification_context_status=clarification_context_status,
             missing_fields=clarification_missing_fields,
             enriched_query_used=enriched_query_used,
+            optional_narrowing_context_status=optional_narrowing_context_status,
+            optional_narrowing_merge_used=optional_narrowing_merge_used,
+            followup_relation_source=followup_relation_source,
+            followup_relation=followup_relation,
+            followup_relation_confidence=followup_relation_confidence,
+            followup_merge_used=followup_merge_used,
         )
         _trace_log(
             "short_circuit_response",
@@ -1038,11 +1558,19 @@ def chat_answer(
             )
             if stored:
                 clarification_context_status = "stored"
+                _clear_optional_narrowing_context(req.conversation_id)
+                optional_narrowing_context_status = "cleared"
         response.retrieval_meta = _attach_runtime_meta(
             retrieval_meta=response.retrieval_meta,
             clarification_context_status=clarification_context_status,
             missing_fields=clarification_missing_fields,
             enriched_query_used=enriched_query_used,
+            optional_narrowing_context_status=optional_narrowing_context_status,
+            optional_narrowing_merge_used=optional_narrowing_merge_used,
+            followup_relation_source=followup_relation_source,
+            followup_relation=followup_relation,
+            followup_relation_confidence=followup_relation_confidence,
+            followup_merge_used=followup_merge_used,
         )
         return response
 
@@ -1123,11 +1651,19 @@ def chat_answer(
             if stored:
                 clarification_context_status = "stored"
                 clarification_missing_fields = ["fiscal_year"]
+                _clear_optional_narrowing_context(req.conversation_id)
+                optional_narrowing_context_status = "cleared"
         response.retrieval_meta = _attach_runtime_meta(
             retrieval_meta=response.retrieval_meta,
             clarification_context_status=clarification_context_status,
             missing_fields=clarification_missing_fields,
             enriched_query_used=enriched_query_used,
+            optional_narrowing_context_status=optional_narrowing_context_status,
+            optional_narrowing_merge_used=optional_narrowing_merge_used,
+            followup_relation_source=followup_relation_source,
+            followup_relation=followup_relation,
+            followup_relation_confidence=followup_relation_confidence,
+            followup_merge_used=followup_merge_used,
         )
         _trace_log(
             "year_availability_short_circuit",
@@ -1158,17 +1694,44 @@ def chat_answer(
         )
         if recency_statement:
             transparency = [recency_statement, *transparency]
-        if str(normalized["retrieval_meta"].get("status") or "") == "answer":
+        normalized_status = str(normalized["retrieval_meta"].get("status") or "")
+        if normalized_status == "answer":
             normalized["answer"] = _prepend_transparency(normalized["answer"], transparency)
         if enriched_query_used and conversation_key is not None:
             _clear_clarification_context(req.conversation_id)
             clarification_context_status = "cleared"
             clarification_missing_fields = []
+        if optional_narrowing_merge_used and conversation_key is not None:
+            _clear_optional_narrowing_context(req.conversation_id)
+            optional_narrowing_context_status = "cleared"
+        should_store_optional_narrowing = (
+            conversation_key is not None
+            and normalized_status == "answer"
+            and str(evaluation.get("query_shape") or "") == "exploratory"
+            and any(field in {"fiscal_year", "scope"} for field in list(evaluation.get("missing_fields") or []))
+            and not optional_narrowing_merge_used
+        )
+        if should_store_optional_narrowing:
+            optional_stored = _store_optional_narrowing_context(
+                conversation_id=req.conversation_id,
+                original_question=req.question,
+                unresolved_fields=list(evaluation.get("missing_fields") or []),
+                resolved_entities=effective_entities,
+                assistant_prompt=normalized["answer"],
+            )
+            if optional_stored:
+                optional_narrowing_context_status = "stored"
         normalized["retrieval_meta"] = _attach_runtime_meta(
             retrieval_meta=normalized["retrieval_meta"],
             clarification_context_status=clarification_context_status,
             missing_fields=clarification_missing_fields,
             enriched_query_used=enriched_query_used,
+            optional_narrowing_context_status=optional_narrowing_context_status,
+            optional_narrowing_merge_used=optional_narrowing_merge_used,
+            followup_relation_source=followup_relation_source,
+            followup_relation=followup_relation,
+            followup_relation_confidence=followup_relation_confidence,
+            followup_merge_used=followup_merge_used,
         )
         _trace_log(
             "sql_answered",
@@ -1227,9 +1790,10 @@ def chat_answer(
     )
     if recency_statement:
         transparency = [recency_statement, *transparency]
-    if str(normalized["retrieval_meta"].get("status") or "") == "answer":
+    normalized_status = str(normalized["retrieval_meta"].get("status") or "")
+    if normalized_status == "answer":
         normalized["answer"] = _prepend_transparency(normalized["answer"], transparency)
-    if str(normalized["retrieval_meta"].get("status") or "") == "clarification" and conversation_key is not None:
+    if normalized_status == "clarification" and conversation_key is not None:
         unresolved = list(evaluation.get("missing_fields") or [])
         stored = _store_clarification_context(
             conversation_id=req.conversation_id,
@@ -1242,15 +1806,43 @@ def chat_answer(
         if stored:
             clarification_context_status = "stored"
             clarification_missing_fields = unresolved
+            _clear_optional_narrowing_context(req.conversation_id)
+            optional_narrowing_context_status = "cleared"
     elif enriched_query_used and conversation_key is not None:
         _clear_clarification_context(req.conversation_id)
         clarification_context_status = "cleared"
         clarification_missing_fields = []
+    if optional_narrowing_merge_used and conversation_key is not None:
+        _clear_optional_narrowing_context(req.conversation_id)
+        optional_narrowing_context_status = "cleared"
+    should_store_optional_narrowing = (
+        conversation_key is not None
+        and normalized_status == "answer"
+        and str(evaluation.get("query_shape") or "") == "exploratory"
+        and any(field in {"fiscal_year", "scope"} for field in list(evaluation.get("missing_fields") or []))
+        and not optional_narrowing_merge_used
+    )
+    if should_store_optional_narrowing:
+        optional_stored = _store_optional_narrowing_context(
+            conversation_id=req.conversation_id,
+            original_question=req.question,
+            unresolved_fields=list(evaluation.get("missing_fields") or []),
+            resolved_entities=effective_entities,
+            assistant_prompt=normalized["answer"],
+        )
+        if optional_stored:
+            optional_narrowing_context_status = "stored"
     normalized["retrieval_meta"] = _attach_runtime_meta(
         retrieval_meta=normalized["retrieval_meta"],
         clarification_context_status=clarification_context_status,
         missing_fields=clarification_missing_fields,
         enriched_query_used=enriched_query_used,
+        optional_narrowing_context_status=optional_narrowing_context_status,
+        optional_narrowing_merge_used=optional_narrowing_merge_used,
+        followup_relation_source=followup_relation_source,
+        followup_relation=followup_relation,
+        followup_relation_confidence=followup_relation_confidence,
+        followup_merge_used=followup_merge_used,
     )
     _trace_log(
         "rag_completed",
