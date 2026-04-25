@@ -35,13 +35,13 @@ def test_build_partial_evidence_returns_non_refusal_with_citations() -> None:
     )
 
     assert result["refused"] is False
-    assert "reliable answer" in result["answer"]
+    assert result["answer"] == "I couldn’t find a reliable answer for that in the published AIP records."
     assert result["retrieval_meta"]["reason"] == "partial_evidence"
     assert len(result["citations"]) == 1
     assert result["citations"][0]["source_id"] == "S1"
 
 
-def test_answer_with_rag_returns_related_results_when_docs_exist_but_no_strong_hits(monkeypatch) -> None:
+def test_answer_with_rag_returns_partial_evidence_when_enabled(monkeypatch) -> None:
     monkeypatch.setenv("RAG_PARTIAL_MODE_ENABLED", "true")
 
     fake_supabase_client_module = types.SimpleNamespace(create_client=lambda *_args, **_kwargs: object())
@@ -72,7 +72,6 @@ def test_answer_with_rag_returns_related_results_when_docs_exist_but_no_strong_h
     )
 
     assert result["refused"] is False
-    assert "Would you like me to narrow this by fiscal year, sector, or project type?" in result["answer"]
-    assert result["retrieval_meta"]["reason"] == "related_results"
-    assert result["retrieval_meta"]["response_mode_source"] == "pipeline_related_results"
+    assert result["answer"] == "I couldn’t find a reliable answer for that in the published AIP records."
+    assert result["retrieval_meta"]["reason"] == "partial_evidence"
     assert len(result["citations"]) == 1

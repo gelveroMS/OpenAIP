@@ -21,8 +21,7 @@
 
 ## Database
 - Apply `website/docs/sql/2026-02-24_chatbot_rag_global_scope.sql`.
-- Verify `public.match_published_aip_project_chunks_v2` executes with service role.
-- Verify `public.match_published_aip_chunks` only when legacy RPC compatibility is intentionally deployed.
+- Verify `public.match_published_aip_chunks` executes with service role.
 - Verify assistant citation check constraint blocks assistant inserts without citations.
 - Verify `consume_chat_quota` and `purge_chat_data_older_than` execute with service role.
 

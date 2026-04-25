@@ -631,93 +631,6 @@ def _build_partial_evidence(
     }
 
 
-def _extract_related_label(doc: Any) -> str:
-    metadata = getattr(doc, "metadata", {}) or {}
-    nested = metadata.get("metadata")
-    nested_metadata = nested if isinstance(nested, dict) else {}
-
-    candidate_fields = (
-        metadata.get("project_title"),
-        metadata.get("program_project_title"),
-        metadata.get("project_name"),
-        metadata.get("title"),
-        nested_metadata.get("project_title"),
-        nested_metadata.get("program_project_title"),
-        nested_metadata.get("project_name"),
-        nested_metadata.get("title"),
-    )
-    for candidate in candidate_fields:
-        if isinstance(candidate, str):
-            normalized = " ".join(candidate.split()).strip()
-            if normalized:
-                return normalized
-
-    content = " ".join(str(getattr(doc, "page_content", "") or "").split())
-    if not content:
-        return "Related published AIP entry"
-    first_sentence = re.split(r"(?<=[.!?])\s+", content)[0].strip()
-    return _truncate(first_sentence or content, limit=120)
-
-
-def _build_related_results(
-    *,
-    question: str,
-    reason: str,
-    docs: list[Any],
-    top_k: int,
-    min_similarity: float,
-    retrieval_scope: dict[str, Any] | None,
-) -> dict[str, Any]:
-    _trace_log(
-        "build_related_results",
-        reason=reason,
-        context_count=len(docs),
-        top_k=top_k,
-        min_similarity=min_similarity,
-    )
-    nearest = docs[: min(2, len(docs))]
-    if not nearest:
-        return _build_refusal(
-            question=question,
-            reason="insufficient_evidence",
-            docs=docs,
-            top_k=top_k,
-            min_similarity=min_similarity,
-            retrieval_scope=retrieval_scope,
-        )
-
-    citations = [_build_citation(index, doc, insufficient=False) for index, doc in enumerate(nearest, start=1)]
-    labeled_items = [f"{_extract_related_label(doc)} [S{index}]" for index, doc in enumerate(nearest, start=1)]
-
-    if len(labeled_items) == 1:
-        answer = (
-            f"I could not find an exact published AIP match, but a related result is {labeled_items[0]}. "
-            "Would you like me to narrow this by fiscal year, sector, or project type?"
-        )
-    else:
-        answer = (
-            f"I could not find an exact published AIP match, but related results include 1. {labeled_items[0]}; "
-            f"2. {labeled_items[1]}. Would you like me to narrow this by fiscal year, sector, or project type?"
-        )
-
-    return {
-        "question": question,
-        "answer": answer,
-        "refused": False,
-        "citations": citations,
-        "sources": [citation.get("metadata", {}) for citation in citations],
-        "context_count": len(nearest),
-        "retrieval_meta": {
-            "reason": reason,
-            "top_k": top_k,
-            "min_similarity": min_similarity,
-            "context_count": len(nearest),
-            "scope_mode": (retrieval_scope or {}).get("mode", "global"),
-            "scope_targets_count": len((retrieval_scope or {}).get("targets") or []),
-        },
-    }
-
-
 def _attach_selection_meta(
     result: dict[str, Any],
     *,
@@ -1036,20 +949,6 @@ def answer_with_rag(
             candidate_count=len(docs),
             partial_mode_enabled=_partial_mode_enabled(),
         )
-        if docs:
-            response_mode_source = "pipeline_related_results"
-            return attach(
-                _build_related_results(
-                    question=question,
-                    reason="related_results",
-                    docs=docs,
-                    top_k=effective_top_k,
-                    min_similarity=min_similarity,
-                    retrieval_scope=resolved_scope,
-                ),
-                selected_count=min(2, len(docs)),
-                strong_count_override=0,
-            )
         _trace_log(
             "retrieval_refusal",
             reason="insufficient_evidence",
@@ -1058,6 +957,20 @@ def answer_with_rag(
             theme_boost_usage=theme_boost_usage,
             candidate_counts=candidate_counts,
         )
+        if docs and _partial_mode_enabled():
+            response_mode_source = "pipeline_partial"
+            return attach(
+                _build_partial_evidence(
+                    question=question,
+                    reason="partial_evidence",
+                    docs=docs,
+                    top_k=effective_top_k,
+                    min_similarity=min_similarity,
+                    retrieval_scope=resolved_scope,
+                ),
+                selected_count=min(3, len(docs)),
+                strong_count_override=0,
+            )
         response_mode_source = "pipeline_refusal"
         return attach(
             _build_refusal(
@@ -1175,18 +1088,18 @@ def answer_with_rag(
                 reason_code=gate_reason_code,
             )
             generation_skipped_by_gate = True
-            if selected_docs:
-                response_mode_source = "pipeline_related_results"
+            if gate_decision == "clarify":
+                response_mode_source = "pipeline_partial"
                 return attach(
-                    _build_related_results(
+                    _build_partial_evidence(
                         question=question,
-                        reason="related_results",
+                        reason="partial_evidence",
                         docs=selected_docs,
                         top_k=effective_top_k,
                         min_similarity=min_similarity,
                         retrieval_scope=resolved_scope,
                     ),
-                    selected_count=min(2, len(selected_docs)),
+                    selected_count=len(selected_docs),
                     generation_skipped_override=True,
                     extra_meta=gate_metrics,
                 )
