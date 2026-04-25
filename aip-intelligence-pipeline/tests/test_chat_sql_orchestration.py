@@ -59,13 +59,20 @@ def _patch_base(monkeypatch) -> None:
     )
 
 
-def _post_chat(client: TestClient, question: str):
+def _clear_clarification_context_store() -> None:
+    with chat_route_module._CLARIFICATION_CONTEXT_LOCK:
+        chat_route_module._CLARIFICATION_CONTEXT_STORE.clear()
+
+
+def _post_chat(client: TestClient, question: str, **overrides):
+    payload = {
+        "question": question,
+        "retrieval_scope": {"mode": "global", "targets": []},
+    }
+    payload.update(overrides)
     return client.post(
         "/v1/chat/answer",
-        json={
-            "question": question,
-            "retrieval_scope": {"mode": "global", "targets": []},
-        },
+        json=payload,
     )
 
 
@@ -98,7 +105,11 @@ def test_sql_result_short_circuits_rag(monkeypatch) -> None:
     monkeypatch.setattr(chat_route_module, "answer_with_rag", fake_rag)
 
     client = TestClient(create_app())
-    response = _post_chat(client, "What is the total investment program?")
+    response = _post_chat(
+        client,
+        "What is the total investment program?",
+        retrieval_filters={"fiscal_year": 2024, "scope_type": "city", "scope_name": "Cabuyao"},
+    )
 
     assert response.status_code == 200
     payload = response.json()
@@ -142,7 +153,11 @@ def test_fallback_to_rag_when_sql_returns_none_for_structured_intent(monkeypatch
     monkeypatch.setattr(chat_route_module, "answer_with_rag", fake_rag)
 
     client = TestClient(create_app())
-    response = _post_chat(client, "Explain this narrative question.")
+    response = _post_chat(
+        client,
+        "Explain this narrative question.",
+        retrieval_filters={"fiscal_year": 2024, "scope_type": "city", "scope_name": "Cabuyao"},
+    )
 
     assert response.status_code == 200
     payload = response.json()
@@ -186,7 +201,8 @@ def test_rag_query_attempts_sql_then_falls_back_to_rag(monkeypatch) -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["answer"] == "RAG direct answer."
+    assert payload["answer"].endswith("RAG direct answer.")
+    assert "Since no fiscal year or scope was specified" in payload["answer"]
     assert payload["retrieval_meta"]["status"] == "answer"
     assert sql_calls["count"] == 1
     assert payload["retrieval_meta"]["sql_attempted"] is True
@@ -1048,3 +1064,211 @@ def test_classifier_failure_is_fail_closed(monkeypatch) -> None:
     assert payload["retrieval_meta"]["status"] == "refusal"
     assert payload["retrieval_meta"]["reason"] == "pipeline_error"
     assert payload["retrieval_meta"]["intent"] == "classification_error"
+
+
+def test_exact_completeness_missing_dimensions_returns_policy_clarification(monkeypatch) -> None:
+    _clear_clarification_context_store()
+    _patch_base(monkeypatch)
+    monkeypatch.setattr(
+        chat_route_module,
+        "classify_message",
+        lambda **_kwargs: _classification(intent="total_aggregation", needs_retrieval=True, route_hint="sql_totals"),
+    )
+    monkeypatch.setattr(
+        chat_route_module,
+        "maybe_answer_with_sql",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("SQL should not be called.")),
+    )
+    monkeypatch.setattr(
+        chat_route_module,
+        "answer_with_rag",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("RAG should not be called.")),
+    )
+
+    client = TestClient(create_app())
+    response = _post_chat(client, "What is the total budget?", conversation_id="conv-policy-1")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["retrieval_meta"]["status"] == "clarification"
+    assert payload["retrieval_meta"]["route_family"] == "policy_guard"
+    assert payload["retrieval_meta"]["clarification_context_status"] == "stored"
+    assert set(payload["retrieval_meta"]["clarification_missing_fields"]) == {"fiscal_year", "scope"}
+    assert "specific fiscal year and scope" in payload["answer"]
+
+
+def test_exploratory_missing_dimensions_uses_rag_with_transparency(monkeypatch) -> None:
+    _clear_clarification_context_store()
+    _patch_base(monkeypatch)
+    monkeypatch.setattr(
+        chat_route_module,
+        "classify_message",
+        lambda **_kwargs: _classification(intent="rag_query", needs_retrieval=True, route_hint="rag_query"),
+    )
+    monkeypatch.setattr(chat_route_module, "maybe_answer_with_sql", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        chat_route_module,
+        "answer_with_rag",
+        lambda **kwargs: {
+            "question": kwargs.get("question"),
+            "answer": "RAG broad result.",
+            "refused": False,
+            "citations": [],
+            "retrieval_meta": {"reason": "ok"},
+            "context_count": 0,
+        },
+    )
+
+    client = TestClient(create_app())
+    response = _post_chat(client, "Show infrastructure projects.")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "Since no fiscal year or scope was specified" in payload["answer"]
+    assert payload["answer"].endswith("RAG broad result.")
+    assert payload["retrieval_meta"]["clarification_context_status"] == "stateless"
+    assert payload["retrieval_meta"]["enriched_query_used"] is False
+
+
+def test_clarification_follow_up_merges_query_and_clears_context(monkeypatch) -> None:
+    _clear_clarification_context_store()
+    _patch_base(monkeypatch)
+    captured_messages: list[str] = []
+    captured_sql_questions: list[str] = []
+
+    def _classify(**kwargs):
+        message = str(kwargs.get("message") or "")
+        captured_messages.append(message)
+        lowered = message.lower()
+        entities = empty_entities()
+        if "mamatid" in lowered:
+            entities["barangay"] = "Mamatid"
+            entities["scope_type"] = "barangay"
+            entities["scope_name"] = "Mamatid"
+        if "2023" in lowered:
+            entities["fiscal_year"] = 2023
+        return _classification(
+            intent="total_aggregation",
+            needs_retrieval=True,
+            entities=entities,
+            route_hint="sql_totals",
+        )
+
+    def _fake_sql(**kwargs):
+        captured_sql_questions.append(str(kwargs.get("question") or ""))
+        return {
+            "question": kwargs.get("question"),
+            "answer": "Total budget answer.",
+            "refused": False,
+            "citations": [{"source_id": "S0", "snippet": "structured"}],
+            "retrieval_meta": {"reason": "ok", "status": "answer", "route_family": "sql_totals"},
+            "context_count": 1,
+        }
+
+    monkeypatch.setattr(chat_route_module, "classify_message", _classify)
+    monkeypatch.setattr(chat_route_module, "maybe_answer_with_sql", _fake_sql)
+    monkeypatch.setattr(
+        chat_route_module,
+        "answer_with_rag",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("RAG should not be called.")),
+    )
+
+    client = TestClient(create_app())
+    first = _post_chat(client, "What is the total budget?", conversation_id="conv-merge-1")
+    assert first.status_code == 200
+    assert first.json()["retrieval_meta"]["clarification_context_status"] == "stored"
+
+    second = _post_chat(client, "Mamatid 2023", conversation_id="conv-merge-1")
+    assert second.status_code == 200
+    payload = second.json()
+    assert payload["answer"].endswith("Total budget answer.")
+    assert payload["retrieval_meta"]["enriched_query_used"] is True
+    assert payload["retrieval_meta"]["clarification_context_status"] == "cleared"
+    assert any("User clarification: Mamatid 2023" in question for question in captured_sql_questions)
+    assert captured_messages[-1].startswith("What is the total budget?")
+
+
+def test_topic_change_discards_existing_clarification_context(monkeypatch) -> None:
+    _clear_clarification_context_store()
+    _patch_base(monkeypatch)
+    captured_messages: list[str] = []
+
+    def _classify(**kwargs):
+        message = str(kwargs.get("message") or "")
+        captured_messages.append(message)
+        lowered = message.lower()
+        if "total budget" in lowered:
+            return _classification(intent="total_aggregation", needs_retrieval=True, route_hint="sql_totals")
+        entities = empty_entities()
+        if "pulo" in lowered:
+            entities["barangay"] = "Pulo"
+            entities["scope_type"] = "barangay"
+            entities["scope_name"] = "Pulo"
+        return _classification(intent="rag_query", needs_retrieval=True, entities=entities, route_hint="rag_query")
+
+    monkeypatch.setattr(chat_route_module, "classify_message", _classify)
+    monkeypatch.setattr(chat_route_module, "maybe_answer_with_sql", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        chat_route_module,
+        "answer_with_rag",
+        lambda **kwargs: {
+            "question": kwargs.get("question"),
+            "answer": "RAG topic-change answer.",
+            "refused": False,
+            "citations": [],
+            "retrieval_meta": {"reason": "ok"},
+            "context_count": 0,
+        },
+    )
+
+    client = TestClient(create_app())
+    first = _post_chat(client, "What is the total budget?", conversation_id="conv-topic-1")
+    assert first.status_code == 200
+    assert first.json()["retrieval_meta"]["clarification_context_status"] == "stored"
+
+    second = _post_chat(client, "What projects are in Pulo?", conversation_id="conv-topic-1")
+    assert second.status_code == 200
+    payload = second.json()
+    assert payload["retrieval_meta"]["clarification_context_status"] == "discarded_topic_change"
+    assert payload["retrieval_meta"]["enriched_query_used"] is False
+    assert captured_messages[-1] == "What projects are in Pulo?"
+
+
+def test_expired_clarification_context_processes_request_statelessly(monkeypatch) -> None:
+    _clear_clarification_context_store()
+    _patch_base(monkeypatch)
+
+    def _classify(**kwargs):
+        message = str(kwargs.get("message") or "").lower()
+        if "total budget" in message:
+            return _classification(intent="total_aggregation", needs_retrieval=True, route_hint="sql_totals")
+        return _classification(intent="rag_query", needs_retrieval=True, route_hint="rag_query")
+
+    monkeypatch.setattr(chat_route_module, "classify_message", _classify)
+    monkeypatch.setattr(chat_route_module, "maybe_answer_with_sql", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        chat_route_module,
+        "answer_with_rag",
+        lambda **kwargs: {
+            "question": kwargs.get("question"),
+            "answer": "Fresh stateless answer.",
+            "refused": False,
+            "citations": [],
+            "retrieval_meta": {"reason": "ok"},
+            "context_count": 0,
+        },
+    )
+
+    client = TestClient(create_app())
+    first = _post_chat(client, "What is the total budget?", conversation_id="conv-expire-1")
+    assert first.status_code == 200
+    assert first.json()["retrieval_meta"]["clarification_context_status"] == "stored"
+
+    with chat_route_module._CLARIFICATION_CONTEXT_LOCK:
+        chat_route_module._CLARIFICATION_CONTEXT_STORE["conv-expire-1"]["created_at"] = 0.0
+
+    second = _post_chat(client, "Show infrastructure projects.", conversation_id="conv-expire-1")
+    assert second.status_code == 200
+    payload = second.json()
+    assert payload["retrieval_meta"]["clarification_context_status"] == "expired"
+    assert payload["answer"].endswith("Fresh stateless answer.")
