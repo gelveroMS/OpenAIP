@@ -35,7 +35,8 @@ def test_build_partial_evidence_returns_non_refusal_with_citations() -> None:
     )
 
     assert result["refused"] is False
-    assert result["answer"] == "I couldn’t find a reliable answer for that in the published AIP records."
+    assert "could not find an exact published AIP match" in result["answer"]
+    assert "[S1]" in result["answer"]
     assert result["retrieval_meta"]["reason"] == "partial_evidence"
     assert len(result["citations"]) == 1
     assert result["citations"][0]["source_id"] == "S1"
@@ -72,6 +73,7 @@ def test_answer_with_rag_returns_partial_evidence_when_enabled(monkeypatch) -> N
     )
 
     assert result["refused"] is False
-    assert result["answer"] == "I couldn’t find a reliable answer for that in the published AIP records."
+    assert "could not find an exact published AIP match" in result["answer"]
+    assert "[S1]" in result["answer"]
     assert result["retrieval_meta"]["reason"] == "partial_evidence"
     assert len(result["citations"]) == 1

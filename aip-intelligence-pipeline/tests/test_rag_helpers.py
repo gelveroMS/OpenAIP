@@ -17,9 +17,12 @@ def test_extract_json_accepts_wrapped_payload():
     assert parsed["answer"] == "ok"
 
 
-def test_build_retrieval_query_keeps_plain_question_without_entities() -> None:
+def test_build_retrieval_query_appends_broad_hint_without_entities() -> None:
     question = "What projects are in FY 2025?"
-    assert build_retrieval_query(question=question, entities={}) == question
+    query = build_retrieval_query(question=question, entities={})
+    assert question in query
+    assert "Structured hints:" in query
+    assert "retrieve broad AIP project matches" in query
 
 
 def test_build_retrieval_query_appends_structured_hints() -> None:
@@ -37,3 +40,4 @@ def test_build_retrieval_query_appends_structured_hints() -> None:
     assert "barangay: Mamatid" in query
     assert "fiscal year: 2025" in query
     assert "sector: Health" in query
+    assert "retrieve broad AIP project matches" in query

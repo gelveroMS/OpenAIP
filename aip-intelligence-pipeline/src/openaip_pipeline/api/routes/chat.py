@@ -467,6 +467,50 @@ def _build_year_unavailable_clarification_response(
     )
 
 
+def _normalize_scope_place(*, scope_type: str | None, scope_name: str | None) -> str | None:
+    normalized_name = " ".join((scope_name or "").split())
+    if not normalized_name:
+        return None
+    normalized_type = (scope_type or "").strip().lower()
+    if normalized_type == "barangay":
+        if normalized_name.lower().startswith("barangay "):
+            return normalized_name
+        return f"Barangay {normalized_name}"
+    if normalized_type == "city":
+        lowered = normalized_name.lower()
+        if lowered.startswith("city of ") or lowered.endswith(" city"):
+            return normalized_name
+        return f"{normalized_name} City"
+    return normalized_name
+
+
+def _build_guided_no_result_message(
+    *,
+    classification: IntentResult,
+    retrieval_filters: dict[str, Any],
+) -> str:
+    entities = classification.entities
+    place: str | None = None
+    if isinstance(entities.get("barangay"), str) and entities.get("barangay"):
+        place = _normalize_scope_place(scope_type="barangay", scope_name=str(entities.get("barangay")))
+    elif isinstance(entities.get("city"), str) and entities.get("city"):
+        place = _normalize_scope_place(scope_type="city", scope_name=str(entities.get("city")))
+    else:
+        scope_type = retrieval_filters.get("scope_type")
+        scope_name = retrieval_filters.get("scope_name")
+        place = _normalize_scope_place(
+            scope_type=str(scope_type) if isinstance(scope_type, str) else None,
+            scope_name=str(scope_name) if isinstance(scope_name, str) else None,
+        )
+
+    place_text = f" for {place}" if place else ""
+    return (
+        f"No exact published AIP match was found{place_text}. "
+        "Try narrowing by fiscal year, sector, or project type/category "
+        "(for example: infrastructure, health, education, livelihood, or governance)."
+    )
+
+
 @router.post("/answer", response_model=ChatAnswerResponse)
 def chat_answer(
     req: ChatAnswerRequest,
@@ -621,6 +665,12 @@ def chat_answer(
     normalized["retrieval_meta"]["sql_scoped"] = False
     normalized["retrieval_meta"]["fallback_source"] = "rag"
     normalized["retrieval_meta"] = _merge_classifier_meta(normalized["retrieval_meta"], classification)
+    if normalized["refused"] and str(normalized["retrieval_meta"].get("reason") or "") == "insufficient_evidence":
+        normalized["answer"] = _build_guided_no_result_message(
+            classification=classification,
+            retrieval_filters=filters_payload,
+        )
+        normalized["retrieval_meta"]["guided_no_result"] = True
     _trace_log(
         "rag_completed",
         status=normalized["retrieval_meta"].get("status"),

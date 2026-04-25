@@ -6,6 +6,12 @@ import os
 import re
 from typing import Any
 
+from openaip_pipeline.services.intent.rules import (
+    extract_known_barangay_from_text,
+    extract_known_city_from_text,
+    has_retrievable_aip_signal,
+    is_incomplete_follow_up,
+)
 from openaip_pipeline.services.intent.types import (
     AIP_ONLY_RESPONSE,
     DEFAULT_CLARIFICATION_RESPONSE,
@@ -24,10 +30,11 @@ logger = logging.getLogger(__name__)
 _SCOPE_TYPE_VALUES = {"barangay", "city"}
 _DEFAULT_INTENT = "clarification"
 _DEFAULT_CONFIDENCE = 0.0
+_CLARIFICATION_PROMOTION_CONFIDENCE = 0.65
 
 _CLASSIFIER_SYSTEM_PROMPT = (
     "You are an intent classifier and entity extractor for OpenAIP.\n"
-    "OpenAIP only answers Annual Investment Program (AIP) data questions.\n"
+    "OpenAIP only answers Annual Investment Program (AIP) data questions such as projects, programs, budgets, sectors, barangays, cities, and fiscal years.\n"
     "Return only valid JSON.\n\n"
     "Choose exactly one intent:\n"
     "- greeting\n"
@@ -66,12 +73,23 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     "1. Output JSON only.\n"
     "2. Use null for unknown entities.\n"
     "3. Set out_of_scope for requests unrelated to AIP/OpenAIP data.\n"
-    "4. Set needs_retrieval=false for greeting, farewell, thanks, help, small_talk, out_of_scope, clarification.\n"
-    "5. Set needs_retrieval=true for total_aggregation, category_aggregation, line_item_lookup, metadata_query, compare_years, rag_query.\n"
-    "6. Set friendly_response for conversational intents, clarification, and out_of_scope.\n"
-    "7. Use route_hint when clear: sql_totals, aggregate_sql, row_sql, metadata_sql, rag_query; otherwise null.\n"
-    "8. Do not invent entities unless clearly present.\n"
-    "9. scope_type can only be barangay or city.\n"
+    "4. If the message is broadly AIP-related, prefer rag_query over clarification.\n"
+    "5. Use clarification only when the request is too incomplete to retrieve even broad related AIP records.\n"
+    "6. Set needs_retrieval=false for greeting, farewell, thanks, help, small_talk, out_of_scope, clarification.\n"
+    "7. Set needs_retrieval=true for total_aggregation, category_aggregation, line_item_lookup, metadata_query, compare_years, rag_query.\n"
+    "8. Set friendly_response for conversational intents, clarification, and out_of_scope.\n"
+    "9. Use route_hint when clear: sql_totals, aggregate_sql, row_sql, metadata_sql, rag_query; otherwise null.\n"
+    "10. Do not invent entities unless clearly present.\n"
+    "11. scope_type can only be barangay or city.\n"
+    "12. Treat these as rag_query examples:\n"
+    '- "What projects are in Mamatid?"\n'
+    '- "Show projects in Pulo."\n'
+    '- "List available projects in San Isidro."\n'
+    '- "Recommend projects in Mamatid."\n'
+    '- "What budgets are available for Cabuyao?"\n'
+    '- "What programs are in Banaybanay?"\n'
+    '- "What are the health-related projects?"\n'
+    '- "Show all infrastructure projects."\n'
 )
 
 
@@ -225,6 +243,33 @@ def _normalize_needs_retrieval(intent: str, value: Any) -> bool:
     return True
 
 
+def _augment_entities_from_message(*, message: str, entities: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(entities)
+    barangay = normalized.get("barangay")
+    city = normalized.get("city")
+
+    if not isinstance(barangay, str) or not barangay.strip():
+        extracted_barangay = extract_known_barangay_from_text(message)
+        if extracted_barangay:
+            normalized["barangay"] = extracted_barangay
+            normalized["scope_type"] = "barangay"
+            normalized["scope_name"] = extracted_barangay
+            return normalized
+    if not isinstance(city, str) or not city.strip():
+        extracted_city = extract_known_city_from_text(message)
+        if extracted_city:
+            normalized["city"] = extracted_city
+            normalized["scope_type"] = "city"
+            normalized["scope_name"] = extracted_city
+    return normalized
+
+
+def _should_promote_clarification_to_rag(*, message: str, entities: dict[str, Any]) -> bool:
+    if is_incomplete_follow_up(message) and not has_retrievable_aip_signal(message, entities=entities):
+        return False
+    return has_retrievable_aip_signal(message, entities=entities)
+
+
 def _default_friendly_response(intent: str) -> str | None:
     if intent == "out_of_scope":
         return AIP_ONLY_RESPONSE
@@ -278,9 +323,19 @@ def classify_with_llm(*, message: str, openai_api_key: str, model_name: str) -> 
     intent = _normalize_intent(parsed.get("intent"))
     confidence = _as_confidence(parsed.get("confidence"))
     entities = _normalize_entities(parsed.get("entities"))
+    entities = _augment_entities_from_message(message=message, entities=entities)
     needs_retrieval = _normalize_needs_retrieval(intent, parsed.get("needs_retrieval"))
+    clarification_promoted = False
+
+    if intent == "clarification" and _should_promote_clarification_to_rag(message=message, entities=entities):
+        intent = "rag_query"
+        needs_retrieval = True
+        confidence = max(confidence, _CLARIFICATION_PROMOTION_CONFIDENCE)
+        clarification_promoted = True
 
     friendly_response = _as_string_or_none(parsed.get("friendly_response"))
+    if clarification_promoted:
+        friendly_response = None
     if friendly_response is None:
         friendly_response = _default_friendly_response(intent)
 

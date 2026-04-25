@@ -736,6 +736,40 @@ def test_rag_refusal_status_is_normalized(monkeypatch) -> None:
     assert payload["retrieval_meta"]["status"] == "refusal"
 
 
+def test_guided_no_result_message_mentions_scope_and_refinement(monkeypatch) -> None:
+    _patch_base(monkeypatch)
+    entities = empty_entities()
+    entities.update({"barangay": "Mamatid", "scope_type": "barangay", "scope_name": "Mamatid"})
+    monkeypatch.setattr(
+        chat_route_module,
+        "classify_message",
+        lambda **_kwargs: _classification(intent="rag_query", needs_retrieval=True, entities=entities, route_hint="rag_query"),
+    )
+    monkeypatch.setattr(chat_route_module, "maybe_answer_with_sql", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        chat_route_module,
+        "answer_with_rag",
+        lambda **kwargs: {
+            "question": kwargs.get("question"),
+            "answer": "I couldn't find a reliable answer for that in the published AIP records.",
+            "refused": True,
+            "citations": [],
+            "retrieval_meta": {"reason": "insufficient_evidence"},
+            "context_count": 0,
+        },
+    )
+
+    client = TestClient(create_app())
+    response = _post_chat(client, "What projects are in Mamatid?")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["refused"] is True
+    assert "No exact published AIP match was found for Barangay Mamatid." in payload["answer"]
+    assert "infrastructure, health, education, livelihood, or governance" in payload["answer"]
+    assert payload["retrieval_meta"]["guided_no_result"] is True
+
+
 def test_rag_clarification_status_is_normalized(monkeypatch) -> None:
     _patch_base(monkeypatch)
 
@@ -760,6 +794,42 @@ def test_rag_clarification_status_is_normalized(monkeypatch) -> None:
     payload = response.json()
     assert payload["refused"] is False
     assert payload["retrieval_meta"]["status"] == "clarification"
+
+
+def test_clarification_short_circuit_uses_helpful_guidance(monkeypatch) -> None:
+    _patch_base(monkeypatch)
+    monkeypatch.setattr(
+        chat_route_module,
+        "classify_message",
+        lambda **_kwargs: IntentResult(
+            intent="clarification",
+            confidence=0.8,
+            needs_retrieval=False,
+            friendly_response=None,
+            entities=empty_entities(),
+            route_hint=None,
+            classifier_method="rule",
+        ),
+    )
+    monkeypatch.setattr(
+        chat_route_module,
+        "maybe_answer_with_sql",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("SQL should not be called.")),
+    )
+    monkeypatch.setattr(
+        chat_route_module,
+        "answer_with_rag",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("RAG should not be called.")),
+    )
+
+    client = TestClient(create_app())
+    response = _post_chat(client, "Can you help?")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["retrieval_meta"]["status"] == "clarification"
+    assert "fiscal year, sector, project category/type, barangay, or city" in payload["answer"]
+    assert "broad project options or related projects" in payload["answer"]
 
 
 def test_year_unavailable_short_circuits_before_sql_and_rag(monkeypatch) -> None:
