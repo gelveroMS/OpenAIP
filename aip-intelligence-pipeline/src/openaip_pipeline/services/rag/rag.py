@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 SOURCE_TAG_PATTERN = re.compile(r"\[(S\d+)\]")
 YEAR_PATTERN = re.compile(r"\b(20\d{2})\b")
 MAX_SNIPPET_LENGTH = 360
-MAX_RESPONSE_SENTENCES = 12
 MAX_RETRIEVAL_QUERY_PREVIEW = 240
 INSUFFICIENT_CONTEXT_RESPONSE = "I couldn’t find a reliable answer for that in the published AIP records."
 FALLBACK_LIMIT_POLICY = {
@@ -477,58 +476,11 @@ def _extract_source_ids(answer_text: str) -> list[str]:
     return ordered
 
 
-def _split_answer_sentences(answer_text: str) -> list[str]:
-    normalized = " ".join((answer_text or "").split())
-    if not normalized:
-        return []
-    parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", normalized) if part.strip()]
-    return parts if parts else [normalized]
-
-
-def _list_item_count(answer_text: str) -> int:
-    lines = [line.strip() for line in str(answer_text or "").splitlines() if line.strip()]
-    count = sum(1 for line in lines if re.match(r"^\d+\.\s+", line) or re.match(r"^[-*]\s+", line))
-    if count > 0:
-        return count
-    numbered_inline = re.findall(r"(?:^|\s)(\d+\.\s+)", str(answer_text or ""))
-    return len(numbered_inline)
-
-
 def _strip_disclosure_sentence(answer_text: str) -> str:
     text = str(answer_text or "")
     pattern = rf"(?:^|\s){re.escape(FALLBACK_LIMIT_DISCLOSURE)}\.?(?:\s|$)"
     cleaned = re.sub(pattern, " ", text).strip()
     return re.sub(r"\s{2,}", " ", cleaned)
-
-
-def _answer_violates_constraints(
-    answer_text: str,
-    *,
-    max_sentences: int = MAX_RESPONSE_SENTENCES,
-    max_list_items: int | None = None,
-    require_disclosure: bool = False,
-) -> bool:
-    if not answer_text:
-        return True
-    if answer_text.strip() == INSUFFICIENT_CONTEXT_RESPONSE:
-        return False
-
-    if require_disclosure and FALLBACK_LIMIT_DISCLOSURE not in answer_text:
-        return True
-
-    check_text = _strip_disclosure_sentence(answer_text) if require_disclosure else answer_text
-    constraint_text = re.sub(r"(?m)(?:^|\s)\d+\.\s+", " ", check_text)
-    constraint_text = re.sub(r"(?m)(?:^|\s)[-*]\s+", " ", constraint_text)
-    constraint_text = re.sub(r"\s{2,}", " ", constraint_text).strip()
-    sentences = _split_answer_sentences(constraint_text)
-    if len(sentences) > max_sentences:
-        return True
-
-    if max_list_items is not None and _list_item_count(check_text) > max_list_items:
-        return True
-
-    # Each sentence in generated grounded output must carry at least one source tag.
-    return any(SOURCE_TAG_PATTERN.search(sentence) is None for sentence in sentences)
 
 
 def _build_refusal(
@@ -1228,26 +1180,6 @@ def answer_with_rag(
                 selected_count=len(selected_docs),
                 extra_meta=gate_metrics,
             )
-
-    if _answer_violates_constraints(
-        answer_text,
-        max_sentences=MAX_RESPONSE_SENTENCES,
-        max_list_items=None,
-        require_disclosure=False,
-    ):
-        _trace_log("generation_constraint_violation", answer_preview=_preview(answer_text))
-        return attach(
-            _build_refusal(
-                question=question,
-                reason="validation_failed",
-                docs=selected_docs,
-                top_k=effective_top_k,
-                min_similarity=min_similarity,
-                retrieval_scope=resolved_scope,
-            ),
-            selected_count=len(selected_docs),
-            extra_meta=gate_metrics,
-        )
 
     source_map = _build_source_map(selected_docs)
     used_source_ids: list[str] = []

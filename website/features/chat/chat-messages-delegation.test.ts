@@ -237,6 +237,7 @@ describe("barangay chat route delegation", () => {
       expect.objectContaining({
         retrievalScope: { mode: "global", targets: [] },
         scopeFallback: undefined,
+        topK: 5,
       })
     );
     expect(mockInsertAssistantChatMessage).toHaveBeenCalledTimes(1);
@@ -284,6 +285,7 @@ describe("barangay chat route delegation", () => {
       expect.objectContaining({
         retrievalScope: { mode: "global", targets: [] },
         scopeFallback: undefined,
+        topK: 5,
       })
     );
   });
@@ -354,6 +356,7 @@ describe("barangay chat route delegation", () => {
     expect(response.status).toBe(200);
     expect(mockRequestPipelineChatAnswer).toHaveBeenCalledWith(
       expect.objectContaining({
+        topK: 5,
         scopeFallback: {
           scope_type: "city",
           scope_name: "Cabuyao",
@@ -421,6 +424,7 @@ describe("barangay chat route delegation", () => {
     expect(response.status).toBe(200);
     expect(mockRequestPipelineChatAnswer).toHaveBeenCalledWith(
       expect.objectContaining({
+        topK: 5,
         scopeFallback: {
           scope_type: "barangay",
           scope_name: "Mamatid",

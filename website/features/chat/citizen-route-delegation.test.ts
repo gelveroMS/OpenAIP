@@ -234,6 +234,7 @@ describe("citizen chat route delegation", () => {
     expect(mockRequestPipelineChatAnswer).toHaveBeenCalledWith(
       expect.objectContaining({
         retrievalScope: { mode: "global", targets: [] },
+        topK: 5,
       })
     );
     const pipelineInput = mockRequestPipelineChatAnswer.mock.calls[0]?.[0] as {
@@ -317,6 +318,7 @@ describe("citizen chat route delegation", () => {
     expect(mockRequestPipelineChatAnswer).toHaveBeenCalledWith(
       expect.objectContaining({
         retrievalScope: { mode: "global", targets: [] },
+        topK: 5,
         scopeFallback: {
           scope_type: "city",
           scope_name: "Cabuyao",
