@@ -248,3 +248,14 @@ Execution artifacts (Supabase source of truth):
 
 - Production worker does not depend on local `outputs/`.
 - CLI local runs write to `data/outputs/`.
+
+## Chat runtime context cleanup
+
+Follow-up/clarification context is stored in `public.chat_runtime_context` and should be purged periodically.
+
+- Recommended Supabase `pg_cron` schedule: every 5-10 minutes
+- Command:
+  - `select public.purge_expired_chat_runtime_context();`
+- Monitor:
+  - Deleted row count returned by the function
+  - Function execution errors in database logs

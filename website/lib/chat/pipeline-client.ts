@@ -93,6 +93,7 @@ function parseEmbeddingResponse(payload: unknown): {
 
 export async function requestPipelineChatAnswer(input: {
   question: string;
+  conversationId?: string;
   retrievalScope: RetrievalScopePayload;
   retrievalMode?: RetrievalModePayload;
   retrievalFilters?: RetrievalFiltersPayload;
@@ -104,8 +105,10 @@ export async function requestPipelineChatAnswer(input: {
   const baseUrl = requireEnv("PIPELINE_API_BASE_URL").replace(/\/+$/, "");
   const retrievalMode = input.retrievalMode ?? "qa";
   const defaultTopK = retrievalMode === "overview" ? 6 : 5;
+  const conversationId = input.conversationId?.trim() || undefined;
   const rawBody = JSON.stringify({
     question: input.question,
+    conversation_id: conversationId,
     retrieval_scope: input.retrievalScope,
     retrieval_mode: retrievalMode,
     retrieval_filters: input.retrievalFilters ?? { publication_status: "published" },

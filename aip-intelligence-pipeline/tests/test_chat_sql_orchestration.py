@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -8,6 +9,141 @@ from openaip_pipeline.api.app import create_app
 import openaip_pipeline.api.routes.chat as chat_route_module
 from openaip_pipeline.services.intent.service import IntentClassificationError
 from openaip_pipeline.services.intent.types import IntentResult, empty_entities
+
+_TEST_RUNTIME_CONTEXT_STORE: dict[str, dict] = {}
+_TEST_RUNTIME_CONTEXT_MAX_TURNS = 5
+_TEST_RUNTIME_CONTEXT_TTL_SECONDS = 15 * 60
+
+
+def _install_runtime_context_store_mocks(monkeypatch) -> None:
+    def _normalize_key(conversation_id: str | None) -> str | None:
+        return chat_route_module._clarification_context_key(conversation_id)
+
+    def _load_for_mode(*, conversation_id: str | None, mode: str):
+        key = _normalize_key(conversation_id)
+        if key is None:
+            return None, False
+        payload = _TEST_RUNTIME_CONTEXT_STORE.get(key)
+        if payload is None or payload.get("mode") != mode:
+            return None, False
+        now = time.time()
+        if float(payload.get("expires_at") or 0.0) <= now or int(payload.get("turns") or 0) >= int(
+            payload.get("max_turns") or _TEST_RUNTIME_CONTEXT_MAX_TURNS
+        ):
+            return None, True
+        payload["turns"] = int(payload.get("turns") or 0) + 1
+        payload["updated_at"] = now
+        return dict(payload), False
+
+    def _store(
+        *,
+        conversation_id: str | None,
+        mode: str,
+        original_question: str,
+        assistant_prompt: str,
+        unresolved_fields: list[str],
+        resolved_entities: dict,
+        completeness_mode: str,
+    ) -> bool:
+        key = _normalize_key(conversation_id)
+        if key is None:
+            return False
+        now = time.time()
+        _TEST_RUNTIME_CONTEXT_STORE[key] = {
+            "mode": mode,
+            "original_question": original_question,
+            "clarification_question": assistant_prompt,
+            "assistant_prompt": assistant_prompt,
+            "unresolved_fields": list(unresolved_fields),
+            "resolved_entities": dict(resolved_entities),
+            "completeness_mode": completeness_mode,
+            "created_at": now,
+            "updated_at": now,
+            "turns": 0,
+            "max_turns": _TEST_RUNTIME_CONTEXT_MAX_TURNS,
+            "expires_at": now + _TEST_RUNTIME_CONTEXT_TTL_SECONDS,
+        }
+        return True
+
+    def _load_clarification(conversation_id: str | None):
+        return _load_for_mode(conversation_id=conversation_id, mode="clarification")
+
+    def _load_optional(conversation_id: str | None):
+        return _load_for_mode(conversation_id=conversation_id, mode="optional_narrowing")
+
+    def _store_clarification(
+        *,
+        conversation_id: str | None,
+        original_question: str,
+        clarification_question: str,
+        unresolved_fields: list[str],
+        resolved_entities: dict,
+        completeness_mode: str,
+    ) -> bool:
+        return _store(
+            conversation_id=conversation_id,
+            mode="clarification",
+            original_question=original_question,
+            assistant_prompt=clarification_question,
+            unresolved_fields=unresolved_fields,
+            resolved_entities=resolved_entities,
+            completeness_mode=completeness_mode,
+        )
+
+    def _store_optional(
+        *,
+        conversation_id: str | None,
+        original_question: str,
+        unresolved_fields: list[str],
+        resolved_entities: dict,
+        assistant_prompt: str | None = None,
+    ) -> bool:
+        return _store(
+            conversation_id=conversation_id,
+            mode="optional_narrowing",
+            original_question=original_question,
+            assistant_prompt=(assistant_prompt or "").strip(),
+            unresolved_fields=unresolved_fields,
+            resolved_entities=resolved_entities,
+            completeness_mode="exploratory",
+        )
+
+    def _clear(conversation_id: str | None, *, mode: str):
+        key = _normalize_key(conversation_id)
+        if key is None:
+            return
+        payload = _TEST_RUNTIME_CONTEXT_STORE.get(key)
+        if payload is None:
+            return
+        if payload.get("mode") == mode:
+            _TEST_RUNTIME_CONTEXT_STORE.pop(key, None)
+
+    def _record(*, conversation_id: str | None, relation: str, confidence: float):
+        key = _normalize_key(conversation_id)
+        if key is None:
+            return
+        payload = _TEST_RUNTIME_CONTEXT_STORE.get(key)
+        if payload is None:
+            return
+        payload["last_relation"] = relation
+        payload["last_relation_confidence"] = float(confidence)
+        payload["updated_at"] = time.time()
+
+    monkeypatch.setattr(chat_route_module, "_load_clarification_context_for_turn", _load_clarification)
+    monkeypatch.setattr(chat_route_module, "_load_optional_narrowing_context_for_turn", _load_optional)
+    monkeypatch.setattr(chat_route_module, "_store_clarification_context", _store_clarification)
+    monkeypatch.setattr(chat_route_module, "_store_optional_narrowing_context", _store_optional)
+    monkeypatch.setattr(
+        chat_route_module,
+        "_clear_clarification_context",
+        lambda conversation_id: _clear(conversation_id, mode="clarification"),
+    )
+    monkeypatch.setattr(
+        chat_route_module,
+        "_clear_optional_narrowing_context",
+        lambda conversation_id: _clear(conversation_id, mode="optional_narrowing"),
+    )
+    monkeypatch.setattr(chat_route_module, "_record_runtime_context_relation", _record)
 
 
 def _classification(
@@ -29,7 +165,7 @@ def _classification(
     )
 
 
-def _patch_base(monkeypatch) -> None:
+def _patch_base(monkeypatch, *, patch_runtime_context: bool = True) -> None:
     def fake_require_internal_token(_request):
         return None
 
@@ -57,12 +193,12 @@ def _patch_base(monkeypatch) -> None:
             "year_availability_scope": None,
         },
     )
+    if patch_runtime_context:
+        _install_runtime_context_store_mocks(monkeypatch)
 
 
 def _clear_clarification_context_store() -> None:
-    with chat_route_module._CLARIFICATION_CONTEXT_LOCK:
-        chat_route_module._CLARIFICATION_CONTEXT_STORE.clear()
-        chat_route_module._OPTIONAL_NARROWING_CONTEXT_STORE.clear()
+    _TEST_RUNTIME_CONTEXT_STORE.clear()
 
 
 def _post_chat(client: TestClient, question: str, **overrides):
@@ -1131,6 +1267,34 @@ def test_exploratory_missing_dimensions_uses_rag_with_transparency(monkeypatch) 
     assert payload["retrieval_meta"]["enriched_query_used"] is False
 
 
+def test_runtime_context_db_failure_fails_open_to_stateless(monkeypatch) -> None:
+    _clear_clarification_context_store()
+    _patch_base(monkeypatch, patch_runtime_context=False)
+    monkeypatch.setattr(chat_route_module, "_runtime_context_client", lambda: None)
+    monkeypatch.setattr(chat_route_module, "maybe_answer_with_sql", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        chat_route_module,
+        "answer_with_rag",
+        lambda **kwargs: {
+            "question": kwargs.get("question"),
+            "answer": "Fail-open answer.",
+            "refused": False,
+            "citations": [],
+            "retrieval_meta": {"reason": "ok"},
+            "context_count": 0,
+        },
+    )
+
+    client = TestClient(create_app())
+    response = _post_chat(client, "Show infrastructure projects.", conversation_id="conv-fail-open")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["answer"].endswith("Fail-open answer.")
+    assert payload["retrieval_meta"]["clarification_context_status"] == "none"
+    assert payload["retrieval_meta"]["optional_narrowing_context_status"] in {"none", "stored"}
+
+
 def test_clarification_follow_up_merges_query_and_clears_context(monkeypatch) -> None:
     _clear_clarification_context_store()
     _patch_base(monkeypatch)
@@ -1265,8 +1429,7 @@ def test_expired_clarification_context_processes_request_statelessly(monkeypatch
     assert first.status_code == 200
     assert first.json()["retrieval_meta"]["clarification_context_status"] == "stored"
 
-    with chat_route_module._CLARIFICATION_CONTEXT_LOCK:
-        chat_route_module._CLARIFICATION_CONTEXT_STORE["conv-expire-1"]["created_at"] = 0.0
+    _TEST_RUNTIME_CONTEXT_STORE["conv-expire-1"]["expires_at"] = 0.0
 
     second = _post_chat(client, "Show infrastructure projects.", conversation_id="conv-expire-1")
     assert second.status_code == 200
@@ -1304,8 +1467,7 @@ def test_optional_narrowing_context_stored_after_broad_answer(monkeypatch) -> No
     payload = response.json()
     assert payload["retrieval_meta"]["optional_narrowing_context_status"] == "stored"
     assert payload["retrieval_meta"]["optional_narrowing_merge_used"] is False
-    with chat_route_module._CLARIFICATION_CONTEXT_LOCK:
-        assert "conv-opt-store" in chat_route_module._OPTIONAL_NARROWING_CONTEXT_STORE
+    assert _TEST_RUNTIME_CONTEXT_STORE.get("conv-opt-store", {}).get("mode") == "optional_narrowing"
 
 
 def test_optional_narrowing_slot_follow_up_merges_and_clears(monkeypatch) -> None:
@@ -1455,8 +1617,7 @@ def test_optional_narrowing_affirmative_reply_requests_specific_filter(monkeypat
     assert payload["retrieval_meta"]["followup_relation"] == "follow_up"
     assert payload["retrieval_meta"]["followup_merge_used"] is False
     assert "pakispecify" in payload["answer"].lower()
-    with chat_route_module._CLARIFICATION_CONTEXT_LOCK:
-        assert "conv-opt-ack" in chat_route_module._OPTIONAL_NARROWING_CONTEXT_STORE
+    assert _TEST_RUNTIME_CONTEXT_STORE.get("conv-opt-ack", {}).get("mode") == "optional_narrowing"
 
 
 def test_optional_narrowing_llm_follow_up_merges(monkeypatch) -> None:

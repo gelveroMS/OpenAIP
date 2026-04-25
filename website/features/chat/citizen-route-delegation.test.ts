@@ -233,6 +233,7 @@ describe("citizen chat route delegation", () => {
     expect(mockRequestPipelineChatAnswer).toHaveBeenCalledTimes(1);
     expect(mockRequestPipelineChatAnswer).toHaveBeenCalledWith(
       expect.objectContaining({
+        conversationId: "session-1",
         retrievalScope: { mode: "global", targets: [] },
         topK: 5,
       })

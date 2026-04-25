@@ -5,8 +5,7 @@ import inspect
 import logging
 import os
 import re
-import threading
-import time
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -44,11 +43,10 @@ _STRUCTURED_SQL_INTENTS: set[str] = {
     "compare_years",
 }
 
-_CLARIFICATION_CONTEXT_LOCK = threading.Lock()
-_CLARIFICATION_CONTEXT_STORE: dict[str, dict[str, Any]] = {}
-_OPTIONAL_NARROWING_CONTEXT_STORE: dict[str, dict[str, Any]] = {}
-_CLARIFICATION_CONTEXT_TTL_SECONDS = 10 * 60
-_CLARIFICATION_CONTEXT_MAX_TURNS = 3
+_RUNTIME_CONTEXT_MODE_CLARIFICATION = "clarification"
+_RUNTIME_CONTEXT_MODE_OPTIONAL_NARROWING = "optional_narrowing"
+_RUNTIME_CONTEXT_DEFAULT_MAX_TURNS = 5
+_RUNTIME_CONTEXT_DEFAULT_EXPIRES_MINUTES = 15
 
 _YEAR_RE = re.compile(r"\b(20\d{2})\b")
 _RECENCY_RE = re.compile(r"\b(latest|current|recent)\b", re.IGNORECASE)
@@ -256,71 +254,241 @@ def _clarification_context_key(conversation_id: str | None) -> str | None:
     return normalized if normalized else None
 
 
-def _expire_context_store_locked(now: float, store: dict[str, dict[str, Any]]) -> None:
-    expired_keys: list[str] = []
-    for conversation_id, payload in store.items():
-        created_at = float(payload.get("created_at") or 0.0)
-        turns = int(payload.get("turns") or 0)
-        if created_at <= 0 or (now - created_at) > _CLARIFICATION_CONTEXT_TTL_SECONDS or turns >= _CLARIFICATION_CONTEXT_MAX_TURNS:
-            expired_keys.append(conversation_id)
-    for conversation_id in expired_keys:
-        store.pop(conversation_id, None)
+def _runtime_context_client() -> Any | None:
+    try:
+        from supabase.client import create_client
+    except Exception as error:
+        _trace_log("runtime_context_client_unavailable", error=str(error))
+        return None
+    try:
+        settings = Settings.load(require_supabase=True, require_openai=False)
+        return create_client(settings.supabase_url, settings.supabase_service_key)
+    except Exception as error:
+        _trace_log("runtime_context_client_init_failed", error=str(error))
+        return None
 
 
-def _expire_clarification_context_locked(now: float) -> None:
-    _expire_context_store_locked(now, _CLARIFICATION_CONTEXT_STORE)
+def _runtime_context_extract_row(data: Any) -> dict[str, Any] | None:
+    if isinstance(data, dict):
+        return dict(data)
+    if isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict):
+                return dict(item)
+    return None
 
 
-def _expire_optional_narrowing_context_locked(now: float) -> None:
-    _expire_context_store_locked(now, _OPTIONAL_NARROWING_CONTEXT_STORE)
+def _runtime_context_rpc_row(function_name: str, params: dict[str, Any]) -> dict[str, Any] | None:
+    client = _runtime_context_client()
+    if client is None:
+        return None
+    try:
+        result = client.rpc(function_name, params).execute()
+        return _runtime_context_extract_row(getattr(result, "data", None))
+    except Exception as error:
+        _trace_log("runtime_context_rpc_failed", function=function_name, error=str(error))
+        return None
+
+
+def _runtime_context_rpc_value(function_name: str, params: dict[str, Any]) -> Any:
+    client = _runtime_context_client()
+    if client is None:
+        return None
+    try:
+        result = client.rpc(function_name, params).execute()
+        return getattr(result, "data", None)
+    except Exception as error:
+        _trace_log("runtime_context_rpc_failed", function=function_name, error=str(error))
+        return None
+
+
+def _runtime_context_fetch_row(conversation_id: str) -> dict[str, Any] | None:
+    client = _runtime_context_client()
+    if client is None:
+        return None
+    try:
+        response = (
+            client.table("chat_runtime_context")
+            .select("*")
+            .eq("conversation_id", conversation_id)
+            .limit(1)
+            .execute()
+        )
+        return _runtime_context_extract_row(getattr(response, "data", None))
+    except Exception as error:
+        _trace_log("runtime_context_fetch_failed", error=str(error))
+        return None
+
+
+def _runtime_context_as_list(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return list(value)
+    return []
+
+
+def _runtime_context_as_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    return {}
+
+
+def _runtime_context_parse_timestamp(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return None
+        if raw.endswith("Z"):
+            raw = f"{raw[:-1]}+00:00"
+        try:
+            parsed = datetime.fromisoformat(raw)
+            return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+    return None
+
+
+def _runtime_context_is_expired(row: dict[str, Any]) -> bool:
+    turn_count = int(row.get("turn_count") or 0)
+    max_turns = int(row.get("max_turns") or 0)
+    if max_turns > 0 and turn_count >= max_turns:
+        return True
+    expires_at = _runtime_context_parse_timestamp(row.get("expires_at"))
+    if expires_at is None:
+        return False
+    return expires_at <= datetime.now(timezone.utc)
+
+
+def _runtime_context_to_payload(row: dict[str, Any]) -> dict[str, Any]:
+    assistant_prompt = _normalize_text(str(row.get("assistant_prompt") or ""))
+    unresolved_fields = [str(item).strip() for item in _runtime_context_as_list(row.get("unresolved_fields")) if str(item).strip()]
+    return {
+        "mode": _normalize_text(str(row.get("mode") or "")),
+        "original_question": str(row.get("original_question") or "").strip(),
+        "clarification_question": assistant_prompt or DEFAULT_CLARIFICATION_RESPONSE,
+        "assistant_prompt": assistant_prompt,
+        "unresolved_fields": unresolved_fields,
+        "resolved_entities": _runtime_context_as_dict(row.get("resolved_entities")),
+        "completeness_mode": str(row.get("completeness_mode") or "").strip() or "exploratory",
+        "created_at": row.get("created_at"),
+        "updated_at": row.get("updated_at"),
+        "turns": int(row.get("turn_count") or 0),
+        "max_turns": int(row.get("max_turns") or _RUNTIME_CONTEXT_DEFAULT_MAX_TURNS),
+        "expires_at": row.get("expires_at"),
+    }
+
+
+def _load_runtime_context_for_mode(conversation_id: str | None, *, mode: str) -> tuple[dict[str, Any] | None, bool]:
+    key = _clarification_context_key(conversation_id)
+    if key is None:
+        return None, False
+    row = _runtime_context_fetch_row(key)
+    if row is None:
+        return None, False
+    row_mode = _normalize_text(str(row.get("mode") or "")).lower()
+    if row_mode != mode:
+        return None, False
+    if _runtime_context_is_expired(row):
+        return None, True
+    consumed = _runtime_context_rpc_row(
+        "consume_chat_runtime_context",
+        {"p_conversation_id": key},
+    )
+    if consumed is None:
+        latest = _runtime_context_fetch_row(key)
+        if latest is not None:
+            latest_mode = _normalize_text(str(latest.get("mode") or "")).lower()
+            if latest_mode == mode and _runtime_context_is_expired(latest):
+                return None, True
+        return None, False
+    consumed_mode = _normalize_text(str(consumed.get("mode") or "")).lower()
+    if consumed_mode != mode:
+        return None, False
+    return _runtime_context_to_payload(consumed), False
 
 
 def _load_clarification_context_for_turn(conversation_id: str | None) -> tuple[dict[str, Any] | None, bool]:
-    key = _clarification_context_key(conversation_id)
-    if key is None:
-        return None, False
-    now = time.time()
-    with _CLARIFICATION_CONTEXT_LOCK:
-        had_entry_before_prune = key in _CLARIFICATION_CONTEXT_STORE
-        _expire_clarification_context_locked(now)
-        payload = _CLARIFICATION_CONTEXT_STORE.get(key)
-        if payload is None:
-            return None, had_entry_before_prune
-        payload["turns"] = int(payload.get("turns") or 0) + 1
-        payload["updated_at"] = now
-        return dict(payload), False
+    return _load_runtime_context_for_mode(
+        conversation_id,
+        mode=_RUNTIME_CONTEXT_MODE_CLARIFICATION,
+    )
 
 
 def _load_optional_narrowing_context_for_turn(conversation_id: str | None) -> tuple[dict[str, Any] | None, bool]:
+    return _load_runtime_context_for_mode(
+        conversation_id,
+        mode=_RUNTIME_CONTEXT_MODE_OPTIONAL_NARROWING,
+    )
+
+
+def _clear_runtime_context(conversation_id: str | None, *, expected_mode: str | None = None) -> bool:
     key = _clarification_context_key(conversation_id)
     if key is None:
-        return None, False
-    now = time.time()
-    with _CLARIFICATION_CONTEXT_LOCK:
-        had_entry_before_prune = key in _OPTIONAL_NARROWING_CONTEXT_STORE
-        _expire_optional_narrowing_context_locked(now)
-        payload = _OPTIONAL_NARROWING_CONTEXT_STORE.get(key)
-        if payload is None:
-            return None, had_entry_before_prune
-        payload["turns"] = int(payload.get("turns") or 0) + 1
-        payload["updated_at"] = now
-        return dict(payload), False
+        return False
+    if expected_mode is not None:
+        row = _runtime_context_fetch_row(key)
+        if row is None:
+            return False
+        row_mode = _normalize_text(str(row.get("mode") or "")).lower()
+        if row_mode != expected_mode:
+            return False
+    cleared = _runtime_context_rpc_value(
+        "clear_chat_runtime_context",
+        {"p_conversation_id": key},
+    )
+    if isinstance(cleared, bool):
+        return cleared
+    if isinstance(cleared, list):
+        return bool(cleared and isinstance(cleared[0], bool) and cleared[0])
+    return False
 
 
 def _clear_clarification_context(conversation_id: str | None) -> None:
-    key = _clarification_context_key(conversation_id)
-    if key is None:
-        return
-    with _CLARIFICATION_CONTEXT_LOCK:
-        _CLARIFICATION_CONTEXT_STORE.pop(key, None)
+    _clear_runtime_context(
+        conversation_id,
+        expected_mode=_RUNTIME_CONTEXT_MODE_CLARIFICATION,
+    )
 
 
 def _clear_optional_narrowing_context(conversation_id: str | None) -> None:
+    _clear_runtime_context(
+        conversation_id,
+        expected_mode=_RUNTIME_CONTEXT_MODE_OPTIONAL_NARROWING,
+    )
+
+
+def _store_runtime_context(
+    *,
+    conversation_id: str | None,
+    mode: str,
+    original_question: str,
+    assistant_prompt: str,
+    unresolved_fields: list[str],
+    resolved_entities: dict[str, Any],
+    completeness_mode: str | None,
+) -> bool:
     key = _clarification_context_key(conversation_id)
     if key is None:
-        return
-    with _CLARIFICATION_CONTEXT_LOCK:
-        _OPTIONAL_NARROWING_CONTEXT_STORE.pop(key, None)
+        return False
+    row = _runtime_context_rpc_row(
+        "upsert_chat_runtime_context",
+        {
+            "p_conversation_id": key,
+            "p_session_id": None,
+            "p_source_message_id": None,
+            "p_mode": mode,
+            "p_original_question": _normalize_text(original_question),
+            "p_assistant_prompt": _normalize_text(assistant_prompt),
+            "p_unresolved_fields": list(unresolved_fields),
+            "p_resolved_entities": dict(resolved_entities),
+            "p_suggested_followups": [],
+            "p_completeness_mode": completeness_mode,
+            "p_max_turns": _RUNTIME_CONTEXT_DEFAULT_MAX_TURNS,
+            "p_expires_in_minutes": _RUNTIME_CONTEXT_DEFAULT_EXPIRES_MINUTES,
+        },
+    )
+    return row is not None
 
 
 def _store_clarification_context(
@@ -332,23 +500,15 @@ def _store_clarification_context(
     resolved_entities: dict[str, Any],
     completeness_mode: str,
 ) -> bool:
-    key = _clarification_context_key(conversation_id)
-    if key is None:
-        return False
-    now = time.time()
-    payload = {
-        "original_question": original_question,
-        "clarification_question": clarification_question,
-        "unresolved_fields": list(unresolved_fields),
-        "resolved_entities": dict(resolved_entities),
-        "completeness_mode": completeness_mode,
-        "created_at": now,
-        "updated_at": now,
-        "turns": 0,
-    }
-    with _CLARIFICATION_CONTEXT_LOCK:
-        _CLARIFICATION_CONTEXT_STORE[key] = payload
-    return True
+    return _store_runtime_context(
+        conversation_id=conversation_id,
+        mode=_RUNTIME_CONTEXT_MODE_CLARIFICATION,
+        original_question=original_question,
+        assistant_prompt=clarification_question,
+        unresolved_fields=unresolved_fields,
+        resolved_entities=resolved_entities,
+        completeness_mode=completeness_mode,
+    )
 
 
 def _store_optional_narrowing_context(
@@ -359,23 +519,34 @@ def _store_optional_narrowing_context(
     resolved_entities: dict[str, Any],
     assistant_prompt: str | None = None,
 ) -> bool:
+    return _store_runtime_context(
+        conversation_id=conversation_id,
+        mode=_RUNTIME_CONTEXT_MODE_OPTIONAL_NARROWING,
+        original_question=original_question,
+        assistant_prompt=_normalize_text(assistant_prompt or ""),
+        unresolved_fields=unresolved_fields,
+        resolved_entities=resolved_entities,
+        completeness_mode="exploratory",
+    )
+
+
+def _record_runtime_context_relation(
+    *,
+    conversation_id: str | None,
+    relation: str,
+    confidence: float,
+) -> None:
     key = _clarification_context_key(conversation_id)
     if key is None:
-        return False
-    now = time.time()
-    payload = {
-        "mode": "optional_narrowing",
-        "original_question": original_question,
-        "unresolved_fields": list(unresolved_fields),
-        "resolved_entities": dict(resolved_entities),
-        "assistant_prompt": _normalize_text(assistant_prompt or ""),
-        "created_at": now,
-        "updated_at": now,
-        "turns": 0,
-    }
-    with _CLARIFICATION_CONTEXT_LOCK:
-        _OPTIONAL_NARROWING_CONTEXT_STORE[key] = payload
-    return True
+        return
+    _runtime_context_rpc_row(
+        "update_chat_runtime_context_relation",
+        {
+            "p_conversation_id": key,
+            "p_last_relation": relation,
+            "p_last_relation_confidence": float(confidence),
+        },
+    )
 
 
 def _follow_up_has_clarification_detail(message: str) -> bool:
@@ -1277,6 +1448,11 @@ def chat_answer(
         followup_relation_source = relation_result.source
         followup_relation = relation_result.relation
         followup_relation_confidence = relation_result.confidence
+        _record_runtime_context_relation(
+            conversation_id=req.conversation_id,
+            relation=followup_relation,
+            confidence=followup_relation_confidence,
+        )
         _trace_log(
             "followup_relation_evaluated",
             context_type="clarification",
@@ -1329,6 +1505,11 @@ def chat_answer(
             followup_relation_source = relation_result.source
             followup_relation = relation_result.relation
             followup_relation_confidence = relation_result.confidence
+            _record_runtime_context_relation(
+                conversation_id=req.conversation_id,
+                relation=followup_relation,
+                confidence=followup_relation_confidence,
+            )
             _trace_log(
                 "followup_relation_evaluated",
                 context_type="optional_narrowing",

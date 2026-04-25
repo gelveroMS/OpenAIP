@@ -235,6 +235,7 @@ describe("barangay chat route delegation", () => {
     expect(mockRequestPipelineChatAnswer).toHaveBeenCalledTimes(1);
     expect(mockRequestPipelineChatAnswer).toHaveBeenCalledWith(
       expect.objectContaining({
+        conversationId: session.id,
         retrievalScope: { mode: "global", targets: [] },
         scopeFallback: undefined,
         topK: 5,
