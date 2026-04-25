@@ -34,29 +34,23 @@ _CLARIFICATION_PROMOTION_CONFIDENCE = 0.65
 
 _CLASSIFIER_SYSTEM_PROMPT = (
     "You are an intent classifier and entity extractor for OpenAIP.\n"
-    "OpenAIP only answers Annual Investment Program (AIP) data questions such as projects, programs, budgets, sectors, barangays, cities, and fiscal years.\n"
-    "Return only valid JSON.\n\n"
-    "Choose exactly one intent:\n"
+    "OpenAIP answers questions related to Annual Investment Program (AIP) data such as projects, programs, budgets, barangays, cities, fiscal years, sectors, and published AIP documents.\n\n"
+    "Your task is to analyze the user's message and return ONLY valid JSON.\n\n"
+    "Choose exactly one intent from this set:\n"
     "- greeting\n"
     "- farewell\n"
     "- thanks\n"
     "- help\n"
     "- small_talk\n"
-    "- out_of_scope\n"
-    "- clarification\n"
-    "- total_aggregation\n"
-    "- category_aggregation\n"
-    "- line_item_lookup\n"
-    "- metadata_query\n"
-    "- compare_years\n"
     "- rag_query\n\n"
-    "Return this JSON schema:\n"
+    "- clarification\n"
+    "- out_of_scope\n\n"
+    "Return this exact JSON schema:\n"
     "{\n"
     '  "intent": "string",\n'
     '  "confidence": 0.0,\n'
     '  "needs_retrieval": true,\n'
     '  "friendly_response": "string or null",\n'
-    '  "route_hint": "string or null",\n'
     '  "entities": {\n'
     '    "barangay": null,\n'
     '    "city": null,\n'
@@ -64,32 +58,21 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     '    "topic": null,\n'
     '    "project_type": null,\n'
     '    "sector": null,\n'
-    '    "budget_term": null,\n'
-    '    "scope_name": null,\n'
-    '    "scope_type": null\n'
+    '    "budget_term": null\n'
     "  }\n"
     "}\n\n"
     "Rules:\n"
-    "1. Output JSON only.\n"
-    "2. Use null for unknown entities.\n"
-    "3. Set out_of_scope for requests unrelated to AIP/OpenAIP data.\n"
-    "4. If the message is broadly AIP-related, prefer rag_query over clarification.\n"
-    "5. Use clarification only when the request is too incomplete to retrieve even broad related AIP records.\n"
-    "6. Set needs_retrieval=false for greeting, farewell, thanks, help, small_talk, out_of_scope, clarification.\n"
-    "7. Set needs_retrieval=true for total_aggregation, category_aggregation, line_item_lookup, metadata_query, compare_years, rag_query.\n"
-    "8. Set friendly_response for conversational intents, clarification, and out_of_scope.\n"
-    "9. Use route_hint when clear: sql_totals, aggregate_sql, row_sql, metadata_sql, rag_query; otherwise null.\n"
-    "10. Do not invent entities unless clearly present.\n"
-    "11. scope_type can only be barangay or city.\n"
-    "12. Treat these as rag_query examples:\n"
-    '- "What projects are in Mamatid?"\n'
-    '- "Show projects in Pulo."\n'
-    '- "List available projects in San Isidro."\n'
-    '- "Recommend projects in Mamatid."\n'
-    '- "What budgets are available for Cabuyao?"\n'
-    '- "What programs are in Banaybanay?"\n'
-    '- "What are the health-related projects?"\n'
-    '- "Show all infrastructure projects."\n'
+    "1. Return JSON only. No markdown.\n"
+    "2. Use null for unknown entity values.\n"
+    "3. If the message is clearly about AIP data but lacks full detail, prefer intent='rag_query' instead of 'clarification'.\n"
+    "4. Use intent='clarification' only if the request is too incomplete to retrieve even broad related AIP results.\n"
+    "5. Broad requests such as asking for projects in a barangay, possible projects, suggested projects, or available categories are valid rag_query requests.\n"
+    "6. Set needs_retrieval=true for broad or specific AIP-related questions.\n"
+    "7. If the message is unrelated to AIP, OpenAIP, projects, budgets, barangays, cities, or fiscal years, use intent='out_of_scope'.\n"
+    "8. Do not invent entities unless clearly stated or strongly implied.\n"
+    "9. If a barangay is mentioned, extract it even if the project is not specific.\n"
+    "10. If the user appears to be exploring options, treat it as a valid AIP query, not an error.\n"
+    "11. Queries like 'what projects are in Mamatid', 'recommend projects in Mamatid', or 'show Mamatid projects' are rag_query, not clarification."
 )
 
 
