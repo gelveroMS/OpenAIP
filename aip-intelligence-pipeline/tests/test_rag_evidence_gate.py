@@ -328,7 +328,7 @@ def test_answer_with_rag_skips_generation_when_gate_blocks(monkeypatch) -> None:
     assert result["retrieval_meta"]["generation_skipped_by_gate"] is True
 
 
-def test_answer_with_rag_sql_fallback_exhaustive_enforces_limit_and_disclosure(monkeypatch) -> None:
+def test_answer_with_rag_sql_fallback_exhaustive_does_not_force_item_limit(monkeypatch) -> None:
     monkeypatch.setenv("RAG_PARTIAL_MODE_ENABLED", "false")
     monkeypatch.setenv("RAG_EVIDENCE_GATE_ENABLED", "false")
 
@@ -377,12 +377,13 @@ def test_answer_with_rag_sql_fallback_exhaustive_enforces_limit_and_disclosure(m
     )
 
     assert result["refused"] is False
-    assert result["retrieval_meta"]["limit_policy_applied"] is True
-    assert result["retrieval_meta"]["limit_items"] == 2
-    assert result["retrieval_meta"]["limit_sentences"] == 2
+    assert result["retrieval_meta"]["limit_policy_applied"] is False
+    assert result["retrieval_meta"]["limit_items"] is None
+    assert result["retrieval_meta"]["limit_sentences"] is None
+    assert "I limited this response to 2 items based on the prompt policy." not in result["answer"]
 
 
-def test_answer_with_rag_sql_fallback_exhaustive_missing_disclosure_fails(monkeypatch) -> None:
+def test_answer_with_rag_sql_fallback_exhaustive_missing_disclosure_still_passes(monkeypatch) -> None:
     monkeypatch.setenv("RAG_PARTIAL_MODE_ENABLED", "false")
     monkeypatch.setenv("RAG_EVIDENCE_GATE_ENABLED", "false")
 
@@ -427,8 +428,8 @@ def test_answer_with_rag_sql_fallback_exhaustive_missing_disclosure_fails(monkey
         sql_fallback=True,
     )
 
-    assert result["refused"] is True
-    assert result["retrieval_meta"]["reason"] == "validation_failed"
+    assert result["refused"] is False
+    assert result["retrieval_meta"]["reason"] == "ok"
 
 
 def test_answer_with_rag_sql_fallback_non_exhaustive_missing_disclosure_passes(monkeypatch) -> None:

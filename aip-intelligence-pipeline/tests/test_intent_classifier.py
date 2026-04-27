@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from openaip_pipeline.services.intent.classifier import classify_with_llm
-from openaip_pipeline.services.intent.service import IntentClassificationError, classify_message, resolve_intent_model
+from openaip_pipeline.services.intent.service import classify_message, resolve_intent_model
 from openaip_pipeline.services.intent.types import (
     DEFAULT_CLARIFICATION_RESPONSE,
     IntentResult,
@@ -85,12 +85,15 @@ def test_classify_message_rules_detects_out_of_scope() -> None:
 
 
 def test_classify_message_requires_api_key_for_llm_fallback() -> None:
-    with pytest.raises(IntentClassificationError):
-        classify_message(
-            message="What projects are available in Barangay Mamatid?",
-            openai_api_key=None,
-            default_model="gpt-5.2",
-        )
+    result = classify_message(
+        message="Tell me something unexpected",
+        openai_api_key=None,
+        default_model="gpt-5.2",
+    )
+
+    assert result.intent == "out_of_scope"
+    assert result.needs_retrieval is False
+    assert result.classifier_method == "fallback"
 
 
 def test_classify_message_wraps_llm_failure(monkeypatch) -> None:
@@ -98,12 +101,14 @@ def test_classify_message_wraps_llm_failure(monkeypatch) -> None:
         raise RuntimeError("boom")
 
     monkeypatch.setattr("openaip_pipeline.services.intent.service.classify_with_llm", fake_llm)
-    with pytest.raises(IntentClassificationError):
-        classify_message(
-            message="Tell me something unexpected",
-            openai_api_key="test-key",
-            default_model="gpt-5.2",
-        )
+    result = classify_message(
+        message="Tell me something unexpected",
+        openai_api_key="test-key",
+        default_model="gpt-5.2",
+    )
+
+    assert result.intent == "out_of_scope"
+    assert result.classifier_method == "fallback"
 
 
 def test_classify_message_retries_with_gpt_5_2_when_model_not_found(monkeypatch) -> None:
@@ -258,7 +263,7 @@ def test_classify_message_low_confidence_rag_without_entities_downgrades_to_clar
     )
 
     result = classify_message(
-        message="Show me something about the AIP",
+        message="Tell me anything",
         openai_api_key="test-key",
         default_model="gpt-5.2",
     )
@@ -266,3 +271,121 @@ def test_classify_message_low_confidence_rag_without_entities_downgrades_to_clar
     assert result.intent == "clarification"
     assert result.needs_retrieval is False
     assert result.friendly_response == DEFAULT_CLARIFICATION_RESPONSE
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "What projects are in Mamatid?",
+        "Show projects in Pulo.",
+        "List available projects in San Isidro.",
+        "Recommend projects in Mamatid.",
+        "What budgets are available for Cabuyao?",
+        "What programs are in Banaybanay?",
+        "What are the health-related projects?",
+        "Show all infrastructure projects.",
+    ],
+)
+def test_classify_message_broad_aip_examples_route_to_rag_query(message: str) -> None:
+    result = classify_message(
+        message=message,
+        openai_api_key=None,
+        default_model="gpt-5.2",
+    )
+
+    assert result.intent == "rag_query"
+    assert result.needs_retrieval is True
+
+
+def test_classify_with_llm_promotes_clarification_with_aip_signal(monkeypatch) -> None:
+    class _FakeCompletions:
+        @staticmethod
+        def create(**_kwargs):
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content=(
+                                '{"intent":"clarification","confidence":"0.41","needs_retrieval":false,'
+                                '"friendly_response":null,"route_hint":null,"entities":{"topic":"health"}}'
+                            )
+                        )
+                    )
+                ]
+            )
+
+    class _FakeChat:
+        completions = _FakeCompletions()
+
+    class _FakeClient:
+        chat = _FakeChat()
+
+    monkeypatch.setattr(
+        "openaip_pipeline.services.intent.classifier.build_openai_client",
+        lambda _key: _FakeClient(),
+    )
+
+    result = classify_with_llm(
+        message="What are the health-related projects?",
+        openai_api_key="test-key",
+        model_name="gpt-5.2",
+    )
+
+    assert result.intent == "rag_query"
+    assert result.needs_retrieval is True
+    assert result.confidence >= 0.65
+
+
+def test_classify_with_llm_keeps_incomplete_follow_up_as_clarification(monkeypatch) -> None:
+    class _FakeCompletions:
+        @staticmethod
+        def create(**_kwargs):
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content=(
+                                '{"intent":"clarification","confidence":"0.72","needs_retrieval":false,'
+                                '"friendly_response":null,"route_hint":null,"entities":{}}'
+                            )
+                        )
+                    )
+                ]
+            )
+
+    class _FakeChat:
+        completions = _FakeCompletions()
+
+    class _FakeClient:
+        chat = _FakeChat()
+
+    monkeypatch.setattr(
+        "openaip_pipeline.services.intent.classifier.build_openai_client",
+        lambda _key: _FakeClient(),
+    )
+
+    result = classify_with_llm(
+        message="How about that?",
+        openai_api_key="test-key",
+        model_name="gpt-5.2",
+    )
+
+    assert result.intent == "clarification"
+    assert result.needs_retrieval is False
+
+
+def test_classify_message_llm_failure_with_broad_aip_signal_falls_back_to_rag(monkeypatch) -> None:
+    def _raise(**_kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("openaip_pipeline.services.intent.service.classify_with_llm", _raise)
+
+    result = classify_message(
+        message="AIP options please",
+        openai_api_key="test-key",
+        default_model="gpt-5.2",
+    )
+
+    assert result.intent == "rag_query"
+    assert result.needs_retrieval is True
+    assert result.classifier_method == "fallback"

@@ -11,10 +11,11 @@ import { AipProjectRow } from "../types";
 import { SECTOR_TABS } from "../utils";
 
 const PAGE_SIZE = 10;
+const TEXT_COLOR = "#1F2937";
 
 function LegendItem({ colorClass, label }: { colorClass: string; label: string }) {
   return (
-    <div className="flex items-center gap-2 text-[11px] text-slate-500">
+    <div className="flex items-center gap-2 text-[11px]" style={{ color: TEXT_COLOR }}>
       <span className={`h-2 w-2 rounded-[2px] ${colorClass}`} />
       <span>{label}</span>
     </div>
@@ -110,7 +111,7 @@ export function AipDetailsTableCard({
         
         <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            <h3 className="break-words text-base font-bold text-slate-900 sm:text-lg">
+            <h3 className="break-words text-base font-bold sm:text-lg" style={{ color: TEXT_COLOR }}>
               Annual Investment Plan {year} Details
             </h3>
 
@@ -132,7 +133,7 @@ export function AipDetailsTableCard({
           </div>
 
           <div className="w-full sm:w-[260px]">
-            <div className="text-[11px] text-slate-500 mb-1">Search Projects</div>
+            <div className="text-[11px] mb-1" style={{ color: TEXT_COLOR }}>Search Projects</div>
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -150,9 +151,9 @@ export function AipDetailsTableCard({
           <Table className="min-w-[680px] md:min-w-[700px]">
             <TableHeader>
               <TableRow className="bg-slate-50 hover:bg-slate-50">
-                <TableHead className="text-xs text-slate-600 font-semibold">AIP Reference Code</TableHead>
-                <TableHead className="text-xs text-slate-600 font-semibold">Program Description</TableHead>
-                <TableHead className="text-xs text-slate-600 font-semibold text-right">Total Amount</TableHead>
+                <TableHead className="text-xs font-semibold" style={{ color: TEXT_COLOR }}>AIP Reference Code</TableHead>
+                <TableHead className="text-xs font-semibold" style={{ color: TEXT_COLOR }}>Program Description</TableHead>
+                <TableHead className="text-xs font-semibold text-right" style={{ color: TEXT_COLOR }}>Total Amount</TableHead>
               </TableRow>
             </TableHeader>
 
@@ -160,9 +161,9 @@ export function AipDetailsTableCard({
               {visibleRows.map((r) => {
                 const rowClass =
                   r.reviewStatus === "ai_flagged"
-                    ? "bg-red-50 hover:bg-red-100"
+                    ? "bg-[#C28A3D] hover:bg-[#C28A3D]"
                     : r.reviewStatus === "reviewed"
-                    ? "bg-amber-50 hover:bg-amber-100"
+                    ? "bg-[#4F8B94] hover:bg-[#4F8B94]"
                     : "hover:bg-slate-50";
 
                 return (
@@ -176,11 +177,11 @@ export function AipDetailsTableCard({
                     }`}
                     onClick={() => onRowClick(r)}
                   >
-                    <TableCell className="text-xs text-slate-700">{r.projectRefCode}</TableCell>
-                    <TableCell className="min-w-[280px] whitespace-normal text-xs text-slate-700">
+                    <TableCell className="text-xs" style={{ color: TEXT_COLOR }}>{r.projectRefCode}</TableCell>
+                    <TableCell className="min-w-[280px] whitespace-normal text-xs" style={{ color: TEXT_COLOR }}>
                       {r.aipDescription}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap text-xs text-slate-700 text-right tabular-nums">
+                    <TableCell className="whitespace-nowrap text-xs text-right tabular-nums" style={{ color: TEXT_COLOR }}>
                       ₱{r.amount.toLocaleString()}
                     </TableCell>
                   </TableRow>
@@ -189,7 +190,7 @@ export function AipDetailsTableCard({
 
               {visibleRows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={3} className="py-10 text-center text-sm text-slate-500">
+                  <TableCell colSpan={3} className="py-10 text-center text-sm" style={{ color: TEXT_COLOR }}>
                     No projects found.
                   </TableCell>
                 </TableRow>
@@ -200,7 +201,7 @@ export function AipDetailsTableCard({
 
         {enablePagination && (
           <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="text-sm text-slate-600">
+            <div className="text-sm" style={{ color: TEXT_COLOR }}>
               {`Showing ${showingStart}-${showingEnd} of ${filtered.length} projects`}
             </div>
 
@@ -213,7 +214,7 @@ export function AipDetailsTableCard({
               >
                 Previous
               </Button>
-              <span className="text-xs text-slate-600">{`Page ${currentPage} of ${totalPages}`}</span>
+              <span className="text-xs" style={{ color: TEXT_COLOR }}>{`Page ${currentPage} of ${totalPages}`}</span>
               <Button
                 variant="outline"
                 size="sm"
@@ -227,9 +228,9 @@ export function AipDetailsTableCard({
         )}
 
         <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 sm:justify-end sm:gap-x-6">
-          <LegendItem colorClass="bg-red-500" label="GPT detected a potential error" />
-          <LegendItem colorClass="bg-amber-500" label="Reviewed and commented by official" />
-          <LegendItem colorClass="bg-slate-300" label="No issues detected" />
+          <LegendItem colorClass="bg-[#C28A3D]" label="GPT detected a potential error" />
+          <LegendItem colorClass="bg-[#4F8B94]" label="Reviewed and commented by official" />
+          <LegendItem colorClass="bg-white border border-[#1F2937]" label="No issues detected" />
         </div>
       </CardContent>
     </Card>

@@ -4,6 +4,9 @@ import json
 import inspect
 import logging
 import os
+import re
+from datetime import datetime, timezone
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -19,8 +22,15 @@ from openaip_pipeline.services.intent import (
     IntentResult,
     NON_RETRIEVAL_INTENTS,
     classify_message,
+    resolve_intent_model,
+)
+from openaip_pipeline.services.intent.rules import (
+    extract_known_barangay_from_text,
+    extract_known_city_from_text,
+    looks_like_broad_aip_query,
 )
 from openaip_pipeline.services.openai_utils import build_openai_client
+from openaip_pipeline.services.query_intent import detect_exhaustive_intent
 from openaip_pipeline.services.rag.rag import answer_with_rag, build_retrieval_query
 
 logger = logging.getLogger(__name__)
@@ -32,6 +42,860 @@ _STRUCTURED_SQL_INTENTS: set[str] = {
     "line_item_lookup",
     "compare_years",
 }
+
+_RUNTIME_CONTEXT_MODE_CLARIFICATION = "clarification"
+_RUNTIME_CONTEXT_MODE_OPTIONAL_NARROWING = "optional_narrowing"
+_RUNTIME_CONTEXT_DEFAULT_MAX_TURNS = 5
+_RUNTIME_CONTEXT_DEFAULT_EXPIRES_MINUTES = 15
+
+_YEAR_RE = re.compile(r"\b(20\d{2})\b")
+_RECENCY_RE = re.compile(r"\b(latest|current|recent)\b", re.IGNORECASE)
+_TOPIC_CHANGE_RE = re.compile(
+    r"\b(new question|different topic|forget that|ignore that|never mind|nevermind|start over|reset)\b",
+    re.IGNORECASE,
+)
+_QUESTION_LIKE_RE = re.compile(
+    r"^(what|which|show|list|recommend|suggest|compare|how many|how much|can you)\b",
+    re.IGNORECASE,
+)
+_EXACT_COMPLETENESS_RE = re.compile(
+    r"\b(total|how many|count|highest|lowest|rank|ranking|compare|comparison|top\s+\d+)\b",
+    re.IGNORECASE,
+)
+_SCOPE_DETAIL_RE = re.compile(
+    r"\b(city level|barangay level|all barangays|all scopes|city-wide|citywide|across all scopes)\b",
+    re.IGNORECASE,
+)
+_DOMAIN_DETAIL_RE = re.compile(
+    r"\b(health|education|infrastructure|livelihood|governance|social services|program|project|budget|sector|fund)\b",
+    re.IGNORECASE,
+)
+_AFFIRMATIVE_SHORT_RE = re.compile(r"^(oo|opo|yes|yeah|yep|sige|ok|okay|pwede|go|ituloy|continue)$", re.IGNORECASE)
+_OPTIONAL_CATEGORY_ONLY_RE = re.compile(
+    r"^(health|education|infrastructure|livelihood|governance|social services|social|agriculture|environment|disaster|drainage|flood|sanitation|budget|projects?|programs?)$",
+    re.IGNORECASE,
+)
+_FOLLOWUP_RELATION_CONFIDENCE_THRESHOLD = 0.6
+_FOLLOWUP_RELATION_ALLOWED = {"follow_up", "new_question", "unclear"}
+_FOLLOWUP_SLOT_ALLOWED = {"fiscal_year", "scope", "category", "topic"}
+_FOLLOWUP_RELATION_SYSTEM_PROMPT = (
+    "You are a follow-up relation classifier for OpenAIP conversation routing.\n"
+    "Determine whether CURRENT_MESSAGE is a follow-up to the previous narrowing prompt.\n"
+    "Return strict JSON only with keys:\n"
+    '{\n'
+    '  "relation": "follow_up|new_question|unclear",\n'
+    '  "confidence": 0.0,\n'
+    '  "provided_slots": ["fiscal_year","scope","category","topic"]\n'
+    "}\n"
+    "Rules:\n"
+    "1. follow_up: user provides requested details or clear continuation of prior request.\n"
+    "2. new_question: user asks a new standalone question or topic.\n"
+    "3. unclear: too ambiguous to classify confidently.\n"
+    "4. Use confidence 0..1.\n"
+    "5. provided_slots must include only fiscal_year, scope, category, topic.\n"
+    "6. Return JSON only."
+)
+
+
+@dataclass(slots=True)
+class FollowUpRelationResult:
+    relation: str
+    confidence: float
+    provided_slots: list[str]
+    source: str
+
+
+def _normalize_text(text: str) -> str:
+    return " ".join((text or "").split()).strip()
+
+
+def _has_year(text: str) -> bool:
+    return _YEAR_RE.search(text or "") is not None
+
+
+def _has_scope_in_filters(filters_payload: dict[str, Any], scope_payload: dict[str, Any]) -> bool:
+    scope_type = str(filters_payload.get("scope_type") or "").strip().lower()
+    scope_name = _normalize_text(str(filters_payload.get("scope_name") or ""))
+    if scope_type in {"barangay", "city", "municipality"} and scope_name:
+        return True
+    targets = list(scope_payload.get("targets") or [])
+    return bool(targets)
+
+
+def _has_all_years_directive(question: str) -> bool:
+    lowered = _normalize_text(question).lower()
+    if not lowered:
+        return False
+    cues = (
+        "all years",
+        "all fiscal years",
+        "across years",
+        "across all years",
+        "across all fiscal years",
+        "all available years",
+    )
+    return any(cue in lowered for cue in cues)
+
+
+def _has_all_scopes_directive(question: str) -> bool:
+    lowered = _normalize_text(question).lower()
+    if not lowered:
+        return False
+    cues = (
+        "all scopes",
+        "all barangays",
+        "all cities",
+        "across all published aip records",
+        "across all published records",
+        "all published records",
+        "global scope",
+        "city-wide",
+        "citywide",
+    )
+    return any(cue in lowered for cue in cues)
+
+
+def _query_shape(*, question: str, classification: IntentResult) -> str:
+    if classification.intent in {"total_aggregation", "category_aggregation", "compare_years"}:
+        return "exact_completeness"
+    normalized = _normalize_text(question)
+    lowered = normalized.lower()
+    if not lowered:
+        return "exploratory"
+    if _EXACT_COMPLETENESS_RE.search(lowered):
+        return "exact_completeness"
+    exhaustive = detect_exhaustive_intent(normalized)
+    if exhaustive.get("is_list_query") and exhaustive.get("exhaustive_intent"):
+        return "exact_completeness"
+    return "exploratory"
+
+
+def _evaluate_missing_dimensions(
+    *,
+    question: str,
+    filters_payload: dict[str, Any],
+    scope_payload: dict[str, Any],
+    classification: IntentResult,
+) -> dict[str, Any]:
+    year_specified = isinstance(filters_payload.get("fiscal_year"), int) or _has_year(question)
+    scope_specified = _has_scope_in_filters(filters_payload, scope_payload)
+    all_years_directive = _has_all_years_directive(question)
+    all_scopes_directive = _has_all_scopes_directive(question)
+    missing_year = not year_specified and not all_years_directive
+    missing_scope = not scope_specified and not all_scopes_directive
+    query_shape = _query_shape(question=question, classification=classification)
+    missing_fields: list[str] = []
+    if missing_year:
+        missing_fields.append("fiscal_year")
+    if missing_scope:
+        missing_fields.append("scope")
+    return {
+        "query_shape": query_shape,
+        "missing_year": missing_year,
+        "missing_scope": missing_scope,
+        "missing_fields": missing_fields,
+        "all_years_directive": all_years_directive,
+        "all_scopes_directive": all_scopes_directive,
+        "has_recency_cue": _RECENCY_RE.search(question or "") is not None,
+    }
+
+
+def _build_missing_dimension_clarification(*, evaluation: dict[str, Any]) -> str:
+    missing_year = bool(evaluation.get("missing_year"))
+    missing_scope = bool(evaluation.get("missing_scope"))
+    if missing_year and missing_scope:
+        return (
+            "Do you want this across all published AIP records, or for a specific fiscal year and scope "
+            "(barangay or city)?"
+        )
+    if missing_year:
+        return "Do you want this across all published years, or for a specific fiscal year?"
+    if missing_scope:
+        return "Do you want this across all published scopes, or for a specific barangay or city?"
+    return DEFAULT_CLARIFICATION_RESPONSE
+
+
+def _build_transparency_statements(
+    *,
+    year_missing: bool,
+    scope_missing: bool,
+) -> list[str]:
+    statements: list[str] = []
+    if year_missing and scope_missing:
+        statements.append(
+            "Since no fiscal year or scope was specified, this is a broad result based only on the retrieved published AIP records."
+        )
+        return statements
+    if year_missing:
+        statements.append(
+            "Since no fiscal year was specified, this answer is based on retrieved published AIP records across available years."
+        )
+    if scope_missing:
+        statements.append(
+            "Since no barangay or city was specified, this answer is based on retrieved published AIP records across available scopes."
+        )
+    return statements
+
+
+def _prepend_transparency(answer: str, statements: list[str]) -> str:
+    cleaned_answer = str(answer or "").strip()
+    if not statements:
+        return cleaned_answer
+    prefix = " ".join(statements).strip()
+    if not cleaned_answer:
+        return prefix
+    if cleaned_answer.startswith(prefix):
+        return cleaned_answer
+    return f"{prefix} {cleaned_answer}"
+
+
+def _clarification_context_key(conversation_id: str | None) -> str | None:
+    normalized = _normalize_text(conversation_id or "")
+    return normalized if normalized else None
+
+
+def _runtime_context_client() -> Any | None:
+    try:
+        from supabase.client import create_client
+    except Exception as error:
+        _trace_log("runtime_context_client_unavailable", error=str(error))
+        return None
+    try:
+        settings = Settings.load(require_supabase=True, require_openai=False)
+        return create_client(settings.supabase_url, settings.supabase_service_key)
+    except Exception as error:
+        _trace_log("runtime_context_client_init_failed", error=str(error))
+        return None
+
+
+def _runtime_context_extract_row(data: Any) -> dict[str, Any] | None:
+    if isinstance(data, dict):
+        return dict(data)
+    if isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict):
+                return dict(item)
+    return None
+
+
+def _runtime_context_rpc_row(function_name: str, params: dict[str, Any]) -> dict[str, Any] | None:
+    client = _runtime_context_client()
+    if client is None:
+        return None
+    try:
+        result = client.rpc(function_name, params).execute()
+        return _runtime_context_extract_row(getattr(result, "data", None))
+    except Exception as error:
+        _trace_log("runtime_context_rpc_failed", function=function_name, error=str(error))
+        return None
+
+
+def _runtime_context_rpc_value(function_name: str, params: dict[str, Any]) -> Any:
+    client = _runtime_context_client()
+    if client is None:
+        return None
+    try:
+        result = client.rpc(function_name, params).execute()
+        return getattr(result, "data", None)
+    except Exception as error:
+        _trace_log("runtime_context_rpc_failed", function=function_name, error=str(error))
+        return None
+
+
+def _runtime_context_fetch_row(conversation_id: str) -> dict[str, Any] | None:
+    client = _runtime_context_client()
+    if client is None:
+        return None
+    try:
+        response = (
+            client.table("chat_runtime_context")
+            .select("*")
+            .eq("conversation_id", conversation_id)
+            .limit(1)
+            .execute()
+        )
+        return _runtime_context_extract_row(getattr(response, "data", None))
+    except Exception as error:
+        _trace_log("runtime_context_fetch_failed", error=str(error))
+        return None
+
+
+def _runtime_context_as_list(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return list(value)
+    return []
+
+
+def _runtime_context_as_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    return {}
+
+
+def _runtime_context_parse_timestamp(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return None
+        if raw.endswith("Z"):
+            raw = f"{raw[:-1]}+00:00"
+        try:
+            parsed = datetime.fromisoformat(raw)
+            return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+    return None
+
+
+def _runtime_context_is_expired(row: dict[str, Any]) -> bool:
+    turn_count = int(row.get("turn_count") or 0)
+    max_turns = int(row.get("max_turns") or 0)
+    if max_turns > 0 and turn_count >= max_turns:
+        return True
+    expires_at = _runtime_context_parse_timestamp(row.get("expires_at"))
+    if expires_at is None:
+        return False
+    return expires_at <= datetime.now(timezone.utc)
+
+
+def _runtime_context_to_payload(row: dict[str, Any]) -> dict[str, Any]:
+    assistant_prompt = _normalize_text(str(row.get("assistant_prompt") or ""))
+    unresolved_fields = [str(item).strip() for item in _runtime_context_as_list(row.get("unresolved_fields")) if str(item).strip()]
+    return {
+        "mode": _normalize_text(str(row.get("mode") or "")),
+        "original_question": str(row.get("original_question") or "").strip(),
+        "clarification_question": assistant_prompt or DEFAULT_CLARIFICATION_RESPONSE,
+        "assistant_prompt": assistant_prompt,
+        "unresolved_fields": unresolved_fields,
+        "resolved_entities": _runtime_context_as_dict(row.get("resolved_entities")),
+        "completeness_mode": str(row.get("completeness_mode") or "").strip() or "exploratory",
+        "created_at": row.get("created_at"),
+        "updated_at": row.get("updated_at"),
+        "turns": int(row.get("turn_count") or 0),
+        "max_turns": int(row.get("max_turns") or _RUNTIME_CONTEXT_DEFAULT_MAX_TURNS),
+        "expires_at": row.get("expires_at"),
+    }
+
+
+def _load_runtime_context_for_mode(conversation_id: str | None, *, mode: str) -> tuple[dict[str, Any] | None, bool]:
+    key = _clarification_context_key(conversation_id)
+    if key is None:
+        return None, False
+    row = _runtime_context_fetch_row(key)
+    if row is None:
+        return None, False
+    row_mode = _normalize_text(str(row.get("mode") or "")).lower()
+    if row_mode != mode:
+        return None, False
+    if _runtime_context_is_expired(row):
+        return None, True
+    consumed = _runtime_context_rpc_row(
+        "consume_chat_runtime_context",
+        {"p_conversation_id": key},
+    )
+    if consumed is None:
+        latest = _runtime_context_fetch_row(key)
+        if latest is not None:
+            latest_mode = _normalize_text(str(latest.get("mode") or "")).lower()
+            if latest_mode == mode and _runtime_context_is_expired(latest):
+                return None, True
+        return None, False
+    consumed_mode = _normalize_text(str(consumed.get("mode") or "")).lower()
+    if consumed_mode != mode:
+        return None, False
+    return _runtime_context_to_payload(consumed), False
+
+
+def _load_clarification_context_for_turn(conversation_id: str | None) -> tuple[dict[str, Any] | None, bool]:
+    return _load_runtime_context_for_mode(
+        conversation_id,
+        mode=_RUNTIME_CONTEXT_MODE_CLARIFICATION,
+    )
+
+
+def _load_optional_narrowing_context_for_turn(conversation_id: str | None) -> tuple[dict[str, Any] | None, bool]:
+    return _load_runtime_context_for_mode(
+        conversation_id,
+        mode=_RUNTIME_CONTEXT_MODE_OPTIONAL_NARROWING,
+    )
+
+
+def _clear_runtime_context(conversation_id: str | None, *, expected_mode: str | None = None) -> bool:
+    key = _clarification_context_key(conversation_id)
+    if key is None:
+        return False
+    if expected_mode is not None:
+        row = _runtime_context_fetch_row(key)
+        if row is None:
+            return False
+        row_mode = _normalize_text(str(row.get("mode") or "")).lower()
+        if row_mode != expected_mode:
+            return False
+    cleared = _runtime_context_rpc_value(
+        "clear_chat_runtime_context",
+        {"p_conversation_id": key},
+    )
+    if isinstance(cleared, bool):
+        return cleared
+    if isinstance(cleared, list):
+        return bool(cleared and isinstance(cleared[0], bool) and cleared[0])
+    return False
+
+
+def _clear_clarification_context(conversation_id: str | None) -> None:
+    _clear_runtime_context(
+        conversation_id,
+        expected_mode=_RUNTIME_CONTEXT_MODE_CLARIFICATION,
+    )
+
+
+def _clear_optional_narrowing_context(conversation_id: str | None) -> None:
+    _clear_runtime_context(
+        conversation_id,
+        expected_mode=_RUNTIME_CONTEXT_MODE_OPTIONAL_NARROWING,
+    )
+
+
+def _store_runtime_context(
+    *,
+    conversation_id: str | None,
+    mode: str,
+    original_question: str,
+    assistant_prompt: str,
+    unresolved_fields: list[str],
+    resolved_entities: dict[str, Any],
+    completeness_mode: str | None,
+) -> bool:
+    key = _clarification_context_key(conversation_id)
+    if key is None:
+        return False
+    row = _runtime_context_rpc_row(
+        "upsert_chat_runtime_context",
+        {
+            "p_conversation_id": key,
+            "p_session_id": None,
+            "p_source_message_id": None,
+            "p_mode": mode,
+            "p_original_question": _normalize_text(original_question),
+            "p_assistant_prompt": _normalize_text(assistant_prompt),
+            "p_unresolved_fields": list(unresolved_fields),
+            "p_resolved_entities": dict(resolved_entities),
+            "p_suggested_followups": [],
+            "p_completeness_mode": completeness_mode,
+            "p_max_turns": _RUNTIME_CONTEXT_DEFAULT_MAX_TURNS,
+            "p_expires_in_minutes": _RUNTIME_CONTEXT_DEFAULT_EXPIRES_MINUTES,
+        },
+    )
+    return row is not None
+
+
+def _store_clarification_context(
+    *,
+    conversation_id: str | None,
+    original_question: str,
+    clarification_question: str,
+    unresolved_fields: list[str],
+    resolved_entities: dict[str, Any],
+    completeness_mode: str,
+) -> bool:
+    return _store_runtime_context(
+        conversation_id=conversation_id,
+        mode=_RUNTIME_CONTEXT_MODE_CLARIFICATION,
+        original_question=original_question,
+        assistant_prompt=clarification_question,
+        unresolved_fields=unresolved_fields,
+        resolved_entities=resolved_entities,
+        completeness_mode=completeness_mode,
+    )
+
+
+def _store_optional_narrowing_context(
+    *,
+    conversation_id: str | None,
+    original_question: str,
+    unresolved_fields: list[str],
+    resolved_entities: dict[str, Any],
+    assistant_prompt: str | None = None,
+) -> bool:
+    return _store_runtime_context(
+        conversation_id=conversation_id,
+        mode=_RUNTIME_CONTEXT_MODE_OPTIONAL_NARROWING,
+        original_question=original_question,
+        assistant_prompt=_normalize_text(assistant_prompt or ""),
+        unresolved_fields=unresolved_fields,
+        resolved_entities=resolved_entities,
+        completeness_mode="exploratory",
+    )
+
+
+def _record_runtime_context_relation(
+    *,
+    conversation_id: str | None,
+    relation: str,
+    confidence: float,
+) -> None:
+    key = _clarification_context_key(conversation_id)
+    if key is None:
+        return
+    _runtime_context_rpc_row(
+        "update_chat_runtime_context_relation",
+        {
+            "p_conversation_id": key,
+            "p_last_relation": relation,
+            "p_last_relation_confidence": float(confidence),
+        },
+    )
+
+
+def _follow_up_has_clarification_detail(message: str) -> bool:
+    normalized = _normalize_text(message)
+    lowered = normalized.lower()
+    if not lowered:
+        return False
+    if _has_year(normalized):
+        return True
+    if extract_known_barangay_from_text(normalized) or extract_known_city_from_text(normalized):
+        return True
+    if _SCOPE_DETAIL_RE.search(lowered):
+        return True
+    if _DOMAIN_DETAIL_RE.search(lowered):
+        return True
+    if "all years" in lowered or "all scopes" in lowered or "all published" in lowered:
+        return True
+    return False
+
+
+def _looks_like_optional_narrowing_slot_follow_up(message: str) -> bool:
+    normalized = _normalize_text(message)
+    lowered = normalized.lower()
+    if not lowered:
+        return False
+    if _QUESTION_LIKE_RE.search(lowered) and len(lowered.split()) >= 4:
+        return False
+    if looks_like_broad_aip_query(normalized) and _QUESTION_LIKE_RE.search(lowered):
+        return False
+    if _TOPIC_CHANGE_RE.search(lowered):
+        return False
+
+    tokens = [token for token in re.split(r"\s+", lowered) if token]
+    token_count = len(tokens)
+    has_year = _has_year(normalized)
+    has_scope = (
+        extract_known_barangay_from_text(normalized) is not None
+        or extract_known_city_from_text(normalized) is not None
+        or _SCOPE_DETAIL_RE.search(lowered) is not None
+    )
+    has_category_only = _OPTIONAL_CATEGORY_ONLY_RE.match(lowered) is not None
+
+    if has_category_only and token_count <= 3:
+        return True
+    if has_year and has_scope and token_count <= 6:
+        return True
+    if has_year and token_count <= 4:
+        return True
+    if has_scope and token_count <= 4:
+        return True
+    return False
+
+
+def _is_brief_affirmative_follow_up(message: str) -> bool:
+    normalized = _normalize_text(message)
+    if not normalized:
+        return False
+    return _AFFIRMATIVE_SHORT_RE.match(normalized) is not None
+
+
+def _is_topic_change_message(message: str) -> bool:
+    normalized = _normalize_text(message)
+    lowered = normalized.lower()
+    if not lowered:
+        return False
+    if _TOPIC_CHANGE_RE.search(lowered):
+        return True
+    if looks_like_broad_aip_query(normalized) and _QUESTION_LIKE_RE.search(lowered):
+        return True
+    if _QUESTION_LIKE_RE.search(lowered) and len(lowered.split()) >= 4:
+        return True
+    return False
+
+
+def _extract_chat_completion_text(response: Any) -> str:
+    choices = getattr(response, "choices", None)
+    if isinstance(choices, list) and choices:
+        message = getattr(choices[0], "message", None)
+        if message is not None:
+            content = getattr(message, "content", None)
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                parts: list[str] = []
+                for item in content:
+                    if isinstance(item, dict):
+                        text = item.get("text")
+                        if isinstance(text, str):
+                            parts.append(text)
+                if parts:
+                    return "\n".join(parts)
+    return ""
+
+
+def _extract_json_object(text: str) -> dict[str, Any]:
+    raw = str(text or "").strip()
+    raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
+    raw = re.sub(r"\s*```$", "", raw)
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        first = raw.find("{")
+        last = raw.rfind("}")
+        if first < 0 or last < 0 or last <= first:
+            raise
+        parsed = json.loads(raw[first : last + 1])
+    if not isinstance(parsed, dict):
+        raise ValueError("Expected JSON object.")
+    return parsed
+
+
+def _coerce_followup_confidence(value: Any) -> float:
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if confidence < 0.0:
+        return 0.0
+    if confidence > 1.0:
+        return 1.0
+    return confidence
+
+
+def _normalize_followup_slots(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    slots: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        normalized = item.strip().lower()
+        if normalized in _FOLLOWUP_SLOT_ALLOWED and normalized not in slots:
+            slots.append(normalized)
+    return slots
+
+
+def _extract_followup_slots_from_message(message: str) -> list[str]:
+    normalized = _normalize_text(message)
+    lowered = normalized.lower()
+    slots: list[str] = []
+    if _has_year(normalized) or "all years" in lowered:
+        slots.append("fiscal_year")
+    if (
+        extract_known_barangay_from_text(normalized)
+        or extract_known_city_from_text(normalized)
+        or _SCOPE_DETAIL_RE.search(lowered)
+        or "all scopes" in lowered
+        or "all barangays" in lowered
+        or "all cities" in lowered
+    ):
+        slots.append("scope")
+    if _OPTIONAL_CATEGORY_ONLY_RE.match(lowered):
+        slots.append("category")
+    elif _DOMAIN_DETAIL_RE.search(lowered):
+        slots.append("topic")
+    return slots
+
+
+def _resolve_followup_relation_rule_fast_path(
+    *,
+    current_message: str,
+) -> FollowUpRelationResult | None:
+    normalized = _normalize_text(current_message)
+    if not normalized:
+        return None
+    if _is_topic_change_message(normalized):
+        return FollowUpRelationResult(
+            relation="new_question",
+            confidence=0.99,
+            provided_slots=[],
+            source="rule",
+        )
+    if _looks_like_optional_narrowing_slot_follow_up(normalized):
+        return FollowUpRelationResult(
+            relation="follow_up",
+            confidence=0.99,
+            provided_slots=_extract_followup_slots_from_message(normalized),
+            source="rule",
+        )
+    return None
+
+
+def _classify_followup_relation_with_llm(
+    *,
+    openai_api_key: str | None,
+    default_model: str,
+    original_question: str,
+    assistant_prompt: str,
+    current_message: str,
+    unresolved_fields: list[str],
+) -> FollowUpRelationResult:
+    key = (openai_api_key or "").strip()
+    if not key:
+        return FollowUpRelationResult(
+            relation="new_question",
+            confidence=0.0,
+            provided_slots=[],
+            source="fallback",
+        )
+    model_name = resolve_intent_model(default_model)
+    user_payload = (
+        f"ORIGINAL_QUESTION:\n{_normalize_text(original_question)}\n\n"
+        f"ASSISTANT_PROMPT:\n{_normalize_text(assistant_prompt)}\n\n"
+        f"CURRENT_MESSAGE:\n{_normalize_text(current_message)}\n\n"
+        f"UNRESOLVED_FIELDS:\n{json.dumps(list(unresolved_fields), ensure_ascii=False)}"
+    )
+    try:
+        client = build_openai_client(key)
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": _FOLLOWUP_RELATION_SYSTEM_PROMPT},
+                {"role": "user", "content": user_payload},
+            ],
+        )
+        raw_text = _extract_chat_completion_text(response)
+        parsed = _extract_json_object(raw_text)
+        relation_raw = str(parsed.get("relation") or "").strip().lower()
+        relation = relation_raw if relation_raw in _FOLLOWUP_RELATION_ALLOWED else "unclear"
+        return FollowUpRelationResult(
+            relation=relation,
+            confidence=_coerce_followup_confidence(parsed.get("confidence")),
+            provided_slots=_normalize_followup_slots(parsed.get("provided_slots")),
+            source="llm",
+        )
+    except Exception as error:
+        _trace_log("followup_relation_llm_failed", error=str(error))
+        return FollowUpRelationResult(
+            relation="new_question",
+            confidence=0.0,
+            provided_slots=[],
+            source="fallback",
+        )
+
+
+def _resolve_followup_relation(
+    *,
+    openai_api_key: str | None,
+    default_model: str,
+    original_question: str,
+    assistant_prompt: str,
+    current_message: str,
+    unresolved_fields: list[str],
+) -> FollowUpRelationResult:
+    rule_result = _resolve_followup_relation_rule_fast_path(current_message=current_message)
+    if rule_result is not None:
+        return rule_result
+    return _classify_followup_relation_with_llm(
+        openai_api_key=openai_api_key,
+        default_model=default_model,
+        original_question=original_question,
+        assistant_prompt=assistant_prompt,
+        current_message=current_message,
+        unresolved_fields=unresolved_fields,
+    )
+
+
+def _merge_clarification_query(*, original_question: str, follow_up: str) -> str:
+    return f"{_normalize_text(original_question)}\n\nUser clarification: {_normalize_text(follow_up)}"
+
+
+def _build_optional_narrowing_follow_up_response(
+    *,
+    question: str,
+    optional_context: dict[str, Any],
+) -> ChatAnswerResponse:
+    unresolved = list(optional_context.get("unresolved_fields") or [])
+    has_year = "fiscal_year" in unresolved
+    has_scope = "scope" in unresolved
+
+    if has_year and has_scope:
+        answer = (
+            "Sige. Para ma-filter ko nang tama, pakispecify ang fiscal year at scope "
+            "(barangay o city), o magbigay ng specific category/topic."
+        )
+    elif has_year:
+        answer = "Sige. Pakispecify ang fiscal year o specific category/topic para ma-filter ko nang tama."
+    elif has_scope:
+        answer = "Sige. Pakispecify ang barangay/city o specific category/topic para ma-filter ko nang tama."
+    else:
+        answer = (
+            "Sige. Pakispecify ang gusto mong filter (hal. category/topic, fiscal year, o barangay/city) "
+            "para ma-narrow ko ang result."
+        )
+
+    return ChatAnswerResponse(
+        question=question,
+        answer=answer,
+        refused=False,
+        citations=[],
+        retrieval_meta={
+            "reason": "clarification_needed",
+            "status": "clarification",
+            "route_family": "optional_narrowing_context",
+            "context_count": 0,
+            "clarification_type": "optional_narrowing_followup",
+            "missing_fields": unresolved,
+        },
+        context_count=0,
+    )
+
+
+def _resolve_latest_fiscal_year_from_preflight(
+    *,
+    settings: Settings,
+    question: str,
+    scope_payload: dict[str, Any],
+    filters_payload: dict[str, Any],
+) -> tuple[int | None, dict[str, Any]]:
+    preflight = check_year_availability_preflight(
+        supabase_url=settings.supabase_url,
+        supabase_service_key=settings.supabase_service_key,
+        question=question,
+        retrieval_scope=scope_payload,
+        retrieval_filters={**filters_payload, "fiscal_year": 2999},
+    )
+    available_years = [
+        int(year)
+        for year in list(preflight.get("available_fiscal_years") or [])
+        if isinstance(year, int) or (isinstance(year, float) and float(year).is_integer())
+    ]
+    if not available_years:
+        return None, preflight
+    return max(available_years), preflight
+
+
+def _attach_runtime_meta(
+    *,
+    retrieval_meta: dict[str, Any],
+    clarification_context_status: str,
+    missing_fields: list[str],
+    enriched_query_used: bool,
+    optional_narrowing_context_status: str,
+    optional_narrowing_merge_used: bool,
+    followup_relation_source: str = "none",
+    followup_relation: str = "new_question",
+    followup_relation_confidence: float = 0.0,
+    followup_merge_used: bool = False,
+) -> dict[str, Any]:
+    retrieval_meta["clarification_context_status"] = clarification_context_status
+    retrieval_meta["clarification_missing_fields"] = list(missing_fields)
+    retrieval_meta["enriched_query_used"] = bool(enriched_query_used)
+    retrieval_meta["optional_narrowing_context_status"] = optional_narrowing_context_status
+    retrieval_meta["optional_narrowing_merge_used"] = bool(optional_narrowing_merge_used)
+    retrieval_meta["followup_relation_source"] = followup_relation_source
+    retrieval_meta["followup_relation"] = followup_relation
+    retrieval_meta["followup_relation_confidence"] = float(followup_relation_confidence)
+    retrieval_meta["followup_merge_used"] = bool(followup_merge_used)
+    return retrieval_meta
 
 
 def _trace_enabled() -> bool:
@@ -100,6 +964,7 @@ class ScopeFallback(BaseModel):
 
 class ChatAnswerRequest(BaseModel):
     question: str = Field(min_length=1, max_length=12000)
+    conversation_id: str | None = Field(default=None, min_length=1, max_length=200)
     retrieval_scope: RetrievalScope = Field(default_factory=RetrievalScope)
     retrieval_mode: Literal["qa", "overview"] = "qa"
     retrieval_filters: RetrievalFilters = Field(default_factory=RetrievalFilters)
@@ -467,31 +1332,283 @@ def _build_year_unavailable_clarification_response(
     )
 
 
+def _normalize_scope_place(*, scope_type: str | None, scope_name: str | None) -> str | None:
+    normalized_name = " ".join((scope_name or "").split())
+    if not normalized_name:
+        return None
+    normalized_type = (scope_type or "").strip().lower()
+    if normalized_type == "barangay":
+        if normalized_name.lower().startswith("barangay "):
+            return normalized_name
+        return f"Barangay {normalized_name}"
+    if normalized_type == "city":
+        lowered = normalized_name.lower()
+        if lowered.startswith("city of ") or lowered.endswith(" city"):
+            return normalized_name
+        return f"{normalized_name} City"
+    return normalized_name
+
+
+def _build_guided_no_result_message(
+    *,
+    classification: IntentResult,
+    retrieval_filters: dict[str, Any],
+) -> str:
+    entities = classification.entities
+    place: str | None = None
+    if isinstance(entities.get("barangay"), str) and entities.get("barangay"):
+        place = _normalize_scope_place(scope_type="barangay", scope_name=str(entities.get("barangay")))
+    elif isinstance(entities.get("city"), str) and entities.get("city"):
+        place = _normalize_scope_place(scope_type="city", scope_name=str(entities.get("city")))
+    else:
+        scope_type = retrieval_filters.get("scope_type")
+        scope_name = retrieval_filters.get("scope_name")
+        place = _normalize_scope_place(
+            scope_type=str(scope_type) if isinstance(scope_type, str) else None,
+            scope_name=str(scope_name) if isinstance(scope_name, str) else None,
+        )
+
+    place_text = f" for {place}" if place else ""
+    return (
+        f"No exact published AIP match was found{place_text}. "
+        "Try narrowing by fiscal year, sector, or project type/category "
+        "(for example: infrastructure, health, education, livelihood, or governance)."
+    )
+
+
+def _build_policy_clarification_response(
+    *,
+    question: str,
+    classification: IntentResult,
+    evaluation: dict[str, Any],
+) -> ChatAnswerResponse:
+    answer = _build_missing_dimension_clarification(evaluation=evaluation)
+    retrieval_meta = _classifier_meta(classification)
+    retrieval_meta.update(
+        {
+            "reason": "clarification_needed",
+            "status": "clarification",
+            "route_family": "policy_guard",
+            "context_count": 0,
+            "clarification_type": "missing_dimensions_for_exact_query",
+            "query_shape": evaluation.get("query_shape"),
+            "missing_fields": list(evaluation.get("missing_fields") or []),
+        }
+    )
+    return ChatAnswerResponse(
+        question=question,
+        answer=answer,
+        refused=False,
+        citations=[],
+        retrieval_meta=retrieval_meta,
+        context_count=0,
+    )
+
+
 @router.post("/answer", response_model=ChatAnswerResponse)
 def chat_answer(
     req: ChatAnswerRequest,
 ) -> ChatAnswerResponse:
+    conversation_key = _clarification_context_key(req.conversation_id)
+    intent_model_override = (req.model_name or "").strip()
+    clarification_context_status = "stateless" if conversation_key is None else "none"
+    optional_narrowing_context_status = "stateless" if conversation_key is None else "none"
+    clarification_missing_fields: list[str] = []
+    enriched_query_used = False
+    optional_narrowing_merge_used = False
+    followup_merge_used = False
+    optional_narrowing_acknowledged = False
+    followup_relation_source = "none"
+    followup_relation = "new_question"
+    followup_relation_confidence = 0.0
+    effective_question = req.question
+    clarification_original_question = req.question
+    relation_openai_api_key: str | None = None
+
+    existing_context, context_expired = _load_clarification_context_for_turn(req.conversation_id)
+    if conversation_key is not None and context_expired:
+        clarification_context_status = "expired"
+    if existing_context is not None:
+        stored_original = str(existing_context.get("original_question") or "").strip()
+        clarification_prompt = str(existing_context.get("clarification_question") or DEFAULT_CLARIFICATION_RESPONSE)
+        unresolved_fields = list(existing_context.get("unresolved_fields") or [])
+        if stored_original:
+            clarification_original_question = stored_original
+        if relation_openai_api_key is None:
+            relation_settings = Settings.load(require_supabase=False, require_openai=False)
+            relation_openai_api_key = relation_settings.openai_api_key
+        relation_result = _resolve_followup_relation(
+            openai_api_key=relation_openai_api_key,
+            default_model=intent_model_override,
+            original_question=clarification_original_question,
+            assistant_prompt=clarification_prompt,
+            current_message=req.question,
+            unresolved_fields=unresolved_fields,
+        )
+        followup_relation_source = relation_result.source
+        followup_relation = relation_result.relation
+        followup_relation_confidence = relation_result.confidence
+        _record_runtime_context_relation(
+            conversation_id=req.conversation_id,
+            relation=followup_relation,
+            confidence=followup_relation_confidence,
+        )
+        _trace_log(
+            "followup_relation_evaluated",
+            context_type="clarification",
+            source=followup_relation_source,
+            relation=followup_relation,
+            confidence=followup_relation_confidence,
+            provided_slots=relation_result.provided_slots,
+        )
+        if (
+            relation_result.relation == "follow_up"
+            and relation_result.confidence >= _FOLLOWUP_RELATION_CONFIDENCE_THRESHOLD
+        ):
+            effective_question = _merge_clarification_query(
+                original_question=clarification_original_question,
+                follow_up=req.question,
+            )
+            clarification_missing_fields = unresolved_fields
+            enriched_query_used = True
+            followup_merge_used = True
+            clarification_context_status = "merged"
+            _clear_optional_narrowing_context(req.conversation_id)
+            optional_narrowing_context_status = "cleared"
+        else:
+            _clear_clarification_context(req.conversation_id)
+            clarification_context_status = "discarded_topic_change"
+            clarification_missing_fields = []
+            _clear_optional_narrowing_context(req.conversation_id)
+            optional_narrowing_context_status = "discarded_topic_change"
+
+    optional_context: dict[str, Any] | None = None
+    if existing_context is None:
+        optional_context, optional_context_expired = _load_optional_narrowing_context_for_turn(req.conversation_id)
+        if conversation_key is not None and optional_context_expired:
+            optional_narrowing_context_status = "expired"
+        if optional_context is not None:
+            optional_original = str(optional_context.get("original_question") or "").strip()
+            optional_prompt = str(optional_context.get("assistant_prompt") or "")
+            unresolved_fields = list(optional_context.get("unresolved_fields") or [])
+            if relation_openai_api_key is None:
+                relation_settings = Settings.load(require_supabase=False, require_openai=False)
+                relation_openai_api_key = relation_settings.openai_api_key
+            relation_result = _resolve_followup_relation(
+                openai_api_key=relation_openai_api_key,
+                default_model=intent_model_override,
+                original_question=optional_original or req.question,
+                assistant_prompt=optional_prompt,
+                current_message=req.question,
+                unresolved_fields=unresolved_fields,
+            )
+            followup_relation_source = relation_result.source
+            followup_relation = relation_result.relation
+            followup_relation_confidence = relation_result.confidence
+            _record_runtime_context_relation(
+                conversation_id=req.conversation_id,
+                relation=followup_relation,
+                confidence=followup_relation_confidence,
+            )
+            _trace_log(
+                "followup_relation_evaluated",
+                context_type="optional_narrowing",
+                source=followup_relation_source,
+                relation=followup_relation,
+                confidence=followup_relation_confidence,
+                provided_slots=relation_result.provided_slots,
+            )
+            if (
+                relation_result.relation == "follow_up"
+                and relation_result.confidence >= _FOLLOWUP_RELATION_CONFIDENCE_THRESHOLD
+                and optional_original
+            ):
+                has_structured_slot = bool(relation_result.provided_slots) or _follow_up_has_clarification_detail(req.question)
+                if has_structured_slot:
+                    effective_question = _merge_clarification_query(
+                        original_question=optional_original,
+                        follow_up=req.question,
+                    )
+                    optional_narrowing_merge_used = True
+                    followup_merge_used = True
+                    optional_narrowing_context_status = "merged"
+                else:
+                    optional_narrowing_acknowledged = True
+                    optional_narrowing_context_status = "stored"
+            else:
+                _clear_optional_narrowing_context(req.conversation_id)
+                optional_narrowing_context_status = "discarded_topic_change"
+
     _trace_log(
         "request_received",
         question_preview=_preview(req.question),
+        effective_question_preview=_preview(effective_question),
+        conversation_id=conversation_key,
+        clarification_context_status=clarification_context_status,
+        enriched_query_used=enriched_query_used,
+        optional_narrowing_context_status=optional_narrowing_context_status,
+        optional_narrowing_merge_used=optional_narrowing_merge_used,
+        optional_narrowing_acknowledged=optional_narrowing_acknowledged,
+        followup_relation_source=followup_relation_source,
+        followup_relation=followup_relation,
+        followup_relation_confidence=followup_relation_confidence,
+        followup_merge_used=followup_merge_used,
         retrieval_mode=req.retrieval_mode,
         top_k=req.top_k,
         min_similarity=req.min_similarity,
     )
+
+    if optional_narrowing_acknowledged and optional_context is not None:
+        response = _build_optional_narrowing_follow_up_response(
+            question=req.question,
+            optional_context=optional_context,
+        )
+        response.retrieval_meta = _attach_runtime_meta(
+            retrieval_meta=response.retrieval_meta,
+            clarification_context_status=clarification_context_status,
+            missing_fields=clarification_missing_fields,
+            enriched_query_used=enriched_query_used,
+            optional_narrowing_context_status=optional_narrowing_context_status,
+            optional_narrowing_merge_used=optional_narrowing_merge_used,
+            followup_relation_source=followup_relation_source,
+            followup_relation=followup_relation,
+            followup_relation_confidence=followup_relation_confidence,
+            followup_merge_used=followup_merge_used,
+        )
+        _trace_log(
+            "optional_narrowing_follow_up_requested",
+            status=response.retrieval_meta.get("status"),
+            reason=response.retrieval_meta.get("reason"),
+            optional_narrowing_context_status=optional_narrowing_context_status,
+        )
+        return response
+
     settings = Settings.load(require_supabase=True, require_openai=False)
-    intent_model_override = (req.model_name or "").strip()
     model_name = (req.model_name or settings.pipeline_model).strip() or settings.pipeline_model
 
     try:
         classification = classify_message(
-            message=req.question,
+            message=effective_question,
             openai_api_key=settings.openai_api_key,
             default_model=intent_model_override,
         )
     except IntentClassificationError as error:
         _trace_log("classification_failed", error=str(error))
         logger.exception("Intent classification failed: %s", error)
-        return _build_classifier_failure_response(question=req.question, reason=str(error))
+        response = _build_classifier_failure_response(question=req.question, reason=str(error))
+        response.retrieval_meta = _attach_runtime_meta(
+            retrieval_meta=response.retrieval_meta,
+            clarification_context_status=clarification_context_status,
+            missing_fields=clarification_missing_fields,
+            enriched_query_used=enriched_query_used,
+            optional_narrowing_context_status=optional_narrowing_context_status,
+            optional_narrowing_merge_used=optional_narrowing_merge_used,
+            followup_relation_source=followup_relation_source,
+            followup_relation=followup_relation,
+            followup_relation_confidence=followup_relation_confidence,
+            followup_merge_used=followup_merge_used,
+        )
+        return response
 
     _trace_log(
         "classification_complete",
@@ -504,7 +1621,81 @@ def chat_answer(
     )
 
     if classification.intent in NON_RETRIEVAL_INTENTS or not classification.needs_retrieval:
+        if (
+            classification.intent == "clarification"
+            and existing_context is not None
+            and not enriched_query_used
+            and not _is_topic_change_message(req.question)
+        ):
+            clarification_missing_fields = list(existing_context.get("unresolved_fields") or [])
+            response = ChatAnswerResponse(
+                question=req.question,
+                answer=str(existing_context.get("clarification_question") or DEFAULT_CLARIFICATION_RESPONSE),
+                refused=False,
+                citations=[],
+                retrieval_meta={
+                    **_classifier_meta(classification),
+                    "reason": "clarification_needed",
+                    "status": "clarification",
+                    "route_family": "clarification_context",
+                    "context_count": 0,
+                },
+                context_count=0,
+            )
+            response.retrieval_meta = _attach_runtime_meta(
+                retrieval_meta=response.retrieval_meta,
+                clarification_context_status=clarification_context_status,
+                missing_fields=clarification_missing_fields,
+                enriched_query_used=enriched_query_used,
+                optional_narrowing_context_status=optional_narrowing_context_status,
+                optional_narrowing_merge_used=optional_narrowing_merge_used,
+                followup_relation_source=followup_relation_source,
+                followup_relation=followup_relation,
+                followup_relation_confidence=followup_relation_confidence,
+                followup_merge_used=followup_merge_used,
+            )
+            return response
+
         response = _build_short_circuit_response(question=req.question, classification=classification)
+        if classification.intent in {"greeting", "farewell", "thanks", "help", "small_talk", "out_of_scope"}:
+            if conversation_key is not None and existing_context is not None:
+                _clear_clarification_context(req.conversation_id)
+                clarification_context_status = "discarded_topic_change"
+                clarification_missing_fields = []
+            if conversation_key is not None and optional_context is not None:
+                _clear_optional_narrowing_context(req.conversation_id)
+                optional_narrowing_context_status = "discarded_topic_change"
+        if classification.intent == "clarification" and conversation_key is not None:
+            unresolved = list(clarification_missing_fields)
+            if not unresolved and existing_context is not None:
+                unresolved = list(existing_context.get("unresolved_fields") or [])
+            stored = _store_clarification_context(
+                conversation_id=req.conversation_id,
+                original_question=clarification_original_question,
+                clarification_question=response.answer,
+                unresolved_fields=unresolved,
+                resolved_entities=classification.entities,
+                completeness_mode="exploratory",
+            )
+            if stored:
+                clarification_context_status = "stored"
+                clarification_missing_fields = unresolved
+                _clear_optional_narrowing_context(req.conversation_id)
+                optional_narrowing_context_status = "cleared"
+            elif clarification_context_status == "merged":
+                clarification_context_status = "none"
+        response.retrieval_meta = _attach_runtime_meta(
+            retrieval_meta=response.retrieval_meta,
+            clarification_context_status=clarification_context_status,
+            missing_fields=clarification_missing_fields,
+            enriched_query_used=enriched_query_used,
+            optional_narrowing_context_status=optional_narrowing_context_status,
+            optional_narrowing_merge_used=optional_narrowing_merge_used,
+            followup_relation_source=followup_relation_source,
+            followup_relation=followup_relation,
+            followup_relation_confidence=followup_relation_confidence,
+            followup_merge_used=followup_merge_used,
+        )
         _trace_log(
             "short_circuit_response",
             intent=classification.intent,
@@ -524,8 +1715,84 @@ def chat_answer(
         scope_payload=scope_payload,
         scope_fallback=req.scope_fallback,
     )
+    evaluation = _evaluate_missing_dimensions(
+        question=effective_question,
+        filters_payload=filters_payload,
+        scope_payload=scope_payload,
+        classification=classification,
+    )
+    clarification_missing_fields = list(evaluation.get("missing_fields") or [])
+    if evaluation.get("query_shape") == "exact_completeness" and clarification_missing_fields:
+        response = _build_policy_clarification_response(
+            question=req.question,
+            classification=classification,
+            evaluation=evaluation,
+        )
+        if conversation_key is not None:
+            stored = _store_clarification_context(
+                conversation_id=req.conversation_id,
+                original_question=clarification_original_question,
+                clarification_question=response.answer,
+                unresolved_fields=clarification_missing_fields,
+                resolved_entities=classification.entities,
+                completeness_mode="exact_completeness",
+            )
+            if stored:
+                clarification_context_status = "stored"
+                _clear_optional_narrowing_context(req.conversation_id)
+                optional_narrowing_context_status = "cleared"
+        response.retrieval_meta = _attach_runtime_meta(
+            retrieval_meta=response.retrieval_meta,
+            clarification_context_status=clarification_context_status,
+            missing_fields=clarification_missing_fields,
+            enriched_query_used=enriched_query_used,
+            optional_narrowing_context_status=optional_narrowing_context_status,
+            optional_narrowing_merge_used=optional_narrowing_merge_used,
+            followup_relation_source=followup_relation_source,
+            followup_relation=followup_relation,
+            followup_relation_confidence=followup_relation_confidence,
+            followup_merge_used=followup_merge_used,
+        )
+        return response
+
+    recency_statement: str | None = None
+    recency_preflight: dict[str, Any] | None = None
+    if bool(evaluation.get("has_recency_cue")) and bool(evaluation.get("missing_year")):
+        latest_year, recency_preflight = _resolve_latest_fiscal_year_from_preflight(
+            settings=settings,
+            question=effective_question,
+            scope_payload=scope_payload,
+            filters_payload=filters_payload,
+        )
+        if isinstance(latest_year, int):
+            filters_payload["fiscal_year"] = latest_year
+            evaluation["missing_year"] = False
+            evaluation["missing_fields"] = [field for field in list(evaluation.get("missing_fields") or []) if field != "fiscal_year"]
+            clarification_missing_fields = list(evaluation.get("missing_fields") or [])
+            recency_statement = (
+                f"You did not specify a fiscal year, so I used the most recent available published fiscal year (FY {latest_year})."
+            )
+        else:
+            recency_statement = (
+                "You did not specify a fiscal year, so I searched broad retrieved published records for recent or available matches."
+            )
+
+    effective_entities = dict(classification.entities)
+    fiscal_year_filter = filters_payload.get("fiscal_year")
+    if isinstance(fiscal_year_filter, int):
+        effective_entities["fiscal_year"] = fiscal_year_filter
+    scope_type_filter = filters_payload.get("scope_type")
+    scope_name_filter = filters_payload.get("scope_name")
+    if isinstance(scope_type_filter, str) and scope_type_filter.strip():
+        effective_entities["scope_type"] = scope_type_filter
+    if isinstance(scope_name_filter, str) and scope_name_filter.strip():
+        effective_entities["scope_name"] = scope_name_filter
+
     _trace_log(
         "retrieval_started",
+        query_shape=evaluation.get("query_shape"),
+        missing_fields=evaluation.get("missing_fields"),
+        recency_preflight=recency_preflight,
         scope_mode=scope_payload.get("mode"),
         scope_targets_count=len(scope_payload.get("targets") or []),
         retrieval_filters=filters_payload,
@@ -535,7 +1802,7 @@ def chat_answer(
     year_preflight = check_year_availability_preflight(
         supabase_url=settings.supabase_url,
         supabase_service_key=settings.supabase_service_key,
-        question=req.question,
+        question=effective_question,
         retrieval_scope=scope_payload,
         retrieval_filters=filters_payload,
     )
@@ -553,6 +1820,32 @@ def chat_answer(
             classification=classification,
             preflight_result=year_preflight,
         )
+        if conversation_key is not None:
+            stored = _store_clarification_context(
+                conversation_id=req.conversation_id,
+                original_question=clarification_original_question,
+                clarification_question=response.answer,
+                unresolved_fields=["fiscal_year"],
+                resolved_entities=effective_entities,
+                completeness_mode=str(evaluation.get("query_shape") or "exploratory"),
+            )
+            if stored:
+                clarification_context_status = "stored"
+                clarification_missing_fields = ["fiscal_year"]
+                _clear_optional_narrowing_context(req.conversation_id)
+                optional_narrowing_context_status = "cleared"
+        response.retrieval_meta = _attach_runtime_meta(
+            retrieval_meta=response.retrieval_meta,
+            clarification_context_status=clarification_context_status,
+            missing_fields=clarification_missing_fields,
+            enriched_query_used=enriched_query_used,
+            optional_narrowing_context_status=optional_narrowing_context_status,
+            optional_narrowing_merge_used=optional_narrowing_merge_used,
+            followup_relation_source=followup_relation_source,
+            followup_relation=followup_relation,
+            followup_relation_confidence=followup_relation_confidence,
+            followup_merge_used=followup_merge_used,
+        )
         _trace_log(
             "year_availability_short_circuit",
             status=response.retrieval_meta.get("status"),
@@ -566,7 +1859,7 @@ def chat_answer(
     sql_result = maybe_answer_with_sql(
         supabase_url=settings.supabase_url,
         supabase_service_key=settings.supabase_service_key,
-        question=req.question,
+        question=effective_question,
         retrieval_scope=scope_payload,
         retrieval_filters=filters_payload,
     )
@@ -576,6 +1869,51 @@ def chat_answer(
         normalized["retrieval_meta"]["sql_scoped"] = True
         normalized["retrieval_meta"]["fallback_source"] = "sql"
         normalized["retrieval_meta"] = _merge_classifier_meta(normalized["retrieval_meta"], classification)
+        transparency = _build_transparency_statements(
+            year_missing=bool(evaluation.get("missing_year")),
+            scope_missing=bool(evaluation.get("missing_scope")),
+        )
+        if recency_statement:
+            transparency = [recency_statement, *transparency]
+        normalized_status = str(normalized["retrieval_meta"].get("status") or "")
+        if normalized_status == "answer":
+            normalized["answer"] = _prepend_transparency(normalized["answer"], transparency)
+        if enriched_query_used and conversation_key is not None:
+            _clear_clarification_context(req.conversation_id)
+            clarification_context_status = "cleared"
+            clarification_missing_fields = []
+        if optional_narrowing_merge_used and conversation_key is not None:
+            _clear_optional_narrowing_context(req.conversation_id)
+            optional_narrowing_context_status = "cleared"
+        should_store_optional_narrowing = (
+            conversation_key is not None
+            and normalized_status == "answer"
+            and str(evaluation.get("query_shape") or "") == "exploratory"
+            and any(field in {"fiscal_year", "scope"} for field in list(evaluation.get("missing_fields") or []))
+            and not optional_narrowing_merge_used
+        )
+        if should_store_optional_narrowing:
+            optional_stored = _store_optional_narrowing_context(
+                conversation_id=req.conversation_id,
+                original_question=req.question,
+                unresolved_fields=list(evaluation.get("missing_fields") or []),
+                resolved_entities=effective_entities,
+                assistant_prompt=normalized["answer"],
+            )
+            if optional_stored:
+                optional_narrowing_context_status = "stored"
+        normalized["retrieval_meta"] = _attach_runtime_meta(
+            retrieval_meta=normalized["retrieval_meta"],
+            clarification_context_status=clarification_context_status,
+            missing_fields=clarification_missing_fields,
+            enriched_query_used=enriched_query_used,
+            optional_narrowing_context_status=optional_narrowing_context_status,
+            optional_narrowing_merge_used=optional_narrowing_merge_used,
+            followup_relation_source=followup_relation_source,
+            followup_relation=followup_relation,
+            followup_relation_confidence=followup_relation_confidence,
+            followup_merge_used=followup_merge_used,
+        )
         _trace_log(
             "sql_answered",
             status=normalized["retrieval_meta"].get("status"),
@@ -584,7 +1922,7 @@ def chat_answer(
             context_count=normalized["context_count"],
         )
         return ChatAnswerResponse(
-            question=normalized["question"],
+            question=req.question,
             answer=normalized["answer"],
             refused=normalized["refused"],
             citations=normalized["citations"],
@@ -594,8 +1932,8 @@ def chat_answer(
     _trace_log("sql_no_answer")
 
     retrieval_query = build_retrieval_query(
-        question=req.question,
-        entities=classification.entities,
+        question=effective_question,
+        entities=effective_entities,
     )
 
     if not settings.openai_api_key:
@@ -607,7 +1945,7 @@ def chat_answer(
         openai_api_key=settings.openai_api_key,
         embeddings_model=settings.embedding_model,
         chat_model=model_name,
-        question=req.question,
+        question=effective_question,
         retrieval_query=retrieval_query,
         retrieval_scope=scope_payload,
         retrieval_mode=req.retrieval_mode,
@@ -621,6 +1959,72 @@ def chat_answer(
     normalized["retrieval_meta"]["sql_scoped"] = False
     normalized["retrieval_meta"]["fallback_source"] = "rag"
     normalized["retrieval_meta"] = _merge_classifier_meta(normalized["retrieval_meta"], classification)
+    if normalized["refused"] and str(normalized["retrieval_meta"].get("reason") or "") == "insufficient_evidence":
+        normalized["answer"] = _build_guided_no_result_message(
+            classification=classification,
+            retrieval_filters=filters_payload,
+        )
+        normalized["retrieval_meta"]["guided_no_result"] = True
+    transparency = _build_transparency_statements(
+        year_missing=bool(evaluation.get("missing_year")),
+        scope_missing=bool(evaluation.get("missing_scope")),
+    )
+    if recency_statement:
+        transparency = [recency_statement, *transparency]
+    normalized_status = str(normalized["retrieval_meta"].get("status") or "")
+    if normalized_status == "answer":
+        normalized["answer"] = _prepend_transparency(normalized["answer"], transparency)
+    if normalized_status == "clarification" and conversation_key is not None:
+        unresolved = list(evaluation.get("missing_fields") or [])
+        stored = _store_clarification_context(
+            conversation_id=req.conversation_id,
+            original_question=clarification_original_question,
+            clarification_question=normalized["answer"],
+            unresolved_fields=unresolved,
+            resolved_entities=effective_entities,
+            completeness_mode=str(evaluation.get("query_shape") or "exploratory"),
+        )
+        if stored:
+            clarification_context_status = "stored"
+            clarification_missing_fields = unresolved
+            _clear_optional_narrowing_context(req.conversation_id)
+            optional_narrowing_context_status = "cleared"
+    elif enriched_query_used and conversation_key is not None:
+        _clear_clarification_context(req.conversation_id)
+        clarification_context_status = "cleared"
+        clarification_missing_fields = []
+    if optional_narrowing_merge_used and conversation_key is not None:
+        _clear_optional_narrowing_context(req.conversation_id)
+        optional_narrowing_context_status = "cleared"
+    should_store_optional_narrowing = (
+        conversation_key is not None
+        and normalized_status == "answer"
+        and str(evaluation.get("query_shape") or "") == "exploratory"
+        and any(field in {"fiscal_year", "scope"} for field in list(evaluation.get("missing_fields") or []))
+        and not optional_narrowing_merge_used
+    )
+    if should_store_optional_narrowing:
+        optional_stored = _store_optional_narrowing_context(
+            conversation_id=req.conversation_id,
+            original_question=req.question,
+            unresolved_fields=list(evaluation.get("missing_fields") or []),
+            resolved_entities=effective_entities,
+            assistant_prompt=normalized["answer"],
+        )
+        if optional_stored:
+            optional_narrowing_context_status = "stored"
+    normalized["retrieval_meta"] = _attach_runtime_meta(
+        retrieval_meta=normalized["retrieval_meta"],
+        clarification_context_status=clarification_context_status,
+        missing_fields=clarification_missing_fields,
+        enriched_query_used=enriched_query_used,
+        optional_narrowing_context_status=optional_narrowing_context_status,
+        optional_narrowing_merge_used=optional_narrowing_merge_used,
+        followup_relation_source=followup_relation_source,
+        followup_relation=followup_relation,
+        followup_relation_confidence=followup_relation_confidence,
+        followup_merge_used=followup_merge_used,
+    )
     _trace_log(
         "rag_completed",
         status=normalized["retrieval_meta"].get("status"),
@@ -631,7 +2035,7 @@ def chat_answer(
         evidence_gate_reason=normalized["retrieval_meta"].get("evidence_gate_reason"),
     )
     return ChatAnswerResponse(
-        question=normalized["question"],
+        question=req.question,
         answer=normalized["answer"],
         refused=normalized["refused"],
         citations=normalized["citations"],

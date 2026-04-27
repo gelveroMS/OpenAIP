@@ -28,7 +28,8 @@ AIP_ONLY_RESPONSE = (
 )
 
 DEFAULT_CLARIFICATION_RESPONSE = (
-    "Please clarify your request with a specific scope, fiscal year, or project reference so I can help."
+    "Please share fiscal year, sector, project category/type, barangay, or city for narrower results. "
+    "I can also show broad project options or related projects from published AIP records."
 )
 
 DEFAULT_FRIENDLY_RESPONSES: dict[str, str] = {

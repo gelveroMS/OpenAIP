@@ -444,6 +444,7 @@ export async function POST(request: Request) {
     try {
       const pipeline = await requestPipelineChatAnswer({
         question: content,
+        conversationId: session.id,
         retrievalScope: scope.retrievalScope,
         retrievalMode: "qa",
         retrievalFilters: buildPipelineRetrievalFilters({
@@ -451,7 +452,7 @@ export async function POST(request: Request) {
           retrievalScope: scope.retrievalScope,
         }),
         scopeFallback,
-        topK: 4,
+        topK: 5,
         minSimilarity: 0.3,
         timeoutMs: 60000,
       });

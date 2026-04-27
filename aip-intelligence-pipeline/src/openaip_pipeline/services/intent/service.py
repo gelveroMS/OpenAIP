@@ -5,12 +5,25 @@ import logging
 import os
 
 from openaip_pipeline.services.intent.classifier import classify_with_llm
-from openaip_pipeline.services.intent.rules import classify_with_rules
-from openaip_pipeline.services.intent.types import DEFAULT_CLARIFICATION_RESPONSE, IntentResult
+from openaip_pipeline.services.intent.rules import (
+    classify_with_rules,
+    extract_known_barangay_from_text,
+    extract_known_city_from_text,
+    has_retrievable_aip_signal,
+    is_incomplete_follow_up,
+)
+from openaip_pipeline.services.intent.types import (
+    AIP_ONLY_RESPONSE,
+    DEFAULT_CLARIFICATION_RESPONSE,
+    INTENT_ROUTE_HINTS,
+    IntentResult,
+    empty_entities,
+)
 
 logger = logging.getLogger(__name__)
 
 _RAG_CONFIDENCE_FLOOR = 0.55
+_RAG_FALLBACK_CONFIDENCE = 0.55
 _INTENT_COMPAT_MODEL_FALLBACK = "gpt-5.2"
 _USEFUL_ENTITY_KEYS: tuple[str, ...] = (
     "fiscal_year",
@@ -42,13 +55,15 @@ def _has_useful_entities(entities: dict[str, object]) -> bool:
     return False
 
 
-def _apply_low_confidence_guard(result: IntentResult) -> IntentResult:
+def _apply_low_confidence_guard(result: IntentResult, *, message: str) -> IntentResult:
     if result.intent != "rag_query":
         return result
     if result.confidence >= _RAG_CONFIDENCE_FLOOR:
         return result
     entities = dict(result.entities)
     if _has_useful_entities(entities):
+        return result
+    if has_retrievable_aip_signal(message, entities=entities):
         return result
     return IntentResult(
         intent="clarification",
@@ -58,6 +73,58 @@ def _apply_low_confidence_guard(result: IntentResult) -> IntentResult:
         entities=entities,
         route_hint=None,
         classifier_method=result.classifier_method,
+    )
+
+
+def _fallback_entities_from_message(message: str) -> dict[str, object]:
+    entities = empty_entities()
+    barangay = extract_known_barangay_from_text(message)
+    city = extract_known_city_from_text(message)
+    if barangay:
+        entities["barangay"] = barangay
+        entities["scope_type"] = "barangay"
+        entities["scope_name"] = barangay
+        return entities
+    if city:
+        entities["city"] = city
+        entities["scope_type"] = "city"
+        entities["scope_name"] = city
+    return entities
+
+
+def _build_failure_fallback_result(*, message: str, error_reason: str) -> IntentResult:
+    entities = _fallback_entities_from_message(message)
+    if is_incomplete_follow_up(message):
+        return IntentResult(
+            intent="clarification",
+            confidence=0.5,
+            needs_retrieval=False,
+            friendly_response=DEFAULT_CLARIFICATION_RESPONSE,
+            entities=entities,
+            route_hint=None,
+            classifier_method="fallback",
+        )
+
+    if has_retrievable_aip_signal(message, entities=entities):
+        return IntentResult(
+            intent="rag_query",
+            confidence=_RAG_FALLBACK_CONFIDENCE,
+            needs_retrieval=True,
+            friendly_response=None,
+            entities=entities,
+            route_hint=INTENT_ROUTE_HINTS.get("rag_query"),
+            classifier_method="fallback",
+        )
+
+    _trace_log("failure_fallback_out_of_scope", reason=error_reason)
+    return IntentResult(
+        intent="out_of_scope",
+        confidence=0.45,
+        needs_retrieval=False,
+        friendly_response=AIP_ONLY_RESPONSE,
+        entities=entities,
+        route_hint=None,
+        classifier_method="fallback",
     )
 
 
@@ -95,7 +162,7 @@ def _is_model_not_found_error(error: Exception) -> bool:
 def classify_message(*, message: str, openai_api_key: str | None, default_model: str) -> IntentResult:
     rules_result = classify_with_rules(message)
     if rules_result is not None:
-        normalized_rules_result = _apply_low_confidence_guard(rules_result)
+        normalized_rules_result = _apply_low_confidence_guard(rules_result, message=message)
         _trace_log(
             "rules_match",
             intent=normalized_rules_result.intent,
@@ -111,8 +178,9 @@ def classify_message(*, message: str, openai_api_key: str | None, default_model:
     key = (openai_api_key or "").strip()
     if not key:
         _trace_log("llm_fallback_unavailable", reason="missing_openai_api_key")
-        raise IntentClassificationError(
-            "OPENAI_API_KEY is required for LLM fallback classification and was not configured."
+        return _build_failure_fallback_result(
+            message=message,
+            error_reason="missing_openai_api_key",
         )
 
     def _invoke(model: str) -> IntentResult:
@@ -124,7 +192,7 @@ def classify_message(*, message: str, openai_api_key: str | None, default_model:
 
     try:
         result = _invoke(model_name)
-        normalized_result = _apply_low_confidence_guard(result)
+        normalized_result = _apply_low_confidence_guard(result, message=message)
         _trace_log(
             "llm_fallback_success",
             intent=normalized_result.intent,
@@ -143,7 +211,7 @@ def classify_message(*, message: str, openai_api_key: str | None, default_model:
             )
             try:
                 retry_result = _invoke(_INTENT_COMPAT_MODEL_FALLBACK)
-                normalized_retry_result = _apply_low_confidence_guard(retry_result)
+                normalized_retry_result = _apply_low_confidence_guard(retry_result, message=message)
                 _trace_log(
                     "llm_fallback_success",
                     intent=normalized_retry_result.intent,
@@ -155,7 +223,13 @@ def classify_message(*, message: str, openai_api_key: str | None, default_model:
                 return normalized_retry_result
             except Exception as retry_error:
                 _trace_log("llm_fallback_failed", error=str(retry_error))
-                raise IntentClassificationError("LLM fallback classification failed.") from retry_error
+                return _build_failure_fallback_result(
+                    message=message,
+                    error_reason=str(retry_error),
+                )
 
         _trace_log("llm_fallback_failed", error=str(error))
-        raise IntentClassificationError("LLM fallback classification failed.") from error
+        return _build_failure_fallback_result(
+            message=message,
+            error_reason=str(error),
+        )

@@ -99,14 +99,14 @@ describe("AipProjectsTable", () => {
     const rowWithUnresolvedAiFlag = screen.getByText("General Program 2").closest("tr");
     const rowWithoutFlags = screen.getByText("General Program 3").closest("tr");
 
-    expect(rowWithLguNote).toHaveClass("bg-amber-50");
-    expect(rowWithLguNote).not.toHaveClass("bg-rose-50");
+    expect(rowWithLguNote).toHaveClass("bg-[#4F8B94]");
+    expect(rowWithLguNote).not.toHaveClass("bg-[#C28A3D]");
 
-    expect(rowWithUnresolvedAiFlag).toHaveClass("bg-rose-50");
-    expect(rowWithUnresolvedAiFlag).not.toHaveClass("bg-amber-50");
+    expect(rowWithUnresolvedAiFlag).toHaveClass("bg-[#C28A3D]");
+    expect(rowWithUnresolvedAiFlag).not.toHaveClass("bg-[#4F8B94]");
 
-    expect(rowWithoutFlags).not.toHaveClass("bg-amber-50");
-    expect(rowWithoutFlags).not.toHaveClass("bg-rose-50");
+    expect(rowWithoutFlags).not.toHaveClass("bg-[#4F8B94]");
+    expect(rowWithoutFlags).not.toHaveClass("bg-[#C28A3D]");
   });
 
   it("shows unresolved AI notice when flagged projects have no LGU note", () => {

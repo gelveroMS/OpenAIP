@@ -23,14 +23,17 @@ logger = logging.getLogger(__name__)
 SOURCE_TAG_PATTERN = re.compile(r"\[(S\d+)\]")
 YEAR_PATTERN = re.compile(r"\b(20\d{2})\b")
 MAX_SNIPPET_LENGTH = 360
-MAX_RESPONSE_SENTENCES = 2
 MAX_RETRIEVAL_QUERY_PREVIEW = 240
 INSUFFICIENT_CONTEXT_RESPONSE = "I couldn’t find a reliable answer for that in the published AIP records."
 FALLBACK_LIMIT_POLICY = {
-    "max_sentences": 2,
-    "max_list_items": 2,
+    "max_sentences": None,
+    "max_list_items": None,
 }
 FALLBACK_LIMIT_DISCLOSURE = "I limited this response to 2 items based on the prompt policy."
+RETRIEVED_RECORDS_DISCLOSURE = "This answer is based on retrieved published AIP records."
+_BROAD_RETRIEVAL_INSTRUCTION = (
+    "retrieve broad AIP project matches, related categories, similar projects, and recommendation-friendly results if exact match is unavailable."
+)
 
 
 def _source_id(index: int, doc: Any) -> str:
@@ -116,9 +119,10 @@ def build_retrieval_query(*, question: str, entities: dict[str, Any] | None) -> 
     _append_hint("sector", parsed_entities.get("sector"))
     _append_hint("budget term", parsed_entities.get("budget_term"))
 
-    if not hints:
-        return query
-    return f"{query}\n\nStructured hints: {' | '.join(hints)}"
+    hints.append(_BROAD_RETRIEVAL_INSTRUCTION)
+    if query:
+        return f"{query}\n\nStructured hints: {' | '.join(hints)}"
+    return f"Structured hints: {' | '.join(hints)}"
 
 
 def _safe_float(value: Any) -> float | None:
@@ -472,58 +476,11 @@ def _extract_source_ids(answer_text: str) -> list[str]:
     return ordered
 
 
-def _split_answer_sentences(answer_text: str) -> list[str]:
-    normalized = " ".join((answer_text or "").split())
-    if not normalized:
-        return []
-    parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", normalized) if part.strip()]
-    return parts if parts else [normalized]
-
-
-def _list_item_count(answer_text: str) -> int:
-    lines = [line.strip() for line in str(answer_text or "").splitlines() if line.strip()]
-    count = sum(1 for line in lines if re.match(r"^\d+\.\s+", line) or re.match(r"^[-*]\s+", line))
-    if count > 0:
-        return count
-    numbered_inline = re.findall(r"(?:^|\s)(\d+\.\s+)", str(answer_text or ""))
-    return len(numbered_inline)
-
-
 def _strip_disclosure_sentence(answer_text: str) -> str:
     text = str(answer_text or "")
     pattern = rf"(?:^|\s){re.escape(FALLBACK_LIMIT_DISCLOSURE)}\.?(?:\s|$)"
     cleaned = re.sub(pattern, " ", text).strip()
     return re.sub(r"\s{2,}", " ", cleaned)
-
-
-def _answer_violates_constraints(
-    answer_text: str,
-    *,
-    max_sentences: int = MAX_RESPONSE_SENTENCES,
-    max_list_items: int | None = None,
-    require_disclosure: bool = False,
-) -> bool:
-    if not answer_text:
-        return True
-    if answer_text.strip() == INSUFFICIENT_CONTEXT_RESPONSE:
-        return False
-
-    if require_disclosure and FALLBACK_LIMIT_DISCLOSURE not in answer_text:
-        return True
-
-    check_text = _strip_disclosure_sentence(answer_text) if require_disclosure else answer_text
-    constraint_text = re.sub(r"(?m)(?:^|\s)\d+\.\s+", " ", check_text)
-    constraint_text = re.sub(r"(?m)(?:^|\s)[-*]\s+", " ", constraint_text)
-    constraint_text = re.sub(r"\s{2,}", " ", constraint_text).strip()
-    sentences = _split_answer_sentences(constraint_text)
-    if len(sentences) > max_sentences:
-        return True
-
-    if max_list_items is not None and _list_item_count(check_text) > max_list_items:
-        return True
-
-    # Each sentence in generated grounded output must carry at least one source tag.
-    return any(SOURCE_TAG_PATTERN.search(sentence) is None for sentence in sentences)
 
 
 def _build_refusal(
@@ -581,7 +538,7 @@ def _build_refusal(
 
 
 def _partial_mode_enabled() -> bool:
-    value = os.getenv("RAG_PARTIAL_MODE_ENABLED", "false").strip().lower()
+    value = os.getenv("RAG_PARTIAL_MODE_ENABLED", "true").strip().lower()
     return value in {"1", "true", "yes", "on"}
 
 
@@ -613,9 +570,26 @@ def _build_partial_evidence(
             retrieval_scope=retrieval_scope,
         )
 
+    lines: list[str] = []
+    for index, citation in enumerate(citations, start=1):
+        snippet = _truncate(str(citation.get("snippet") or ""), limit=220)
+        if snippet:
+            lines.append(f"{index}. {snippet} [S{index}]")
+
+    if lines:
+        related_block = "\n".join(lines)
+        answer_text = (
+            "I could not find an exact published AIP match, but I found related retrieved records:\n"
+            f"{related_block}\n"
+            "These are related records, not an exact match. "
+            "Would you like me to narrow this by fiscal year, sector, project type, barangay, or city?"
+        )
+    else:
+        answer_text = INSUFFICIENT_CONTEXT_RESPONSE
+
     return {
         "question": question,
-        "answer": INSUFFICIENT_CONTEXT_RESPONSE,
+        "answer": answer_text,
         "refused": False,
         "citations": citations,
         "sources": [citation.get("metadata", {}) for citation in citations],
@@ -820,7 +794,7 @@ def answer_with_rag(
     active_rag_flags = _active_rag_flags()
     rag_calibration = _rag_calibration_snapshot()
     exhaustive_intent = detect_exhaustive_intent(question)
-    fallback_exhaustive = bool(sql_fallback and exhaustive_intent.get("exhaustive_intent"))
+    list_style_query = bool(exhaustive_intent.get("is_list_query"))
     resolved_scope = retrieval_scope or {"mode": "global", "targets": []}
     resolved_mode = _normalize_retrieval_mode(retrieval_mode)
     effective_top_k = _effective_top_k(top_k=top_k, retrieval_mode=resolved_mode)
@@ -889,10 +863,10 @@ def answer_with_rag(
         "candidate_counts": candidate_counts,
         "retrieval_query_applied": retrieval_text != question,
         "retrieval_query_preview": _preview(retrieval_text, limit=MAX_RETRIEVAL_QUERY_PREVIEW),
-        "limit_policy_applied": bool(sql_fallback),
-        "limit_items": FALLBACK_LIMIT_POLICY["max_list_items"] if sql_fallback else None,
-        "limit_sentences": FALLBACK_LIMIT_POLICY["max_sentences"] if sql_fallback else None,
-        "limit_disclosure_required": fallback_exhaustive,
+        "limit_policy_applied": False,
+        "limit_items": None,
+        "limit_sentences": None,
+        "limit_disclosure_required": False,
         "result_cap": None,
         "total_matches": None,
         "returned_count": None,
@@ -1134,12 +1108,14 @@ def answer_with_rag(
         "- answer must be plain text with inline source tags like [S1], [S2].\n"
         "- Every factual statement must include at least one valid source tag.\n"
         "- used_source_ids must list unique source IDs actually used in answer.\n"
-        f"- If evidence is insufficient, return answer exactly: {INSUFFICIENT_CONTEXT_RESPONSE}"
+        "- Use only facts grounded in Allowed Sources.\n"
+        "- If exact details are unavailable but related evidence exists, provide the closest supported related results and clearly label them as related/partial.\n"
+        f"- If no relevant evidence exists, return answer exactly: {INSUFFICIENT_CONTEXT_RESPONSE}"
     )
-    if fallback_exhaustive:
+    if list_style_query:
         generation_instruction += (
-            "\n- Keep the answer within 2 sentences and at most 2 listed items."
-            f"\n- End with this exact sentence: {FALLBACK_LIMIT_DISCLOSURE}"
+            "\n- For list/show/all requests, include all clearly supported items available in Allowed Sources."
+            f"\n- Include this sentence once in the answer: {RETRIEVED_RECORDS_DISCLOSURE}"
         )
     generation_user_prompt = (
         f"Question:\n{question}\n\n"
@@ -1187,7 +1163,7 @@ def answer_with_rag(
             extra_meta=gate_metrics,
         )
 
-    if not fallback_exhaustive and FALLBACK_LIMIT_DISCLOSURE in answer_text:
+    if FALLBACK_LIMIT_DISCLOSURE in answer_text:
         answer_text = _strip_disclosure_sentence(answer_text).strip()
         _trace_log("fallback_disclosure_stripped_non_exhaustive")
         if not answer_text:
@@ -1204,26 +1180,6 @@ def answer_with_rag(
                 selected_count=len(selected_docs),
                 extra_meta=gate_metrics,
             )
-
-    if _answer_violates_constraints(
-        answer_text,
-        max_sentences=FALLBACK_LIMIT_POLICY["max_sentences"] if sql_fallback else MAX_RESPONSE_SENTENCES,
-        max_list_items=FALLBACK_LIMIT_POLICY["max_list_items"] if sql_fallback else None,
-        require_disclosure=fallback_exhaustive,
-    ):
-        _trace_log("generation_constraint_violation", answer_preview=_preview(answer_text))
-        return attach(
-            _build_refusal(
-                question=question,
-                reason="validation_failed",
-                docs=selected_docs,
-                top_k=effective_top_k,
-                min_similarity=min_similarity,
-                retrieval_scope=resolved_scope,
-            ),
-            selected_count=len(selected_docs),
-            extra_meta=gate_metrics,
-        )
 
     source_map = _build_source_map(selected_docs)
     used_source_ids: list[str] = []
@@ -1302,9 +1258,9 @@ def answer_with_rag(
                 "context_count": len(selected_docs),
                 "scope_mode": resolved_scope.get("mode", "global"),
                 "scope_targets_count": len(resolved_scope.get("targets") or []),
-                "limit_policy_applied": bool(sql_fallback),
-                "limit_items": FALLBACK_LIMIT_POLICY["max_list_items"] if sql_fallback else None,
-                "limit_sentences": FALLBACK_LIMIT_POLICY["max_sentences"] if sql_fallback else None,
+                "limit_policy_applied": False,
+                "limit_items": None,
+                "limit_sentences": None,
                 "result_cap": None,
                 "total_matches": None,
                 "returned_count": None,

@@ -6,6 +6,12 @@ import os
 import re
 from typing import Any
 
+from openaip_pipeline.services.intent.rules import (
+    extract_known_barangay_from_text,
+    extract_known_city_from_text,
+    has_retrievable_aip_signal,
+    is_incomplete_follow_up,
+)
 from openaip_pipeline.services.intent.types import (
     AIP_ONLY_RESPONSE,
     DEFAULT_CLARIFICATION_RESPONSE,
@@ -24,32 +30,27 @@ logger = logging.getLogger(__name__)
 _SCOPE_TYPE_VALUES = {"barangay", "city"}
 _DEFAULT_INTENT = "clarification"
 _DEFAULT_CONFIDENCE = 0.0
+_CLARIFICATION_PROMOTION_CONFIDENCE = 0.65
 
 _CLASSIFIER_SYSTEM_PROMPT = (
     "You are an intent classifier and entity extractor for OpenAIP.\n"
-    "OpenAIP only answers Annual Investment Program (AIP) data questions.\n"
-    "Return only valid JSON.\n\n"
-    "Choose exactly one intent:\n"
+    "OpenAIP answers questions related to Annual Investment Program (AIP) data such as projects, programs, budgets, barangays, cities, fiscal years, sectors, and published AIP documents.\n\n"
+    "Your task is to analyze the user's message and return ONLY valid JSON.\n\n"
+    "Choose exactly one intent from this set:\n"
     "- greeting\n"
     "- farewell\n"
     "- thanks\n"
     "- help\n"
     "- small_talk\n"
-    "- out_of_scope\n"
-    "- clarification\n"
-    "- total_aggregation\n"
-    "- category_aggregation\n"
-    "- line_item_lookup\n"
-    "- metadata_query\n"
-    "- compare_years\n"
     "- rag_query\n\n"
-    "Return this JSON schema:\n"
+    "- clarification\n"
+    "- out_of_scope\n\n"
+    "Return this exact JSON schema:\n"
     "{\n"
     '  "intent": "string",\n'
     '  "confidence": 0.0,\n'
     '  "needs_retrieval": true,\n'
     '  "friendly_response": "string or null",\n'
-    '  "route_hint": "string or null",\n'
     '  "entities": {\n'
     '    "barangay": null,\n'
     '    "city": null,\n'
@@ -57,21 +58,21 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     '    "topic": null,\n'
     '    "project_type": null,\n'
     '    "sector": null,\n'
-    '    "budget_term": null,\n'
-    '    "scope_name": null,\n'
-    '    "scope_type": null\n'
+    '    "budget_term": null\n'
     "  }\n"
     "}\n\n"
     "Rules:\n"
-    "1. Output JSON only.\n"
-    "2. Use null for unknown entities.\n"
-    "3. Set out_of_scope for requests unrelated to AIP/OpenAIP data.\n"
-    "4. Set needs_retrieval=false for greeting, farewell, thanks, help, small_talk, out_of_scope, clarification.\n"
-    "5. Set needs_retrieval=true for total_aggregation, category_aggregation, line_item_lookup, metadata_query, compare_years, rag_query.\n"
-    "6. Set friendly_response for conversational intents, clarification, and out_of_scope.\n"
-    "7. Use route_hint when clear: sql_totals, aggregate_sql, row_sql, metadata_sql, rag_query; otherwise null.\n"
-    "8. Do not invent entities unless clearly present.\n"
-    "9. scope_type can only be barangay or city.\n"
+    "1. Return JSON only. No markdown.\n"
+    "2. Use null for unknown entity values.\n"
+    "3. If the message is clearly about AIP data but lacks full detail, prefer intent='rag_query' instead of 'clarification'.\n"
+    "4. Use intent='clarification' only if the request is too incomplete to retrieve even broad related AIP results.\n"
+    "5. Broad requests such as asking for projects in a barangay, possible projects, suggested projects, or available categories are valid rag_query requests.\n"
+    "6. Set needs_retrieval=true for broad or specific AIP-related questions.\n"
+    "7. If the message is unrelated to AIP, OpenAIP, projects, budgets, barangays, cities, or fiscal years, use intent='out_of_scope'.\n"
+    "8. Do not invent entities unless clearly stated or strongly implied.\n"
+    "9. If a barangay is mentioned, extract it even if the project is not specific.\n"
+    "10. If the user appears to be exploring options, treat it as a valid AIP query, not an error.\n"
+    "11. Queries like 'what projects are in Mamatid', 'recommend projects in Mamatid', or 'show Mamatid projects' are rag_query, not clarification."
 )
 
 
@@ -225,6 +226,33 @@ def _normalize_needs_retrieval(intent: str, value: Any) -> bool:
     return True
 
 
+def _augment_entities_from_message(*, message: str, entities: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(entities)
+    barangay = normalized.get("barangay")
+    city = normalized.get("city")
+
+    if not isinstance(barangay, str) or not barangay.strip():
+        extracted_barangay = extract_known_barangay_from_text(message)
+        if extracted_barangay:
+            normalized["barangay"] = extracted_barangay
+            normalized["scope_type"] = "barangay"
+            normalized["scope_name"] = extracted_barangay
+            return normalized
+    if not isinstance(city, str) or not city.strip():
+        extracted_city = extract_known_city_from_text(message)
+        if extracted_city:
+            normalized["city"] = extracted_city
+            normalized["scope_type"] = "city"
+            normalized["scope_name"] = extracted_city
+    return normalized
+
+
+def _should_promote_clarification_to_rag(*, message: str, entities: dict[str, Any]) -> bool:
+    if is_incomplete_follow_up(message) and not has_retrievable_aip_signal(message, entities=entities):
+        return False
+    return has_retrievable_aip_signal(message, entities=entities)
+
+
 def _default_friendly_response(intent: str) -> str | None:
     if intent == "out_of_scope":
         return AIP_ONLY_RESPONSE
@@ -278,9 +306,19 @@ def classify_with_llm(*, message: str, openai_api_key: str, model_name: str) -> 
     intent = _normalize_intent(parsed.get("intent"))
     confidence = _as_confidence(parsed.get("confidence"))
     entities = _normalize_entities(parsed.get("entities"))
+    entities = _augment_entities_from_message(message=message, entities=entities)
     needs_retrieval = _normalize_needs_retrieval(intent, parsed.get("needs_retrieval"))
+    clarification_promoted = False
+
+    if intent == "clarification" and _should_promote_clarification_to_rag(message=message, entities=entities):
+        intent = "rag_query"
+        needs_retrieval = True
+        confidence = max(confidence, _CLARIFICATION_PROMOTION_CONFIDENCE)
+        clarification_promoted = True
 
     friendly_response = _as_string_or_none(parsed.get("friendly_response"))
+    if clarification_promoted:
+        friendly_response = None
     if friendly_response is None:
         friendly_response = _default_friendly_response(intent)
 
